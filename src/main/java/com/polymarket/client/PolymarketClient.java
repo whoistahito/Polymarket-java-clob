@@ -84,6 +84,9 @@ public final class PolymarketClient {
   private final Map<String, Integer> feeRateCache = new ConcurrentHashMap<>();
   private final Map<String, Boolean> negRiskCache = new ConcurrentHashMap<>();
 
+  /** Cached CLOB order-protocol version (PMK-004). {@code 0} = not yet resolved. */
+  private volatile int cachedVersion = 0;
+
   private final GammaClient gammaClient;
   private final DataClient dataClient;
   private final HeartbeatManager heartbeatManager;
@@ -464,6 +467,59 @@ public final class PolymarketClient {
     return fetchNegRisk(tokenId);
   }
 
+  /**
+   * Resolves the CLOB order-protocol version via {@code GET /version} (PMK-004).
+   *
+   * <p>The first successful call hits the network and caches the result; subsequent calls return
+   * the cached value. {@code force=true} bypasses the cache and re-hits the network — call this
+   * after a post-order failure mentioning {@code order_version_mismatch}.
+   *
+   * @param force {@code true} to force a network refresh
+   * @return the resolved version (1 or 2)
+   */
+  public int resolveVersion(boolean force) throws IOException {
+    if (!force && cachedVersion != 0) {
+      return cachedVersion;
+    }
+    String response = http.get(clobUrl(CLOB_VERSION), Collections.emptyMap());
+    Map<String, Object> parsed = http.parseJsonObject(response);
+    Object v = parsed.get("version");
+    if (v == null) {
+      throw new IOException("Unexpected /version response: " + response);
+    }
+    int version;
+    try {
+      version = Integer.parseInt(v.toString());
+    } catch (NumberFormatException e) {
+      throw new IOException("Invalid /version value: " + v, e);
+    }
+    cachedVersion = version;
+    applyVersionToBuilder();
+    return version;
+  }
+
+  /** Resolves and caches the version without forcing (mirrors Rust {@code resolve_version(false)}). */
+  public int resolveVersion() throws IOException {
+    return resolveVersion(false);
+  }
+
+  /** Returns the cached version (0 if not yet resolved). */
+  public int getCachedVersion() {
+    return cachedVersion;
+  }
+
+  /** Clears the cached version (e.g. on {@code order_version_mismatch} before a forced refresh). */
+  public void clearVersionCache() {
+    cachedVersion = 0;
+    applyVersionToBuilder();
+  }
+
+  private void applyVersionToBuilder() {
+    if (orderBuilder != null && cachedVersion != 0) {
+      orderBuilder.setVersion(cachedVersion);
+    }
+  }
+
   public OrderBookSummary getOrderBook(String tokenId) throws IOException {
     Map<String, String> params = new HashMap<>();
     params.put("token_id", tokenId);
@@ -718,8 +774,13 @@ public final class PolymarketClient {
     String endpoint = CLOB_POST_ORDER;
     String body = http.toJsonMinified(payload);
 
-    String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
-    return http.parseJson(response, OrderResponse.class);
+    try {
+      String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
+      return http.parseJson(response, OrderResponse.class);
+    } catch (HttpStatusException e) {
+      invalidateVersionOnMismatch(e.getMessage());
+      throw e;
+    }
   }
 
   // Deprecated / Untyped overload for backward compatibility if needed, or remove.
@@ -751,19 +812,38 @@ public final class PolymarketClient {
     return postOrdersChunk(orderPayloads);
   }
 
-  private List<OrderResponse> postOrdersChunk(List<PostOrderPayload> orderPayloads)
+private List<OrderResponse> postOrdersChunk(List<PostOrderPayload> orderPayloads)
       throws IOException {
     List<PostOrderPayload> normalizedPayloads = normalizePostOrderPayloadOwners(orderPayloads);
     String endpoint = CLOB_POST_ORDERS;
     String body = http.toJsonMinified(normalizedPayloads);
 
-    String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
+    try {
+      String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
 
-    if (Boolean.parseBoolean(System.getProperty("bot.debug.execution", "false"))) {
-      System.out.printf("[HTTP] POST %s response: %s%n", endpoint, response);
+      if (Boolean.getBoolean("bot.debug.execution")) {
+        System.out.printf("[HTTP] POST %s response: %s%n", endpoint, response);
+      }
+
+      return http.parseJson(response, new TypeReference<List<OrderResponse>>() {});
+    } catch (HttpStatusException e) {
+      invalidateVersionOnMismatch(e.getMessage());
+      throw e;
     }
+  }
 
-    return http.parseJson(response, new TypeReference<List<OrderResponse>>() {});
+  /**
+   * On {@code order_version_mismatch} responses, force-refresh the cached version so the next
+   * order build signs against the correct protocol (PMK-004).
+   */
+private void invalidateVersionOnMismatch(String message) {
+    if (message != null && message.contains("order_version_mismatch")) {
+      try {
+        resolveVersion(true);
+      } catch (IOException refreshError) {
+        log.warn("Failed to force-refresh CLOB version after order_version_mismatch", refreshError);
+      }
+    }
   }
 
   private List<PostOrderPayload> normalizePostOrderPayloadOwners(List<PostOrderPayload> payloads) {
@@ -1098,6 +1178,7 @@ public final class PolymarketClient {
     if (orderBuilder == null) {
       throw new IllegalStateException("Private key required to create orders");
     }
+    resolveVersion();
     String tickSize =
         options.tickSize() != null ? options.tickSize() : getTickSize(order.tokenID());
     boolean negRisk = Boolean.TRUE.equals(options.negRisk());
@@ -1134,6 +1215,7 @@ public final class PolymarketClient {
     if (orderBuilder == null) {
       throw new IllegalStateException("Private key required to create orders");
     }
+    resolveVersion();
     String tickSize =
         options.tickSize() != null ? options.tickSize() : getTickSize(order.tokenID());
     boolean negRisk = Boolean.TRUE.equals(options.negRisk());

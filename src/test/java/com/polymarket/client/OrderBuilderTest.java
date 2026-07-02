@@ -31,6 +31,9 @@ class OrderBuilderTest {
     void setUp() {
         credentials = Credentials.create(TEST_PRIVATE_KEY);
         builder = new OrderBuilder(credentials, 137);
+        // Pin V1 so the golden V1-shape assertions below exercise the legacy path byte-identically
+        // (these tests encode the V1 wire shape — see OrderSigningV2Test for the V2 path).
+        builder.setVersion(1);
     }
 
     @Test

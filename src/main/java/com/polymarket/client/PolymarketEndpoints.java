@@ -67,6 +67,9 @@ public final class PolymarketEndpoints {
     /** Server time endpoint. */
     public static final String CLOB_TIME = "/time";
 
+    /** CLOB order-protocol version endpoint (PMK-004). Returns {@code {"version": 1|2}}. */
+    public static final String CLOB_VERSION = "/version";
+
     /** CLOB markets list (cursor-based in py-clob-client). */
     public static final String CLOB_GET_MARKETS = "/markets";
 

@@ -1,6 +1,7 @@
 package com.polymarket.client;
 
 import com.polymarket.model.CreateOrderOptions;
+import com.polymarket.model.OrderDataV2;
 import com.polymarket.model.OrderType;
 import com.polymarket.model.PostOrderPayload;
 import com.polymarket.model.Side;
@@ -78,6 +79,16 @@ public final class OrderBuilder {
     private final SignatureType signatureType;
     private final String funderAddress;
     private final SecureRandom random = new SecureRandom();
+    // ponytail: lazy — OrderUtils validates the chain ID in its constructor; OrderBuilder instead
+    // throws at order-build time (CONTRACTS.get) so unsupported-chain construction is permitted.
+    private com.polymarket.util.OrderUtils orderUtils;
+
+    /**
+     * Resolved CLOB order-protocol version (PMK-004). {@code 0} = unresolved; the first order build
+     * against a {@code PolymarketClient} calls {@code resolveVersion()} and stores the result here.
+     * Defaults to {@code 2} when used standalone (V2 is the production default).
+     */
+    private int version = 2;
 
     public OrderBuilder(Credentials credentials, int chainId) {
         this(credentials, chainId, SignatureType.EOA, null);
@@ -102,6 +113,27 @@ public final class OrderBuilder {
         this.chainId = chainId;
         this.signatureType = signatureType;
         this.funderAddress = funderAddress;
+    }
+
+    private com.polymarket.util.OrderUtils orderUtils() {
+        if (orderUtils == null) {
+            orderUtils =
+                new com.polymarket.util.OrderUtils(credentials, chainId, signatureType, funderAddress);
+        }
+        return orderUtils;
+    }
+
+    /** Sets the resolved CLOB order-protocol version (PMK-004). 1 = V1, 2 = V2. */
+    public void setVersion(int version) {
+        if (version != 1 && version != 2) {
+            throw new IllegalArgumentException("Unsupported protocol version: " + version);
+        }
+        this.version = version;
+    }
+
+    /** Returns the resolved protocol version (default 2 when never set). */
+    public int getVersion() {
+        return version;
     }
 
     /** Signature type value for EOA (externally owned account). */
@@ -183,7 +215,9 @@ public final class OrderBuilder {
             expiration,
             nonce,
             taker,
-            options.negRisk()
+            options.negRisk(),
+            userOrder.metadata(),
+            userOrder.builderCode()
         );
     }
 
@@ -258,7 +292,9 @@ public final class OrderBuilder {
             0,
             nonce,
             taker,
-            options.negRisk()
+            options.negRisk(),
+            null,
+            null
         );
     }
 
@@ -598,6 +634,21 @@ public final class OrderBuilder {
         String taker,
         Boolean negRisk
     ) {
+        return createSignedOrder(tokenId, side, amounts, feeRateBps, expiration, nonce, taker, negRisk, null, null);
+    }
+
+    private SignedOrder createSignedOrder(
+        String tokenId,
+        Side side,
+        RawAmounts amounts,
+        int feeRateBps,
+        long expiration,
+        long nonce,
+        String taker,
+        Boolean negRisk,
+        String metadata,
+        String builderCode
+    ) {
         ContractConfig contracts = CONTRACTS.get(chainId);
         if (contracts == null) {
             throw new IllegalArgumentException(
@@ -606,6 +657,61 @@ public final class OrderBuilder {
         }
 
         boolean isNegRisk = negRisk != null && negRisk;
+
+if (version == 2) {
+            if (signatureType == SignatureType.POLY_1271
+                && (funderAddress == null || funderAddress.isBlank())) {
+                throw new IllegalArgumentException(
+                    "A deposit wallet funder address is required with a POLY_1271 signature type");
+            }
+            // ponytail: delegate V2 struct + EIP-712 + POLY_1271 wrapping to OrderUtils (single
+            // byte-level implementation) rather than re-implementing via web3j JSON. OrderBuilder
+            // owns amount calc + salt/timestamp; OrderUtils owns the hash/sign.
+            long salt = random.nextLong() & ((1L << 53) - 1);
+            long timestamp = System.currentTimeMillis();
+            String resolvedMetadata = (metadata == null || metadata.isBlank())
+                ? OrderDataV2.BYTES32_ZERO : metadata;
+            String resolvedBuilder = (builderCode == null || builderCode.isBlank())
+                ? OrderDataV2.BYTES32_ZERO : builderCode;
+
+            OrderDataV2 v2 = OrderDataV2.builder()
+                .salt(java.math.BigInteger.valueOf(salt))
+                .maker(getMakerAddress())
+                .signer(getSignerAddress())
+                .tokenId(tokenId)
+                .makerAmount(new java.math.BigInteger(amounts.makerAmount()))
+                .takerAmount(new java.math.BigInteger(amounts.takerAmount()))
+                .side(side)
+                .signatureType(signatureType)
+                .timestamp(java.math.BigInteger.valueOf(timestamp))
+                .metadata(resolvedMetadata)
+                .builder(resolvedBuilder)
+                .build();
+            SignedOrder signed = orderUtils().buildSignedOrderV2(v2, isNegRisk);
+            // Preserve the outer-payload expiration (V2 carries it outside the signed struct).
+            return SignedOrder.v2Builder()
+                .salt(signed.salt())
+                .maker(signed.maker())
+                .signer(signed.signer())
+                .tokenId(signed.tokenId())
+                .makerAmount(signed.makerAmount())
+                .takerAmount(signed.takerAmount())
+                .side(signed.side())
+                .expiration(String.valueOf(expiration))
+                .signatureType(signed.signatureType())
+                .timestamp(signed.timestamp())
+                .metadata(signed.metadata())
+                .builderCode(signed.builderCode())
+                .signature(signed.signature())
+                .build();
+        }
+
+        // V1 path — byte-identical to the pre-V2 implementation.
+        if (signatureType == SignatureType.POLY_1271) {
+            throw new IllegalArgumentException(
+                "signature type POLY_1271 is not supported for V1 orders"
+            );
+        }
         String exchangeAddress = isNegRisk
             ? contracts.negRiskExchange()
             : contracts.exchange();
@@ -614,7 +720,6 @@ public final class OrderBuilder {
         // rs-clob-client/src/clob/order_builder.rs: fn to_ieee_754_int(salt: u64) -> u64
         long salt = random.nextLong() & ((1L << 53) - 1);
 
-        // 1. Create the signature
         String signature;
         try {
             signature = signOrderParams(
@@ -636,7 +741,6 @@ public final class OrderBuilder {
             throw new RuntimeException("Failed to sign order", e);
         }
 
-        // 2. Build the SignedOrder object
         return SignedOrder.builder()
             .salt(salt)
             .maker(getMakerAddress())
@@ -648,6 +752,7 @@ public final class OrderBuilder {
             .expiration(String.valueOf(expiration))
             .nonce(String.valueOf(nonce))
             .feeRateBps(String.valueOf(feeRateBps))
+            .version(1)
             .side(side)
             .signatureType(signatureType)
             .signature(signature)
@@ -695,6 +800,10 @@ public final class OrderBuilder {
         return toHexString(sig);
     }
 
+    /**
+     * V2 EIP-712 signing is delegated to {@link com.polymarket.util.OrderUtils#buildSignedOrderV2};
+     * this stub retained for future direct-sign callers.
+     */
     private String buildOrderEip712Json(
         String exchangeAddress,
         long salt,

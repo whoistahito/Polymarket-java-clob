@@ -1,10 +1,12 @@
 package com.polymarket.util;
 
 import com.polymarket.model.OrderData;
+import com.polymarket.model.OrderDataV2;
 import com.polymarket.model.Side;
 import com.polymarket.model.SignatureType;
 import com.polymarket.model.SignedOrder;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Map;
 import org.web3j.crypto.Credentials;
@@ -51,10 +53,23 @@ public final class OrderUtils {
         )
     );
 
+    // V2 exchange + neg-risk-V2 are identical across chains 137 and 80002 (PMK-003).
+    private static final String EXCHANGE_V2 =
+        "0xE111180000d2663C0091e4f400237545B87B996B";
+    private static final String NEG_RISK_EXCHANGE_V2 =
+        "0xe2222d279d744050d28e00520010520000310F59";
+    private static final Map<Integer, ContractAddressesV2> CONTRACTS_V2 = Map.of(
+        137, new ContractAddressesV2(EXCHANGE_V2, NEG_RISK_EXCHANGE_V2),
+        80002, new ContractAddressesV2(EXCHANGE_V2, NEG_RISK_EXCHANGE_V2)
+    );
+
+    private static final String BYTES32_ZERO =
+        "0x0000000000000000000000000000000000000000000000000000000000000000";
+
     // EIP-712 type hashes — match clob-client and java-order-utils/BaseBuilder.java
     private static final byte[] DOMAIN_TYPE_HASH = Hash.sha3(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-            .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            .getBytes(StandardCharsets.UTF_8)
     );
 
     private static final byte[] ORDER_TYPE_HASH = Hash.sha3(
@@ -62,8 +77,27 @@ public final class OrderUtils {
             "Order(uint256 salt,address maker,address signer,address taker,uint256 tokenId,"
                 + "uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,"
                 + "uint256 feeRateBps,uint8 side,uint8 signatureType)"
-        ).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        ).getBytes(StandardCharsets.UTF_8)
     );
+
+    // V2 EIP-712 struct type string — ground truth: rs-clob-client/src/clob/client.rs ORDER_TYPE_STRING.
+    static final String ORDER_TYPE_STRING_V2 =
+        "Order(uint256 salt,address maker,address signer,uint256 tokenId,"
+            + "uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,"
+            + "uint256 timestamp,bytes32 metadata,bytes32 builder)";
+    static final byte[] ORDER_TYPE_HASH_V2 = Hash.sha3(ORDER_TYPE_STRING_V2.getBytes(StandardCharsets.UTF_8));
+
+    // POLY_1271 (EIP-1271 DepositWallet) wrapped-signature constants — ground truth:
+    // rs-clob-client/src/clob/client.rs SOLADY_TYPE_STRING / DEPOSIT_WALLET_*.
+    private static final String SOLADY_TYPE_STRING =
+        "TypedDataSign(Order contents,string name,string version,uint256 chainId,"
+            + "address verifyingContract,bytes32 salt)"
+            + "Order(uint256 salt,address maker,address signer,uint256 tokenId,"
+            + "uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,"
+            + "uint256 timestamp,bytes32 metadata,bytes32 builder)";
+    private static final String DEPOSIT_WALLET_NAME = "DepositWallet";
+    private static final String DEPOSIT_WALLET_VERSION = "1";
+    private static final String EXCHANGE_NAME = "Polymarket CTF Exchange";
 
     private final Credentials credentials;
     private final int chainId;
@@ -82,7 +116,7 @@ public final class OrderUtils {
         String funderAddress
     ) {
         if (credentials == null) throw new IllegalArgumentException("credentials is required");
-        if (!CONTRACTS.containsKey(chainId)) {
+        if (!CONTRACTS.containsKey(chainId) && !CONTRACTS_V2.containsKey(chainId)) {
             throw new IllegalArgumentException("Unsupported chain ID: " + chainId);
         }
         this.credentials = credentials;
@@ -105,6 +139,18 @@ public final class OrderUtils {
             throw new IllegalArgumentException("Unsupported chain ID: " + chainId);
         }
         return negRisk ? addrs.negRisk() : addrs.exchange();
+    }
+
+    /**
+     * Returns the V2 exchange (verifying contract) address for the given chain and neg-risk
+     * setting (PMK-003). V2 addresses are identical across chains 137 and 80002.
+     */
+    public static String exchangeAddressV2(int chainId, boolean negRisk) {
+        ContractAddressesV2 addrs = CONTRACTS_V2.get(chainId);
+        if (addrs == null) {
+            throw new IllegalArgumentException("Unsupported chain ID: " + chainId);
+        }
+        return negRisk ? addrs.negRiskExchangeV2() : addrs.exchangeV2();
     }
 
     /**
@@ -358,5 +404,217 @@ public final class OrderUtils {
         return Numeric.toHexString(combined);
     }
 
+    // ── V2 order signing (PMK-005 / PMK-006) ─────────────────────────────────
+    //
+    // Ground truth: rs-clob-client/src/clob/client.rs (sign) and order_builder.rs.
+    //   domainSeparator = keccak256(EIP712Domain typeHash ‖ keccak256(name) ‖ keccak256("2")
+    //                              ‖ chainId[32] ‖ verifyingContract[32])
+    //   structHash      = keccak256(ORDER_TYPE_HASH_V2 ‖ salt[32] ‖ maker[32] ‖ signer[32]
+    //                              ‖ tokenId[32] ‖ makerAmount[32] ‖ takerAmount[32]
+    //                              ‖ side[32] ‖ signatureType[32] ‖ timestamp[32]
+    //                              ‖ metadata[32] ‖ builder[32])
+    //   eip712Hash      = keccak256(0x1901 ‖ domainSeparator ‖ structHash)
+    //
+    // POLY_1271 (EIP-1271 DepositWallet) wraps the inner ECDSA signature; see signPoly1271.
+
+    private static final byte[] NAME_HASH = Hash.sha3(EXCHANGE_NAME.getBytes(StandardCharsets.UTF_8));
+    private static final byte[] VERSION_V2_HASH = Hash.sha3("2".getBytes(StandardCharsets.UTF_8));
+    private static final byte[] DEPOSIT_WALLET_NAME_HASH =
+        Hash.sha3(DEPOSIT_WALLET_NAME.getBytes(StandardCharsets.UTF_8));
+    private static final byte[] DEPOSIT_WALLET_VERSION_HASH =
+        Hash.sha3(DEPOSIT_WALLET_VERSION.getBytes(StandardCharsets.UTF_8));
+    private static final byte[] SOLADY_TYPE_HASH =
+        Hash.sha3(SOLADY_TYPE_STRING.getBytes(StandardCharsets.UTF_8));
+
+    /**
+     * Builds and signs a V2 order (PMK-005/006). Produces the V2 EIP-712 signature against the
+     * V2 exchange contract; for {@link SignatureType#POLY_1271} a funder (deposit wallet) address
+     * is required and the wrapped EIP-1271 signature is produced. Returns a version-tagged
+     * {@link SignedOrder} ({@code version=2}) that serializes to the V2 wire shape.
+     *
+     * @param data    V2 order input. {@code salt} must already be IEEE-754 masked by the caller.
+     * @param negRisk {@code true} to sign against the neg-risk V2 exchange contract
+     * @return a {@link SignedOrder} tagged {@code version=2}, ready to package in a {@link
+     *     com.polymarket.model.PostOrderPayload}
+     */
+    public SignedOrder buildSignedOrderV2(OrderDataV2 data, boolean negRisk) {
+        validateV2(data);
+
+        SignatureType sigType = data.getSignatureType() != null
+            ? data.getSignatureType() : defaultSignatureType;
+
+        if (sigType == SignatureType.POLY_1271
+            && (funderAddress == null || funderAddress.isBlank())) {
+            throw new IllegalArgumentException(
+                "A deposit wallet funder address is required with a POLY_1271 signature type");
+        }
+
+        String verifyingContract = exchangeAddressV2(chainId, negRisk);
+        byte[] domainHash = buildV2DomainHash(verifyingContract);
+        byte[] structHash = buildV2StructHash(data, sigType);
+
+        String signature = (sigType == SignatureType.POLY_1271)
+            ? signPoly1271(domainHash, structHash,
+                data.getSigner() != null && !data.getSigner().isBlank() ? data.getSigner() : data.getMaker())
+            : ecdsaSign(domainHash, structHash);
+
+        String maker = resolveMaker(data, sigType);
+        String signer = data.getSigner() != null && !data.getSigner().isBlank()
+            ? data.getSigner() : credentials.getAddress();
+
+        return SignedOrder.v2Builder()
+            .salt(data.getSalt().longValueExact())
+            .maker(maker)
+            .signer(signer)
+            .tokenId(data.getTokenId())
+            .makerAmount(data.getMakerAmount().toString())
+            .takerAmount(data.getTakerAmount().toString())
+            .side(data.getSide())
+            .signatureType(sigType)
+            .timestamp(data.getTimestamp().toString())
+            .metadata(data.getMetadata())
+            .builderCode(data.getBuilder())
+            .signature(signature)
+            .build();
+    }
+
+    /** Computes the V2 EIP-712 domain separator (version "2", V2 verifying contract). */
+    public byte[] buildV2DomainHash(String verifyingContract) {
+        byte[] buf = new byte[32 * 5];
+        System.arraycopy(DOMAIN_TYPE_HASH, 0, buf, 0, 32);
+        System.arraycopy(NAME_HASH, 0, buf, 32, 32);
+        System.arraycopy(VERSION_V2_HASH, 0, buf, 64, 32);
+        copyPadded(BigInteger.valueOf(chainId), buf, 96);
+        copyAddress(verifyingContract, buf, 128);
+        return Hash.sha3(buf);
+    }
+
+    /** Computes the V2 struct hash (timestamp/metadata/builder included; V1-only fields absent). */
+    public byte[] buildV2StructHash(OrderDataV2 data, SignatureType sigType) {
+        byte[] buf = new byte[32 * 12]; // typeHash + 11 fields
+        int offset = 0;
+        System.arraycopy(ORDER_TYPE_HASH_V2, 0, buf, offset, 32); offset += 32;
+        copyPadded(data.getSalt(), buf, offset); offset += 32;
+        copyAddress(data.getMaker(), buf, offset); offset += 32;
+        copyAddress(
+            data.getSigner() != null && !data.getSigner().isBlank() ? data.getSigner() : data.getMaker(),
+            buf, offset); offset += 32;
+        copyPadded(new BigInteger(data.getTokenId()), buf, offset); offset += 32;
+        copyPadded(data.getMakerAmount(), buf, offset); offset += 32;
+        copyPadded(data.getTakerAmount(), buf, offset); offset += 32;
+        copyPadded(BigInteger.valueOf(data.getSide() == Side.BUY ? 0 : 1), buf, offset); offset += 32;
+        copyPadded(BigInteger.valueOf(sigType.getValue()), buf, offset); offset += 32;
+        copyPadded(data.getTimestamp(), buf, offset); offset += 32;
+        copyBytes32(data.getMetadata(), buf, offset); offset += 32;
+        copyBytes32(data.getBuilder(), buf, offset);
+        return Hash.sha3(buf);
+    }
+
+    /**
+     * Computes the POLY_1271 (EIP-1271 DepositWallet) wrapped signature (PMK-006).
+     *
+     * <p>Layout (ground truth: {@code rs-clob-client/src/clob/client.rs: sign_poly1271_order}):
+     * wrapped = "0x"
+     *   ‖ hex(innerEcdsa 65 bytes)
+     *   ‖ hex(appDomainSeparator 32 bytes)
+     *   ‖ hex(contentsHash 32 bytes)        // = V2 struct hash
+     *   ‖ hex(ORDER_TYPE_STRING_V2 bytes)
+     *   ‖ hex(u16 big-endian length of ORDER_TYPE_STRING_V2)
+     */
+    public String signPoly1271(byte[] appDomainSeparator, byte[] contentsHash, String signerAddress) {
+        // typed_data_sign_struct_hash = keccak256(abi_encode of the 7-field Solady tuple)
+        byte[] tuple = new byte[32 * 7];
+        int offset = 0;
+        System.arraycopy(SOLADY_TYPE_HASH, 0, tuple, offset, 32); offset += 32;
+        System.arraycopy(contentsHash, 0, tuple, offset, 32); offset += 32;
+        System.arraycopy(DEPOSIT_WALLET_NAME_HASH, 0, tuple, offset, 32); offset += 32;
+        System.arraycopy(DEPOSIT_WALLET_VERSION_HASH, 0, tuple, offset, 32); offset += 32;
+        copyPadded(BigInteger.valueOf(chainId), tuple, offset); offset += 32;
+        copyAddress(signerAddress, tuple, offset); offset += 32;
+        // B256::ZERO salt → 32 zero bytes (already zero)
+        byte[] typedDataSignStructHash = Hash.sha3(tuple);
+
+        byte[] digestInput = new byte[66];
+        digestInput[0] = 0x19;
+        digestInput[1] = 0x01;
+        System.arraycopy(appDomainSeparator, 0, digestInput, 2, 32);
+        System.arraycopy(typedDataSignStructHash, 0, digestInput, 34, 32);
+        byte[] digest = Hash.sha3(digestInput);
+
+        Sign.SignatureData inner = Sign.signMessage(digest, credentials.getEcKeyPair(), false);
+        byte[] innerBytes = new byte[65];
+        System.arraycopy(inner.getR(), 0, innerBytes, 0, 32);
+        System.arraycopy(inner.getS(), 0, innerBytes, 32, 32);
+        innerBytes[64] = inner.getV()[0];
+
+        StringBuilder sb = new StringBuilder("0x");
+        appendHex(sb, innerBytes);
+        appendHex(sb, appDomainSeparator);
+        appendHex(sb, contentsHash);
+        appendHex(sb, ORDER_TYPE_STRING_V2.getBytes(StandardCharsets.UTF_8));
+        int typeLen = ORDER_TYPE_STRING_V2.length();
+        sb.append(String.format("%02x", (typeLen >> 8) & 0xff));
+        sb.append(String.format("%02x", typeLen & 0xff));
+        return sb.toString();
+    }
+
+    private String ecdsaSign(byte[] domainHash, byte[] structHash) {
+        byte[] msgHash = buildMessageHash(domainHash, structHash);
+        Sign.SignatureData sig = Sign.signMessage(msgHash, credentials.getEcKeyPair(), false);
+        return toHexSignature(sig);
+    }
+
+    private void validateV2(OrderDataV2 data) {
+        if (data.getTokenId() == null || data.getTokenId().isBlank()) {
+            throw new IllegalArgumentException("tokenId is required");
+        }
+        if (data.getSide() == null) {
+            throw new IllegalArgumentException("side is required");
+        }
+        if (data.getMakerAmount() == null) {
+            throw new IllegalArgumentException("makerAmount is required");
+        }
+        if (data.getTakerAmount() == null) {
+            throw new IllegalArgumentException("takerAmount is required");
+        }
+        if (data.getSalt() == null) {
+            throw new IllegalArgumentException("salt is required");
+        }
+        if (data.getTimestamp() == null) {
+            throw new IllegalArgumentException("timestamp is required");
+        }
+    }
+
+    private String resolveMaker(OrderDataV2 data, SignatureType sigType) {
+        if (sigType == SignatureType.POLY_PROXY
+            || sigType == SignatureType.POLY_GNOSIS_SAFE
+            || sigType == SignatureType.POLY_1271) {
+            if (data.getMaker() != null && !data.getMaker().isBlank()) {
+                return data.getMaker();
+            }
+            if (funderAddress != null && !funderAddress.isBlank()) {
+                return funderAddress;
+            }
+        }
+        return data.getMaker() != null && !data.getMaker().isBlank()
+            ? data.getMaker() : credentials.getAddress();
+    }
+
+    private static void copyBytes32(String hexOrZero, byte[] buf, int offset) {
+        String hex = (hexOrZero == null || hexOrZero.isBlank()) ? BYTES32_ZERO : hexOrZero;
+        byte[] bytes = Numeric.hexStringToByteArray(hex);
+        if (bytes.length != 32) {
+            throw new IllegalArgumentException("expected bytes32 (32 bytes), got " + bytes.length);
+        }
+        System.arraycopy(bytes, 0, buf, offset, 32);
+    }
+
+    private static void appendHex(StringBuilder sb, byte[] bytes) {
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b & 0xff));
+        }
+    }
+
     private record ContractAddresses(String exchange, String negRisk) {}
+    private record ContractAddressesV2(String exchangeV2, String negRiskExchangeV2) {}
 }

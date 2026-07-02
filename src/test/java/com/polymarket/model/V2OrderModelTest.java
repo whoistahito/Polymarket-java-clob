@@ -107,6 +107,7 @@ class V2OrderModelTest {
             .expiration("0")
             .nonce("0")
             .feeRateBps("0")
+            .version(1)
             .side(Side.BUY)
             .signatureType(SignatureType.EOA)
             .signature("0xsig")
