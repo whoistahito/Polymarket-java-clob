@@ -32,13 +32,11 @@ class HttpClientProxyTest {
         }
 
         @Test
-        @DisplayName("should have no proxy in underlying OkHttpClient")
+        @DisplayName("should have no fixed proxy in underlying OkHttpClient")
         void shouldHaveNoProxyInOkHttpClient() {
             HttpClient client = new HttpClient();
 
-            OkHttpClient okClient = client.okHttpClient();
-            // Default OkHttpClient uses system proxy selector, not a fixed proxy
-            assertNotNull(okClient);
+            assertNull(client.okHttpClient().proxy());
         }
     }
 

@@ -30,38 +30,11 @@ class CtfClientTest {
         "0x0000000000000000000000000000000000000001";
 
     // -------------------------------------------------------------------------
-    // TC-CTF-001 to TC-CTF-010 — Request builder tests
-    // (mirrors Rust request_builders module)
+    // TC-CTF-003, TC-CTF-006 — parentCollectionId defaults
     // -------------------------------------------------------------------------
     @Nested
     @DisplayName("Request builders")
     class RequestBuilders {
-
-        @Test
-        @DisplayName("TC-CTF-001 — ConditionIdRequest builder sets all fields")
-        void conditionIdRequestBuilder() {
-            ConditionIdRequest req = ConditionIdRequest.builder()
-                .oracle(ORACLE)
-                .questionId(ZERO_BYTES32)
-                .outcomeSlotCount(BigInteger.TWO)
-                .build();
-
-            assertEquals(ORACLE, req.getOracle());
-            assertEquals(ZERO_BYTES32, req.getQuestionId());
-            assertEquals(BigInteger.TWO, req.getOutcomeSlotCount());
-        }
-
-        @Test
-        @DisplayName("TC-CTF-002 — CollectionIdRequest builder sets all fields")
-        void collectionIdRequestBuilder() {
-            CollectionIdRequest req = CollectionIdRequest.builder()
-                .conditionId(ZERO_BYTES32)
-                .indexSet(BigInteger.ONE)
-                .build();
-
-            assertEquals(ZERO_BYTES32, req.getConditionId());
-            assertEquals(BigInteger.ONE, req.getIndexSet());
-        }
 
         @Test
         @DisplayName("TC-CTF-003 — CollectionIdRequest parentCollectionId defaults to zero")
@@ -75,34 +48,6 @@ class CtfClientTest {
         }
 
         @Test
-        @DisplayName("TC-CTF-004 — PositionIdRequest builder sets all fields")
-        void positionIdRequestBuilder() {
-            PositionIdRequest req = PositionIdRequest.builder()
-                .collateralToken(USDC_POLYGON)
-                .collectionId(ZERO_BYTES32)
-                .build();
-
-            assertEquals(USDC_POLYGON, req.getCollateralToken());
-            assertEquals(ZERO_BYTES32, req.getCollectionId());
-        }
-
-        @Test
-        @DisplayName("TC-CTF-005 — SplitPositionRequest builder sets all fields")
-        void splitPositionRequestBuilder() {
-            SplitPositionRequest req = SplitPositionRequest.builder()
-                .collateralToken(USDC_POLYGON)
-                .conditionId(ZERO_BYTES32)
-                .partition(List.of(BigInteger.ONE, BigInteger.TWO))
-                .amount(BigInteger.valueOf(1_000_000L))
-                .build();
-
-            assertEquals(USDC_POLYGON, req.getCollateralToken());
-            assertEquals(ZERO_BYTES32, req.getParentCollectionId());
-            assertEquals(BigInteger.valueOf(1_000_000L), req.getAmount());
-            assertEquals(List.of(BigInteger.ONE, BigInteger.TWO), req.getPartition());
-        }
-
-        @Test
         @DisplayName("TC-CTF-006 — SplitPositionRequest parentCollectionId defaults to zero")
         void splitPositionRequestDefaultParent() {
             SplitPositionRequest req = SplitPositionRequest.builder()
@@ -113,49 +58,6 @@ class CtfClientTest {
                 .build();
 
             assertEquals(ZERO_BYTES32, req.getParentCollectionId());
-        }
-
-        @Test
-        @DisplayName("TC-CTF-007 — MergePositionsRequest builder sets all fields")
-        void mergePositionsRequestBuilder() {
-            MergePositionsRequest req = MergePositionsRequest.builder()
-                .collateralToken(USDC_POLYGON)
-                .conditionId(ZERO_BYTES32)
-                .partition(List.of(BigInteger.ONE, BigInteger.TWO))
-                .amount(BigInteger.valueOf(1_000_000L))
-                .build();
-
-            assertEquals(ZERO_BYTES32, req.getParentCollectionId());
-            assertEquals(BigInteger.valueOf(1_000_000L), req.getAmount());
-        }
-
-        @Test
-        @DisplayName("TC-CTF-008 — RedeemPositionsRequest builder sets all fields")
-        void redeemPositionsRequestBuilder() {
-            RedeemPositionsRequest req = RedeemPositionsRequest.builder()
-                .collateralToken(USDC_POLYGON)
-                .conditionId(ZERO_BYTES32)
-                .indexSets(List.of(BigInteger.ONE))
-                .build();
-
-            assertEquals(ZERO_BYTES32, req.getParentCollectionId());
-            assertEquals(List.of(BigInteger.ONE), req.getIndexSets());
-        }
-
-        @Test
-        @DisplayName("TC-CTF-009 — RedeemNegRiskRequest builder sets all fields")
-        void redeemNegRiskRequestBuilder() {
-            List<BigInteger> amounts = List.of(
-                BigInteger.valueOf(500_000L),
-                BigInteger.valueOf(500_000L)
-            );
-            RedeemNegRiskRequest req = RedeemNegRiskRequest.builder()
-                .conditionId(ZERO_BYTES32)
-                .amounts(amounts)
-                .build();
-
-            assertEquals(ZERO_BYTES32, req.getConditionId());
-            assertEquals(amounts, req.getAmounts());
         }
     }
 

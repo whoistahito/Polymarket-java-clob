@@ -290,10 +290,15 @@ class L1Eip712SignerTest {
     }
 
     @Test
-    @DisplayName("TC-L1-012: Constructor with default clock")
-    void testDefaultClockConstructor() {
+    @DisplayName("TC-L1-012: Default constructor uses the system clock for the timestamp header")
+    void testDefaultClockConstructor() throws Exception {
         L1Eip712Signer defaultSigner = new L1Eip712Signer();
-        assertNotNull(defaultSigner);
+        long before = System.currentTimeMillis() / 1000;
+
+        Map<String, String> headers = defaultSigner.createL1Headers(credentials, 137, 0);
+
+        long headerTimestamp = Long.parseLong(headers.get(PolymarketEndpoints.HDR_POLY_TIMESTAMP));
+        assertTrue(headerTimestamp >= before && headerTimestamp <= before + 5);
     }
 
     @Test

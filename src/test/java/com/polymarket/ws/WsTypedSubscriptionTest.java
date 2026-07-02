@@ -278,6 +278,25 @@ class WsTypedSubscriptionTest {
         assertTrue(received.stream().anyMatch(m -> m instanceof MidpointUpdate));
     }
 
+    @Test
+    @DisplayName("TC-WS-T-053 emitMidpointUpdates defaults to false: no synthesised MidpointUpdate")
+    void emitMidpointUpdatesDefaultsToFalse() throws Exception {
+        List<WsMessage> received = new ArrayList<>();
+        WsClient client = WsClient.builder()
+            .wsBase("wss://127.0.0.1:1")
+            .listener(new WsMessageListener() {
+                @Override public void onMessage(WsMessage m) { received.add(m); }
+                @Override public void onError(Exception e) {}
+                @Override public void onClose(int c, String r) {}
+            })
+            .build();
+
+        simulateFrame(client, BOOK_JSON);
+
+        assertTrue(received.stream().anyMatch(m -> m instanceof BookUpdate));
+        assertFalse(received.stream().anyMatch(m -> m instanceof MidpointUpdate));
+    }
+
     // ------------------------------------------------------------------ //
     // TC-WS-T-060 — onBestBidAsk                                          //
     // ------------------------------------------------------------------ //

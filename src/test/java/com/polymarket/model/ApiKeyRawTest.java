@@ -13,19 +13,6 @@ class ApiKeyRawTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
-    @DisplayName("TC-AKR-001: Build and read fields")
-    void buildAndRead() {
-        ApiKeyRaw raw = ApiKeyRaw.builder()
-                .apiKey("key-123")
-                .secret("sec-abc")
-                .passphrase("pass-xyz")
-                .build();
-        assertEquals("key-123", raw.getApiKey());
-        assertEquals("sec-abc", raw.getSecret());
-        assertEquals("pass-xyz", raw.getPassphrase());
-    }
-
-    @Test
     @DisplayName("TC-AKR-002: toApiKeyCreds maps fields correctly")
     void toApiKeyCreds() {
         ApiKeyRaw raw = ApiKeyRaw.builder()

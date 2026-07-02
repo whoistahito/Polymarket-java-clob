@@ -142,12 +142,11 @@ class ConfigTest {
     void testBooleanParsing() {
         Config config = Config.load();
 
-        // Test boolean getters - just ensure they don't throw
-        assertDoesNotThrow(() -> config.isDryRunMode());
-        assertDoesNotThrow(() -> config.isVerboseLogging());
-        assertDoesNotThrow(() -> config.retryFailedOrders());
-        assertDoesNotThrow(() -> config.useDynamicMinSize());
-        assertDoesNotThrow(() -> config.enableMomentumFirst());
+        assertFalse(config.isDryRunMode());
+        assertTrue(config.isVerboseLogging());
+        assertTrue(config.retryFailedOrders());
+        assertTrue(config.useDynamicMinSize());
+        assertTrue(config.enableMomentumFirst());
     }
 
     @Test

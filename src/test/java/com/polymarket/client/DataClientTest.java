@@ -403,19 +403,6 @@ class DataClientTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("TC-DC-030: DataClient.Builder with custom host uses that host in URL")
-    void customHostUsedInUrl() throws Exception {
-        // The client in setUp() already points to MockWebServer — just verify it works
-        server.enqueue(new MockResponse().setResponseCode(200).setBody("[]")
-            .addHeader("Content-Type", "application/json"));
-
-        client.trades(null);
-
-        RecordedRequest req = server.takeRequest();
-        assertNotNull(req, "MockWebServer should have received a request");
-    }
-
-    @Test
     @DisplayName("TC-DC-040: PolymarketClient.data() returns non-null DataClient")
     void polymarketClientDataAccessor() {
         PolymarketClient c = new PolymarketClient.Builder()

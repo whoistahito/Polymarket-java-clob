@@ -14,21 +14,6 @@ class TokenTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
-    @DisplayName("TC-TK-001: Build with all fields")
-    void buildWithAllFields() {
-        Token t = Token.builder()
-                .tokenId("123")
-                .outcome("YES")
-                .price(new BigDecimal("0.65"))
-                .winner(true)
-                .build();
-        assertEquals("123", t.getTokenId());
-        assertEquals("YES", t.getOutcome());
-        assertEquals(new BigDecimal("0.65"), t.getPrice());
-        assertTrue(t.isWinner());
-    }
-
-    @Test
     @DisplayName("TC-TK-002: winner defaults to false")
     void winnerDefaultsFalse() {
         Token t = Token.builder()

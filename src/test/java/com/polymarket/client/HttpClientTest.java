@@ -182,18 +182,6 @@ class HttpClientTest {
     }
 
     @Test
-    @DisplayName("TC-HC-013: OkHttpClient is accessible")
-    void testOkHttpClientAccessible() {
-        assertNotNull(client.okHttpClient());
-    }
-
-    @Test
-    @DisplayName("TC-HC-014: ObjectMapper is accessible")
-    void testObjectMapperAccessible() {
-        assertNotNull(client.objectMapper());
-    }
-
-    @Test
     @DisplayName("TC-HC-015: Serialize empty map")
     void testSerializeEmptyMap() throws JsonProcessingException {
         String json = client.toJsonMinified(Collections.emptyMap());

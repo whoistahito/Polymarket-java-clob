@@ -388,10 +388,7 @@ class HeartbeatManagerTest {
                 .setBody("{\"heartbeat_id\":\"hb-fired\",\"status\":\"ok\"}")
                 .addHeader("Content-Type", "application/json"));
 
-            CountDownLatch latch = new CountDownLatch(1);
-            // We can't intercept the manager directly, so enqueue then wait for request
             client.startHeartbeats(50);
-            assertTrue(latch.await(0, TimeUnit.SECONDS) || true); // just let first tick run
 
             // Wait for the HTTP request to be captured
             var req = server.takeRequest(5, TimeUnit.SECONDS);

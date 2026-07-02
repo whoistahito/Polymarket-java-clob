@@ -31,25 +31,25 @@ class PolymarketClientChainEnumAndCacheTest {
     }
 
     @Test
-    @DisplayName("TC-PC4-001: Builder.chainId(Chain.POLYGON) builds successfully")
+    @DisplayName("TC-PC4-001: Builder.chainId(Chain.POLYGON) resolves to chain id 137")
     void chainEnumOverload() {
         PolymarketClient client = new PolymarketClient.Builder()
                 .privateKey(TEST_PRIVATE_KEY)
                 .funderAddress(FUNDER)
                 .chainId(Chain.POLYGON)
                 .build();
-        assertNotNull(client);
+        assertEquals(137, client.getChainId());
     }
 
     @Test
-    @DisplayName("TC-PC4-002: Builder.chainId(Chain.AMOY) builds successfully")
+    @DisplayName("TC-PC4-002: Builder.chainId(Chain.AMOY) resolves to chain id 80002")
     void chainEnumOverloadAmoy() {
         PolymarketClient client = new PolymarketClient.Builder()
                 .privateKey(TEST_PRIVATE_KEY)
                 .funderAddress(FUNDER)
                 .chainId(Chain.AMOY)
                 .build();
-        assertNotNull(client);
+        assertEquals(80002, client.getChainId());
     }
 
     @Test

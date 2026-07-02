@@ -153,10 +153,15 @@ class L2HmacSignerTest {
     }
 
     @Test
-    @DisplayName("TC-L2-014: Constructor with default clock")
+    @DisplayName("TC-L2-014: Default constructor uses the system clock for signNow's timestamp")
     void testDefaultClockConstructor() {
         L2HmacSigner defaultSigner = new L2HmacSigner();
-        assertNotNull(defaultSigner);
+        long before = System.currentTimeMillis() / 1000;
+
+        L2HmacSigner.SignedL2Payload payload =
+                defaultSigner.signNow(TEST_SECRET, "GET", "/markets", null);
+
+        assertTrue(payload.timestampSeconds() >= before && payload.timestampSeconds() <= before + 5);
     }
 
     @Test

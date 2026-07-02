@@ -1,5 +1,9 @@
 package com.polymarket.client;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,38 +20,52 @@ class PolymarketClientBuilderExtensionsTest {
 
     private static final String TEST_PRIVATE_KEY = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
+    private MockWebServer server;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        server = new MockWebServer();
+        server.start();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        server.shutdown();
+    }
+
     @Test
-    @DisplayName("TC-PC2-001: Builder accepts geoBlockToken")
-    void testBuilderGeoBlockToken() {
+    @DisplayName("TC-PC2-001: geoBlockToken is appended as a query parameter on every request")
+    void testBuilderGeoBlockToken() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("1700000000"));
+
         PolymarketClient client = new PolymarketClient.Builder()
                 .privateKey(TEST_PRIVATE_KEY)
+                .clobHost(server.url("").toString())
                 .geoBlockToken("test-token-abc")
                 .build();
 
-        assertNotNull(client);
+        client.getServerTime();
+
+        RecordedRequest request = server.takeRequest();
+        assertTrue(request.getPath().contains("geo_block_token=test-token-abc"));
     }
 
     @Test
-    @DisplayName("TC-PC2-002: Builder accepts maxRetries")
-    void testBuilderMaxRetries() {
+    @DisplayName("TC-PC2-002: maxRetries is wired through to the underlying HttpClient")
+    void testBuilderMaxRetries() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("error"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("1700000000"));
+
         PolymarketClient client = new PolymarketClient.Builder()
                 .privateKey(TEST_PRIVATE_KEY)
-                .maxRetries(3)
+                .clobHost(server.url("").toString())
+                .maxRetries(1)
                 .build();
 
-        assertNotNull(client);
-    }
+        long time = client.getServerTime();
 
-    @Test
-    @DisplayName("TC-PC2-003: Builder with proxy and maxRetries creates successfully")
-    void testBuilderProxyAndRetries() {
-        PolymarketClient client = new PolymarketClient.Builder()
-                .privateKey(TEST_PRIVATE_KEY)
-                .proxy("proxy.example.com", 8080)
-                .maxRetries(2)
-                .build();
-
-        assertNotNull(client);
+        assertEquals(1700000000L, time);
+        assertEquals(2, server.getRequestCount());
     }
 
     @Test

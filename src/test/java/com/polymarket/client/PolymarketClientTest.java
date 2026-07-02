@@ -2,6 +2,9 @@ package com.polymarket.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -100,17 +103,26 @@ class PolymarketClientTest {
     }
 
     @Test
-    @DisplayName("TC-PC-005: Host URL trailing slash is stripped")
-    void testHostUrlStripping() {
-        // This test verifies the builder handles trailing slashes correctly
-        // The implementation strips trailing slashes to avoid double slashes in URLs
-        PolymarketClient client = new PolymarketClient.Builder()
-                .privateKey(TEST_PRIVATE_KEY_WITH_PREFIX)
-                .clobHost("https://custom.host.com/")
-                .gammaHost("https://gamma.custom.com/")
-                .build();
+    @DisplayName("TC-PC-005: Host URL trailing slash is stripped, avoiding a double slash in requests")
+    void testHostUrlStripping() throws Exception {
+        MockWebServer server = new MockWebServer();
+        try {
+            server.start();
+            server.enqueue(new MockResponse().setResponseCode(200).setBody("1700000000"));
 
-        assertNotNull(client);
+            String hostWithTrailingSlash = server.url("/").toString();
+            PolymarketClient client = new PolymarketClient.Builder()
+                    .privateKey(TEST_PRIVATE_KEY_WITH_PREFIX)
+                    .clobHost(hostWithTrailingSlash)
+                    .build();
+
+            client.getServerTime();
+
+            RecordedRequest request = server.takeRequest();
+            assertEquals("/time", request.getPath());
+        } finally {
+            server.shutdown();
+        }
     }
 
     @Test
@@ -199,19 +211,6 @@ class PolymarketClientTest {
     }
 
     @Test
-    @DisplayName("TC-PC-014: Builder with custom HttpClient")
-    void testBuilderWithCustomHttpClient() {
-        HttpClient customHttp = new HttpClient();
-
-        PolymarketClient client = new PolymarketClient.Builder()
-                .privateKey(TEST_PRIVATE_KEY_WITH_PREFIX)
-                .httpClient(customHttp)
-                .build();
-
-        assertNotNull(client);
-    }
-
-    @Test
     @DisplayName("TC-PC-015: Builder chain methods return builder for fluent API")
     void testBuilderChainMethods() {
         PolymarketClient.Builder builder = new PolymarketClient.Builder();
@@ -290,18 +289,6 @@ class PolymarketClientTest {
 
         assertEquals(137, client1.getChainId());
         assertEquals(80002, client2.getChainId());
-    }
-
-    @Test
-    @DisplayName("TC-PC-020: Default CLOB host is used when not specified")
-    void testDefaultClobHost() {
-        // Default host should be https://clob.polymarket.com
-        PolymarketClient client = new PolymarketClient.Builder()
-                .privateKey(TEST_PRIVATE_KEY_WITH_PREFIX)
-                .build();
-
-        assertNotNull(client);
-        // We can't directly access the host, but we know it should be set
     }
 
   @Test

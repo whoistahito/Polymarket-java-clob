@@ -36,53 +36,8 @@ class OrderBuilderTest {
         builder.setVersion(1);
     }
 
-    @Test
-    @DisplayName(
-        "TC-OB-001: Contract addresses match TypeScript SDK for Polygon Mainnet"
-    )
-    void testContractAddressesMatchTypeScriptMainnet() throws IOException {
-        // Polygon Mainnet (137)
-        // These are verified against clob-client/src/config.ts
-        OrderBuilder mainnetBuilder = new OrderBuilder(credentials, 137);
-
-        // Create order to verify it uses correct exchange
-        Map<String, Object> order = mainnetBuilder.createOrder(
-            TEST_TOKEN_ID,
-            "BUY",
-            new BigDecimal("0.50"),
-            new BigDecimal("10.00"),
-            "0.01",
-            false,
-            "GTC",
-            TEST_API_KEY
-        );
-
-        assertNotNull(order);
-        // The signature is generated using the exchange address, so if wrong address
-        // was used, the signature would be invalid on the server
-    }
-
-    @Test
-    @DisplayName(
-        "TC-OB-001b: Contract addresses match TypeScript SDK for Amoy Testnet"
-    )
-    void testContractAddressesMatchTypeScriptAmoy() throws IOException {
-        // Amoy Testnet (80002)
-        OrderBuilder amoyBuilder = new OrderBuilder(credentials, 80002);
-
-        Map<String, Object> order = amoyBuilder.createOrder(
-            TEST_TOKEN_ID,
-            "BUY",
-            new BigDecimal("0.50"),
-            new BigDecimal("10.00"),
-            "0.01",
-            false,
-            "GTC",
-            TEST_API_KEY
-        );
-
-        assertNotNull(order);
-    }
+    // Contract-address-per-chain resolution is covered exactly by V2ContractAddressTest,
+    // which asserts the actual resolved address rather than just that an order was built.
 
     @Test
     @DisplayName("TC-OB-002: Rounding config matches TypeScript SDK")

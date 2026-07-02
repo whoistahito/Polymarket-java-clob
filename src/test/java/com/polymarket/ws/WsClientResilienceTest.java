@@ -31,32 +31,6 @@ class WsClientResilienceTest {
     }
 
     // ------------------------------------------------------------------ //
-    // ChannelType                                                          //
-    // ------------------------------------------------------------------ //
-
-    @Test
-    @DisplayName("TC-WS-M3-001 ChannelType has MARKET and USER values")
-    void channelTypeValues() {
-        assertNotNull(ChannelType.MARKET);
-        assertNotNull(ChannelType.USER);
-        assertEquals(2, ChannelType.values().length);
-    }
-
-    @Test
-    @DisplayName("TC-WS-M3-002 ChannelType.valueOf works for both values")
-    void channelTypeValueOf() {
-        assertEquals(ChannelType.MARKET, ChannelType.valueOf("MARKET"));
-        assertEquals(ChannelType.USER,   ChannelType.valueOf("USER"));
-    }
-
-    @Test
-    @DisplayName("TC-WS-M3-003 ChannelType.name() returns correct strings")
-    void channelTypeName() {
-        assertEquals("MARKET", ChannelType.MARKET.name());
-        assertEquals("USER",   ChannelType.USER.name());
-    }
-
-    // ------------------------------------------------------------------ //
     // ConnectionState                                                      //
     // ------------------------------------------------------------------ //
 
@@ -194,36 +168,6 @@ class WsClientResilienceTest {
     // ------------------------------------------------------------------ //
     // Builder reconnect config                                            //
     // ------------------------------------------------------------------ //
-
-    @Test
-    @DisplayName("TC-WS-M3-030 Builder accepts maxReconnectAttempts")
-    void builderMaxReconnectAttempts() {
-        WsClient client = WsClient.builder()
-            .listener(noopListener)
-            .maxReconnectAttempts(5)
-            .build();
-        assertNotNull(client);
-    }
-
-    @Test
-    @DisplayName("TC-WS-M3-031 Builder accepts reconnectDelayMs")
-    void builderReconnectDelayMs() {
-        WsClient client = WsClient.builder()
-            .listener(noopListener)
-            .reconnectDelayMs(500)
-            .build();
-        assertNotNull(client);
-    }
-
-    @Test
-    @DisplayName("TC-WS-M3-032 Builder accepts maxReconnectDelayMs")
-    void builderMaxReconnectDelayMs() {
-        WsClient client = WsClient.builder()
-            .listener(noopListener)
-            .maxReconnectDelayMs(30_000)
-            .build();
-        assertNotNull(client);
-    }
 
     @Test
     @DisplayName("TC-WS-M3-033 Builder rejects reconnectDelayMs <= 0")

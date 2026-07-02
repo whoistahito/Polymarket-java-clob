@@ -358,24 +358,6 @@ class WsClientTest {
         }
     }
 
-    // ------------------------------------------------------------------ //
-    // emitMidpointUpdates                                                  //
-    // ------------------------------------------------------------------ //
-
-    @Test
-    @DisplayName("TC-WS-030 emitMidpointUpdates builder flag defaults to false")
-    void emitMidpointDefaultFalse() {
-        WsClient client = WsClient.builder().listener(noopListener).build();
-        assertNotNull(client); // just verifying no NPE
-    }
-
-    @Test
-    @DisplayName("TC-WS-031 builder emitMidpointUpdates(true) is accepted")
-    void emitMidpointUpdatesTrueAccepted() {
-        WsClient client = WsClient.builder()
-            .listener(noopListener)
-            .emitMidpointUpdates(true)
-            .build();
-        assertNotNull(client);
-    }
+    // emitMidpointUpdates default/true behavior is covered by
+    // WsTypedSubscriptionTest (TC-WS-T-052, TC-WS-T-053) via real dispatch simulation.
 }
