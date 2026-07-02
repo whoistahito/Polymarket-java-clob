@@ -1,0 +1,121 @@
+# Polymarket Java API Client — Instructions
+
+## Build & Test
+
+```bash
+# Compile
+mvn clean compile
+
+# Run all tests
+mvn test
+
+# Run a single test class
+mvn test -Dtest=OrderBuilderTest
+
+# Run a single test method
+mvn test -Dtest=OrderBuilderTest#testCreateOrder
+
+# Package fat JAR (main class: com.polymarket.examples.PolymarketExample)
+mvn clean package
+```
+
+Test classes match `**/*Test.java` or `**/*Tests.java`.
+
+Run the example app:
+```bash
+export PRIVATE_KEY=0x...
+export FUNDER_ADDRESS=0x...
+mvn exec:java -Dexec.mainClass="com.polymarket.examples.PolymarketExample"
+```
+
+## Architecture
+
+This Java SDK stays compatible with Polymarket signing behavior from the TypeScript and Rust reference SDKs (
+`TS-SDK-OVERVIEW.md`, `rs-clob-client/src`).
+
+**Package layout:**
+
+- `com.polymarket.client` — Core API classes (`PolymarketClient`, `AsyncPolymarketClient`, `OrderBuilder`, `HttpClient`,
+  `L1Eip712Signer`, `L2HmacSigner`, `ApiKeyCreds`, `ProxyConfig`, `PolymarketEndpoints`, `GammaClient`, `RfqClient`,
+  `DataClient`, `HeartbeatManager`)
+- `com.polymarket.model` — Immutable data models (`SignedOrder`, `PostOrderPayload`, `UserOrder`, `UserMarketOrder`, `OrderData`, `Side`, `OrderType`, `SignatureType`, `Chain`, `OrderStatusType`, `TradeStatusType`, `TraderSide`, `Token`, `ApiKeyRaw`, `HeartbeatResponse`, `OpenOrderParams`, `TradeParams`, `RfqRequestOrderCreationPayload`, and 40+ more)
+- `com.polymarket.model.data` — Data API request/response models (`DataTrade`, `DataTradesRequest`, `DataSide`,
+  `FilterType`)
+- `com.polymarket.model.gamma` — GammaClient request + response models (45 classes)
+- `com.polymarket.ctf` — Conditional Token Framework client (`CtfClient`) and split/merge/redeem + ID-computation
+  request/response models
+- `com.polymarket.ws` — WebSocket live-feed client (`WsClient`, `WsMessageListener`, `ChannelType`, `ConnectionState`)
+- `com.polymarket.ws.model` — WS message types (`WsMessage`, `BookUpdate`, `PriceChange`, `TradeMessage`, `OrderMessage`, `MidpointUpdate`, etc.)
+- `com.polymarket.util` — `Config` (properties loader), `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
+- `com.polymarket.examples` — Runnable examples / main entry point (including `examples.bot` arbitrage components)
+
+**Two-level authentication flow:**
+1. **L1 (EIP-712)** — `L1Eip712Signer` — used for API key derivation/creation. Signs a fixed message (`"This message attests that I control the given wallet"`) via EIP-712 with domain `ClobAuthDomain v1`. Produces headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_NONCE`.
+2. **L2 (HMAC-SHA256)** — `L2HmacSigner` — used for all trading operations. Produces headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_API_KEY`, `POLY_PASSPHRASE`.
+
+**`PolymarketClient`** is built via `PolymarketClient.Builder`. It holds `ConcurrentHashMap` caches for tick sizes, fee
+rates, and neg-risk status to avoid redundant API calls. It delegates signing to `L1Eip712Signer`/`L2HmacSigner` and
+order construction to `OrderBuilder`. Typed-params overloads (`getOpenOrders(OpenOrderParams)`,
+`getTrades(TradeParams)`) and `postOnly`/`deferExec` convenience overloads are provided. Access `RfqClient` via
+`client.rfq()`, `GammaClient` via `client.gamma()`, and `DataClient` via `client.data()`. Heartbeat lifecycle helpers
+are exposed via `startHeartbeats()` / `startHeartbeats(intervalMs)` / `stopHeartbeats()` / `isHeartbeatsActive()`.
+
+**`AsyncPolymarketClient`** wraps `PolymarketClient` via `AsyncPolymarketClient.wrap(client)`. Every method returns
+`CompletableFuture<T>`. Accepts a custom `Executor`; defaults to `ForkJoinPool.commonPool()`. `AsyncRfqClient` is
+accessible via `async.rfq()`, `DataClient` via `async.data()`, and heartbeat lifecycle helpers are mirrored on the async
+wrapper.
+
+**`GammaClient`** is a standalone client for `https://gamma-api.polymarket.com` covering 26 endpoints (events, markets, tags, series, comments, sports, profiles, search). Built via `new GammaClient.Builder().build()` or accessed via `PolymarketClient.gamma()`.
+
+**`WsClient`** is built via `WsClient.builder()`. It wraps OkHttp's WebSocket API and supports:
+- **Market channel** (`wss://ws-subscriptions-clob.polymarket.com/ws/market`) — unauthenticated; subscribe with a list of asset (token) IDs.
+- **User channel** (`wss://ws-subscriptions-clob.polymarket.com/ws/user`) — L2-authenticated; auth fields embedded in subscription JSON.
+- Optional `emitMidpointUpdates(true)` to synthesise `MidpointUpdate` messages from `BookUpdate` events.
+- Incoming messages are dispatched as strongly-typed `WsMessage` subtypes to the registered `WsMessageListener`.
+- Auto-reconnect with exponential backoff (`maxReconnectAttempts`, `reconnectDelayMs`, `maxReconnectDelayMs`); re-subscribes on reconnect.
+- Per-channel health-check: `isMarketConnected()`, `isUserConnected()`, `getConnectionState(ChannelType)`, `getSubscriptionCount()`.
+
+**`OrderBuilder`** constructs EIP-712 signed order payloads. Contract addresses are hardcoded by chain ID (137 / 80002). Rounding precision is determined by a `RoundConfig` keyed on tick size string (`"0.1"`, `"0.01"`, `"0.001"`, `"0.0001"`). Salt is masked to the IEEE 754 safe integer range (`& ((1L << 53) - 1)`).
+
+**`OrderUtils`** is a standalone, client-independent EIP-712 order builder (`util/OrderUtils.java`). Accepts raw `OrderData` with pre-scaled `BigInteger` amounts — no `PolymarketClient` required. Use when you have pre-calculated maker/taker amounts.
+
+**`WalletUtils`** derives CREATE2 proxy and safe wallet addresses from an EOA address, matching the Rust SDK's `derive_proxy_wallet` / `derive_safe_wallet` exactly. Returns `Optional.empty()` for unsupported chain IDs.
+
+**Configuration** is loaded from `src/main/resources/config.properties` via `Config.load()`. Credentials can be provided
+directly with `credentials.private-key` / `credentials.funder-wallet`, or via external files referenced by
+`secret.key.file` / `funder.wallet.file`.
+
+## Key Conventions
+
+### Decimal arithmetic
+- All prices and amounts use `BigDecimal`. Never use `double`/`float` for financial values.
+- Token amounts use **6 decimal places** (USDC standard); multiply by `10^6` before sending to contracts.
+- Rounding: `RoundingMode.HALF_UP` throughout.
+
+### Model classes
+- Use Lombok (`@Data`, `@Builder`, `@Value`, etc.) to reduce boilerplate.
+- Classes in the `client` package are `final`.
+- Prefer Java records for purely immutable data carriers where Lombok is not needed.
+
+### Chain IDs
+| Network | ID |
+|---|---|
+| Polygon Mainnet | 137 |
+| Polygon Amoy (Testnet) | 80002 |
+
+### Order types
+`GTC` (resting), `GTD` (expires by date), `FOK` (all-or-nothing immediate), `FAK` (fill what's available). The arbitrage strategy uses FAK for entry and GTC for passive hedge orders.
+
+### Signing compatibility
+
+EIP-712 signing, When modifying `L1Eip712Signer`, `OrderBuilder`, or `OrderUtils`, Also verify salt masking matches
+`rs-clob-client/src/clob/order_builder.rs` (`to_ieee_754_int`).
+
+### Testing conventions
+- Framework: JUnit 5 + Mockito
+- Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
+- Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+- Current test suite contains 49 `*Test.java` classes under `src/test/java`
+
+### Proxy support
+`HttpClient` supports HTTP proxies (e.g., Bright Data) via `ProxyConfig`. Configure via `config.properties` with `proxy.enabled`, `proxy.host`, `proxy.port`, `proxy.username`, `proxy.password`, or build `ProxyConfig.fromEnvironment()`.

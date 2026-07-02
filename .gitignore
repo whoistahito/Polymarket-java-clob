@@ -1,0 +1,10 @@
+/.idea
+/target
+clob-client/
+rs-clob-client/
+
+# Credential files — never commit these
+secret-key.txt
+funder-wallet.txt
+# Local planning tickets — not versioned
+docs/tickets/
