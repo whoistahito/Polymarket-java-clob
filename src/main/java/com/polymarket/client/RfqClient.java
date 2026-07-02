@@ -269,9 +269,9 @@ public final class RfqClient {
             qParams.put("requestId", params.getRequestId());
         }
         String queryString = buildQueryString(qParams);
-        String requestPath = endpoint + queryString;
+        String requestPath = endpoint + (queryString.isEmpty() ? "" : "?" + queryString);
         String response = client.getHttp().get(
-            client.getClobUrl(endpoint),
+            client.getClobUrl(endpoint) + (queryString.isEmpty() ? "" : "?" + queryString),
             client.l2Headers("GET", requestPath, null)
         );
         return client.getHttp().parseJson(response, RfqQuote.class);

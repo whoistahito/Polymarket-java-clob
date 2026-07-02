@@ -1516,8 +1516,9 @@ private void invalidateVersionOnMismatch(String message) {
    * @return raw response string
    */
   public String validateReadonlyApiKey(String address, String key) throws IOException {
+    String queryString = buildQueryString(new HashMap<>(Map.of("address", address, "key", key)));
     return http.get(
-        clobUrl(CLOB_VALIDATE_READONLY_API_KEY), Map.of("address", address, "key", key));
+        clobUrl(CLOB_VALIDATE_READONLY_API_KEY) + queryString, Collections.emptyMap());
   }
 
   /**

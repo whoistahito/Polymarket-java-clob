@@ -8,8 +8,12 @@ import com.polymarket.client.PolymarketClient;
 import com.polymarket.model.AssetType;
 import com.polymarket.model.BalanceAllowanceParams;
 import com.polymarket.model.BalanceAllowanceResponse;
+import com.polymarket.model.BuilderTrade;
 import com.polymarket.model.HeartbeatResponse;
 import com.polymarket.model.OpenOrder;
+import com.polymarket.model.OrderMarketCancelParams;
+import com.polymarket.model.OrderScoring;
+import com.polymarket.model.PaginationPayload;
 import com.polymarket.model.SignatureType;
 import com.polymarket.model.Trade;
 import java.util.List;
@@ -448,5 +452,97 @@ class PolymarketClientTradingApiIntegrationTest {
         String body = req.getBody().readUtf8();
         assertTrue(body.contains(ORDER_ID));
         assertTrue(body.contains(id2));
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-IT-112: cancelMarketOrders
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("TC-IT-112: cancelMarketOrders(market) sends DELETE /cancel-market-orders")
+    void testCancelMarketOrders() throws Exception {
+        enqueue("""
+                {"canceled": ["%s"], "not_canceled": {}}
+                """.formatted(ORDER_ID));
+
+        Map<String, Object> result =
+                client.cancelMarketOrders(OrderMarketCancelParams.builder().market("0xmarket").build());
+
+        assertNotNull(result);
+
+        RecordedRequest req = server.takeRequest();
+        assertEquals("DELETE", req.getMethod());
+        assertEquals("/cancel-market-orders", req.getPath());
+        assertTrue(req.getBody().readUtf8().contains("0xmarket"));
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-IT-113: isOrderScoring / areOrdersScoring
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("TC-IT-113: isOrderScoring(orderId) queries /order-scoring and parses the flag")
+    void testIsOrderScoring() throws Exception {
+        enqueue("{\"scoring\": true}");
+
+        OrderScoring result = client.isOrderScoring(ORDER_ID);
+
+        assertTrue(result.isScoring());
+        RecordedRequest req = server.takeRequest();
+        assertTrue(req.getPath().startsWith("/order-scoring"));
+        assertTrue(req.getPath().contains("order_id=" + ORDER_ID));
+    }
+
+    @Test
+    @DisplayName("TC-IT-114: areOrdersScoring(List) posts order ids as a raw JSON array")
+    void testAreOrdersScoring() throws Exception {
+        String id2 = "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fe";
+        enqueue("""
+                {"%s": true, "%s": false}
+                """.formatted(ORDER_ID, id2));
+
+        Map<String, Boolean> result = client.areOrdersScoring(List.of(ORDER_ID, id2));
+
+        assertTrue(result.get(ORDER_ID));
+        assertFalse(result.get(id2));
+
+        RecordedRequest req = server.takeRequest();
+        assertEquals("POST", req.getMethod());
+        assertEquals("/orders-scoring", req.getPath());
+        String body = req.getBody().readUtf8();
+        assertTrue(body.startsWith("["), "body should be a raw JSON array, not wrapped in an object");
+        assertTrue(body.contains(ORDER_ID));
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-IT-115: getBuilderTrades
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("TC-IT-115: getBuilderTrades() paginates builder-attributed trades")
+    void testGetBuilderTrades() throws Exception {
+        enqueue("""
+                {
+                  "limit": 100,
+                  "count": 1,
+                  "next_cursor": "MTAw",
+                  "data": [{
+                    "id": "bt-1", "tradeType": "TAKER", "market": "0xmarket",
+                    "assetId": "%s", "side": "BUY", "size": "10", "price": "0.5",
+                    "status": "MATCHED", "outcome": "Yes", "outcomeIndex": 0,
+                    "owner": "owner-1", "builder": "builder-1"
+                  }]
+                }
+                """.formatted(TOKEN_ID));
+
+        PaginationPayload<BuilderTrade> result = client.getBuilderTrades(null, null);
+
+        assertEquals(1, result.getData().size());
+        assertEquals("bt-1", result.getData().get(0).getId());
+        assertEquals("MTAw", result.getNextCursor());
+
+        RecordedRequest req = server.takeRequest();
+        assertEquals("GET", req.getMethod());
+        assertTrue(req.getPath().startsWith("/builder/trades"));
     }
 }
