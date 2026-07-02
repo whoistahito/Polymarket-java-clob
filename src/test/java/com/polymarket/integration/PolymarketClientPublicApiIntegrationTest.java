@@ -410,4 +410,33 @@ class PolymarketClientPublicApiIntegrationTest {
         RecordedRequest req = server.takeRequest();
         assertTrue(req.getPath().startsWith("/neg-risk"));
     }
+
+    // -----------------------------------------------------------------------
+    // TC-IT-016: getOrderBooks (bulk)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("TC-IT-016: getOrderBooks(List) POSTs the token/side list and deserialises all books")
+    void testGetOrderBooksBulk() throws Exception {
+        enqueue("""
+                [
+                  {"market": "0xm1", "asset_id": "%s", "bids": [], "asks": [], "tick_size": "0.01", "neg_risk": false},
+                  {"market": "0xm2", "asset_id": "other-token", "bids": [], "asks": [], "tick_size": "0.01", "neg_risk": false}
+                ]
+                """.formatted(TOKEN_ID));
+
+        var books = client.getOrderBooks(java.util.List.of(
+                com.polymarket.model.BookParams.builder().tokenId(TOKEN_ID).side(com.polymarket.model.Side.BUY).build(),
+                com.polymarket.model.BookParams.builder().tokenId("other-token").side(com.polymarket.model.Side.SELL).build()));
+
+        assertEquals(2, books.size());
+        assertEquals(TOKEN_ID, books.get(0).getAssetId());
+
+        RecordedRequest req = server.takeRequest();
+        assertEquals("POST", req.getMethod());
+        assertEquals("/books", req.getPath());
+        String body = req.getBody().readUtf8();
+        assertTrue(body.contains(TOKEN_ID));
+        assertTrue(body.contains("BUY"));
+    }
 }
