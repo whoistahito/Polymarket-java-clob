@@ -197,6 +197,25 @@ class OrderSigningV2Test {
         }
     }
 
+    @Test
+    @DisplayName("TC-V2S-008b: POLY_1271 signer is funder and signature is wrapped")
+    void poly1271SignerIsFunderAndSignatureIsWrapped() {
+        String funder = "0x1234567890123456789012345678901234567890";
+        OrderBuilder b = new OrderBuilder(credentials, 137, SignatureType.POLY_1271, funder);
+        b.setVersion(2);
+
+        SignedOrder signed = b.buildOrder(
+            UserOrder.builder()
+                .tokenID(TOKEN_ID).side(Side.BUY)
+                .price(new BigDecimal("0.50")).size(new BigDecimal("10.00"))
+                .feeRateBps(0).build(),
+            CreateOrderOptions.builder().tickSize("0.01").negRisk(false).build(),
+            OrderType.GTC);
+
+        assertEquals(funder.toLowerCase(), signed.signer().toLowerCase());
+        assertTrue(signed.signature().length() > 132);
+    }
+
     // Scenario: V2 metadata/builder default to bytes32(0)
     @Test
     @DisplayName("TC-V2S-009: V2 metadata/builder default to bytes32(0)")

@@ -1,57 +1,19 @@
 package com.polymarket.client;
 
-import static com.polymarket.client.PolymarketEndpoints.*;
-
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.polymarket.model.BalanceAllowanceParams;
-import com.polymarket.model.BalanceAllowanceResponse;
-import com.polymarket.model.BanStatus;
-import com.polymarket.model.BookParams;
-import com.polymarket.model.BuilderApiKey;
-import com.polymarket.model.BuilderApiKeyResponse;
-import com.polymarket.model.BuilderTrade;
-import com.polymarket.model.CreateOrderOptions;
-import com.polymarket.model.DropNotificationParams;
-import com.polymarket.model.GammaMarket;
-import com.polymarket.model.LastTradePriceResult;
-import com.polymarket.model.MarketPrice;
-import com.polymarket.model.MarketReward;
-import com.polymarket.model.MarketTradeEvent;
-import com.polymarket.model.Notification;
-import com.polymarket.model.OpenOrder;
-import com.polymarket.model.OrderBookSummary;
-import com.polymarket.model.OrderMarketCancelParams;
-import com.polymarket.model.OrderResponse;
-import com.polymarket.model.OrderScoring;
-import com.polymarket.model.OrderSummary;
-import com.polymarket.model.OrderType;
-import com.polymarket.model.PaginationPayload;
-import com.polymarket.model.PostOrderPayload;
-import com.polymarket.model.PriceHistoryFilterParams;
-import com.polymarket.model.ReadonlyApiKeyResponse;
-import com.polymarket.model.Side;
-import com.polymarket.model.SignatureType;
-import com.polymarket.model.SignedOrder;
-import com.polymarket.model.SpreadResult;
-import com.polymarket.model.TotalUserEarning;
-import com.polymarket.model.Trade;
-import com.polymarket.model.UserEarning;
-import com.polymarket.model.UserMarketOrder;
-import com.polymarket.model.UserOrder;
-import com.polymarket.model.UserRewardsEarning;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
+import com.polymarket.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.web3j.crypto.Credentials;
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.polymarket.client.PolymarketEndpoints.*;
 
 /** Main client for interacting with the Polymarket API. */
 public final class PolymarketClient {
@@ -639,6 +601,13 @@ public final class PolymarketClient {
 
     String response =
         http.get(clobUrl(endpoint) + queryString, l2Headers("GET", requestPath, null));
+    if (!response.stripLeading().startsWith("[")) {
+      Map<String, Object> page = http.parseJsonObject(response);
+      Object data = page.get("data");
+      return data == null
+          ? Collections.emptyList()
+          : http.parseJson(http.toJsonMinified(data), new TypeReference<List<OpenOrder>>() {});
+    }
     return http.parseJson(response, new TypeReference<List<OpenOrder>>() {});
   }
 
@@ -1366,9 +1335,21 @@ private void invalidateVersionOnMismatch(String message) {
     if (params.isEmpty()) return "";
     StringBuilder sb = new StringBuilder("?");
     for (Map.Entry<String, String> entry : params.entrySet()) {
-      sb.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
+      sb.append(urlEncode(entry.getKey()))
+              .append("=")
+              .append(urlEncode(entry.getValue()))
+              .append("&");
     }
     return sb.substring(0, sb.length() - 1);
+  }
+
+  /**
+   * Percent-encodes a query key/value per {@code application/x-www-form-urlencoded}.
+   * The same encoded string is reused as the L2-signed request path, so encoding must
+   * match what the server canonicalizes (mirrors the Rust SDK's {@code serde_html_form}).
+   */
+  private static String urlEncode(String value) {
+    return URLEncoder.encode(value, StandardCharsets.UTF_8);
   }
 
   private static BigDecimal parseBigDecimal(Map<String, Object> map, String key) {

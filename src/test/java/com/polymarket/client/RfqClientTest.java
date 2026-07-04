@@ -1,10 +1,11 @@
 package com.polymarket.client;
 
-import com.polymarket.model.*;
+import com.polymarket.model.RfqMatchType;
+import com.polymarket.model.RfqUserOrder;
+import com.polymarket.model.Side;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.web3j.crypto.Credentials;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,8 +50,8 @@ class RfqClientTest {
                         RfqUserOrder.builder()
                                 .tokenID("123")
                                 .side(Side.BUY)
-                                .price(0.5)
-                                .size(10.0)
+                                .price(new java.math.BigDecimal("0.5"))
+                                .size(new java.math.BigDecimal("10"))
                                 .build(),
                         "0.01"
                 )

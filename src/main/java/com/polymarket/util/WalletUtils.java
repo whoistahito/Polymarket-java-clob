@@ -1,9 +1,11 @@
 package com.polymarket.util;
 
+import org.web3j.crypto.Hash;
+import org.web3j.crypto.Keys;
+import org.web3j.utils.Numeric;
+
 import java.util.Arrays;
 import java.util.Optional;
-import org.web3j.crypto.Hash;
-import org.web3j.utils.Numeric;
 
 /**
  * Utilities for deriving Polymarket wallet addresses via CREATE2.
@@ -68,7 +70,7 @@ public final class WalletUtils {
      * @param eoa     the externally-owned account address (checksummed or lower-case hex, with
      *                or without {@code 0x} prefix)
      * @param chainId the EVM chain ID (e.g. 137 for Polygon Mainnet)
-     * @return the derived proxy wallet address as a lower-case {@code 0x…} hex string, or
+     * @return the derived proxy wallet address as a lower-case {@code 0x…} hex string (EIP-55 checksummed), or
      *         {@link Optional#empty()} if proxy wallets are not supported on the given chain
      */
     public static Optional<String> deriveProxyWallet(String eoa, int chainId) {
@@ -92,7 +94,7 @@ public final class WalletUtils {
      *
      * @param eoa     the externally-owned account address
      * @param chainId the EVM chain ID
-     * @return the derived Safe wallet address as a lower-case {@code 0x…} hex string, or
+     * @return the derived Safe wallet address as a lower-case {@code 0x…} hex string (EIP-55 checksummed), or
      *         {@link Optional#empty()} if the chain is not supported
      */
     public static Optional<String> deriveSafeWallet(String eoa, int chainId) {
@@ -128,7 +130,8 @@ public final class WalletUtils {
         byte[] hash = Hash.sha3(input);
         // Address is the last 20 bytes of the 32-byte keccak output
         byte[] addressBytes = Arrays.copyOfRange(hash, 12, 32);
-        return "0x" + Numeric.toHexString(addressBytes).replaceFirst("^0x", "");
+        // EIP-55 checksummed form, matching the Rust SDK's alloy Address output
+        return Keys.toChecksumAddress(Numeric.toHexString(addressBytes));
     }
 
     /** Converts a hex address string (with or without {@code 0x}) to 20 raw bytes. */

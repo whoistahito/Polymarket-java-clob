@@ -18,7 +18,7 @@ import lombok.Value;
  * takerAmount, side, signatureType, timestamp, metadata, builder}.
  */
 @Value
-@Builder
+@Builder(toBuilder = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class OrderDataV2 {
 

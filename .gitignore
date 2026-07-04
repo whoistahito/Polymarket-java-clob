@@ -11,3 +11,6 @@ docs/tickets/
 
 # Maven shade leftover (no longer produced)
 dependency-reduced-pom.xml
+
+# local live-test secrets (never commit)
+.secrets.env

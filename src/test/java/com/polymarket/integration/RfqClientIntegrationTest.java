@@ -1,27 +1,10 @@
 package com.polymarket.integration;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polymarket.client.ApiKeyCreds;
 import com.polymarket.client.PolymarketClient;
 import com.polymarket.client.RfqClient;
-import com.polymarket.model.AcceptQuoteParams;
-import com.polymarket.model.ApproveOrderParams;
-import com.polymarket.model.CancelRfqQuoteParams;
-import com.polymarket.model.CancelRfqRequestParams;
-import com.polymarket.model.GetRfqBestQuoteParams;
-import com.polymarket.model.GetRfqQuotesParams;
-import com.polymarket.model.GetRfqRequestsParams;
-import com.polymarket.model.RfqPaginatedResponse;
-import com.polymarket.model.RfqQuote;
-import com.polymarket.model.RfqQuoteResponse;
-import com.polymarket.model.RfqRequest;
-import com.polymarket.model.RfqRequestResponse;
-import com.polymarket.model.RfqUserOrder;
-import com.polymarket.model.RfqUserQuote;
-import com.polymarket.model.Side;
-import java.util.Map;
+import com.polymarket.model.*;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -29,6 +12,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for RfqClient against the CLOB RFQ endpoints (maker/quote and
@@ -94,8 +82,8 @@ class RfqClientIntegrationTest {
         RfqUserOrder order = RfqUserOrder.builder()
                 .tokenID(TOKEN_ID)
                 .side(Side.BUY)
-                .price(0.5)
-                .size(100.0)
+                .price(new BigDecimal("0.5"))
+                .size(new BigDecimal("100"))
                 .build();
 
         RfqRequestResponse response = rfq.createRfqRequest(order, null);
@@ -125,7 +113,8 @@ class RfqClientIntegrationTest {
 
         assertThrows(IllegalStateException.class, () ->
                 unauthenticated.rfq().createRfqRequest(
-                        RfqUserOrder.builder().tokenID(TOKEN_ID).side(Side.BUY).price(0.5).size(1.0).build(),
+                        RfqUserOrder.builder().tokenID(TOKEN_ID).side(Side.BUY)
+                                .price(new BigDecimal("0.5")).size(new BigDecimal("1")).build(),
                         "0.01"));
         assertEquals(0, server.getRequestCount());
     }
@@ -183,8 +172,8 @@ class RfqClientIntegrationTest {
                 .requestId("req-1")
                 .tokenID(TOKEN_ID)
                 .side(Side.SELL)
-                .price(0.4)
-                .size(50.0)
+                .price(new BigDecimal("0.4"))
+                .size(new BigDecimal("50"))
                 .build();
 
         RfqQuoteResponse response = rfq.createRfqQuote(quote, null);

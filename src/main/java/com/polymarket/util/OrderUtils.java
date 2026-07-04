@@ -449,18 +449,20 @@ public final class OrderUtils {
                 "A deposit wallet funder address is required with a POLY_1271 signature type");
         }
 
+        String maker = resolveMaker(data, sigType);
+        String signer = (sigType == SignatureType.POLY_1271)
+            ? maker
+            : (data.getSigner() != null && !data.getSigner().isBlank()
+                ? data.getSigner() : credentials.getAddress());
+        data = data.toBuilder().maker(maker).signer(signer).build();
+
         String verifyingContract = exchangeAddressV2(chainId, negRisk);
         byte[] domainHash = buildV2DomainHash(verifyingContract);
         byte[] structHash = buildV2StructHash(data, sigType);
 
-        String signature = (sigType == SignatureType.POLY_1271)
-            ? signPoly1271(domainHash, structHash,
-                data.getSigner() != null && !data.getSigner().isBlank() ? data.getSigner() : data.getMaker())
+        String signature = sigType == SignatureType.POLY_1271
+            ? signPoly1271(domainHash, structHash, maker)
             : ecdsaSign(domainHash, structHash);
-
-        String maker = resolveMaker(data, sigType);
-        String signer = data.getSigner() != null && !data.getSigner().isBlank()
-            ? data.getSigner() : credentials.getAddress();
 
         return SignedOrder.v2Builder()
             .salt(data.getSalt().longValueExact())

@@ -132,6 +132,23 @@ class PolymarketClientTradingApiIntegrationTest {
         assertNotNull(req.getHeader("POLY_PASSPHRASE"));
     }
 
+    @Test
+    @DisplayName("TC-IT-101b: getOpenOrders() deserialises paginated response data")
+    void testGetOpenOrdersPaginatedEnvelope() throws Exception {
+        enqueue("""
+                {
+                  "next_cursor": "LTE=",
+                  "data": [{"id": "%s", "asset_id": "%s", "side": "BUY"}]
+                }
+                """.formatted(ORDER_ID, TOKEN_ID));
+
+        List<OpenOrder> orders = client.getOpenOrders();
+
+        assertEquals(1, orders.size());
+        assertEquals(ORDER_ID, orders.get(0).getId());
+        assertEquals(TOKEN_ID, orders.get(0).getAssetId());
+    }
+
     // -----------------------------------------------------------------------
     // TC-IT-102: getOpenOrders with typed OpenOrderParams filter
     // -----------------------------------------------------------------------

@@ -219,7 +219,8 @@ class PolymarketClientQueryParamTest {
         RecordedRequest req = take();
         String path = req.getPath();
 
-        assertTrue(path.contains("next_cursor=MQ=="), "path: " + path);
+        // Cursor is base64 ("MQ==") — the "==" padding must be percent-encoded in the query
+        assertTrue(path.contains("next_cursor=MQ%3D%3D"), "path: " + path);
         assertNull(req.getHeader("next_cursor"), "next_cursor must NOT be sent as a header");
     }
 

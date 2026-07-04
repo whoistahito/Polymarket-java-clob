@@ -1,38 +1,16 @@
 package com.polymarket.client;
 
-import static com.polymarket.client.PolymarketEndpoints.*;
-
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.polymarket.model.AcceptQuoteParams;
-import com.polymarket.model.ApproveOrderParams;
-import com.polymarket.model.CancelRfqQuoteParams;
-import com.polymarket.model.CancelRfqRequestParams;
-import com.polymarket.model.CreateOrderOptions;
-import com.polymarket.model.CreateRfqQuoteParams;
-import com.polymarket.model.CreateRfqRequestParams;
-import com.polymarket.model.GetRfqBestQuoteParams;
-import com.polymarket.model.GetRfqQuotesParams;
-import com.polymarket.model.GetRfqRequestsParams;
-import com.polymarket.model.RfqMatchType;
-import com.polymarket.model.RfqPaginatedResponse;
-import com.polymarket.model.RfqQuote;
-import com.polymarket.model.RfqQuoteResponse;
-import com.polymarket.model.RfqRequest;
-import com.polymarket.model.RfqRequestResponse;
-import com.polymarket.model.RfqUserOrder;
-import com.polymarket.model.RfqUserQuote;
-import com.polymarket.model.Side;
-import com.polymarket.model.SignedOrder;
+import com.polymarket.model.*;
+
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+import static com.polymarket.client.PolymarketEndpoints.*;
 
 /**
  * RFQ (Request For Quote) client.
@@ -71,14 +49,9 @@ public final class RfqClient {
         String resolvedTickSize = resolveTickSize(userOrder.getTokenID(), tickSize);
         int[] roundConfig = getRoundConfig(resolvedTickSize);
 
-        double roundedPrice = roundNormal(userOrder.getPrice(), roundConfig[0]);
-        double roundedSize  = roundDown(userOrder.getSize(),  roundConfig[1]);
-
-        String sizeStr  = String.format("%." + roundConfig[1] + "f", roundedSize);
-        String priceStr = String.format("%." + roundConfig[0] + "f", roundedPrice);
-
-        double sizeNum  = Double.parseDouble(sizeStr);
-        double priceNum = Double.parseDouble(priceStr);
+        BigDecimal price = roundNormal(userOrder.getPrice(), roundConfig[0]);
+        BigDecimal size = roundDown(userOrder.getSize(), roundConfig[1]);
+        BigDecimal notional = size.multiply(price);
 
         String amountIn;
         String amountOut;
@@ -87,14 +60,14 @@ public final class RfqClient {
 
         if (userOrder.getSide() == Side.BUY) {
             // Buying: pay USDC (asset 0), receive tokens (tokenID)
-            amountIn  = toTokenAmount(sizeNum, roundConfig[2]);
-            amountOut = toTokenAmount(sizeNum * priceNum, roundConfig[2]);
+            amountIn = toTokenAmount(size, roundConfig[2]);
+            amountOut = toTokenAmount(notional, roundConfig[2]);
             assetIn   = userOrder.getTokenID();
             assetOut  = "0";
         } else {
             // Selling: pay tokens (tokenID), receive USDC (asset 0)
-            amountIn  = toTokenAmount(sizeNum * priceNum, roundConfig[2]);
-            amountOut = toTokenAmount(sizeNum, roundConfig[2]);
+            amountIn = toTokenAmount(notional, roundConfig[2]);
+            amountOut = toTokenAmount(size, roundConfig[2]);
             assetIn   = "0";
             assetOut  = userOrder.getTokenID();
         }
@@ -170,14 +143,9 @@ public final class RfqClient {
         String resolvedTickSize = resolveTickSize(userQuote.getTokenID(), tickSize);
         int[] roundConfig = getRoundConfig(resolvedTickSize);
 
-        double roundedPrice = roundNormal(userQuote.getPrice(), roundConfig[0]);
-        double roundedSize  = roundDown(userQuote.getSize(),  roundConfig[1]);
-
-        String sizeStr  = String.format("%." + roundConfig[1] + "f", roundedSize);
-        String priceStr = String.format("%." + roundConfig[0] + "f", roundedPrice);
-
-        double sizeNum  = Double.parseDouble(sizeStr);
-        double priceNum = Double.parseDouble(priceStr);
+        BigDecimal price = roundNormal(userQuote.getPrice(), roundConfig[0]);
+        BigDecimal size = roundDown(userQuote.getSize(), roundConfig[1]);
+        BigDecimal notional = size.multiply(price);
 
         String amountIn;
         String amountOut;
@@ -186,14 +154,14 @@ public final class RfqClient {
 
         if (userQuote.getSide() == Side.SELL) {
             // Quoter selling tokens: receive USDC (asset 0), give tokens (tokenID)
-            amountIn  = toTokenAmount(sizeNum * priceNum, roundConfig[2]);
-            amountOut = toTokenAmount(sizeNum, roundConfig[2]);
+            amountIn = toTokenAmount(notional, roundConfig[2]);
+            amountOut = toTokenAmount(size, roundConfig[2]);
             assetIn   = "0";
             assetOut  = userQuote.getTokenID();
         } else {
             // Quoter buying tokens: receive tokens (tokenID), give USDC (asset 0)
-            amountIn  = toTokenAmount(sizeNum, roundConfig[2]);
-            amountOut = toTokenAmount(sizeNum * priceNum, roundConfig[2]);
+            amountIn = toTokenAmount(size, roundConfig[2]);
+            amountOut = toTokenAmount(notional, roundConfig[2]);
             assetIn   = userQuote.getTokenID();
             assetOut  = "0";
         }
@@ -439,17 +407,17 @@ public final class RfqClient {
         };
     }
 
-    private static double roundNormal(double value, int decimalPlaces) {
-        return new BigDecimal(value).setScale(decimalPlaces, RoundingMode.HALF_UP).doubleValue();
+    private static BigDecimal roundNormal(BigDecimal value, int decimalPlaces) {
+        return value.setScale(decimalPlaces, RoundingMode.HALF_UP);
     }
 
-    private static double roundDown(double value, int decimalPlaces) {
-        return new BigDecimal(value).setScale(decimalPlaces, RoundingMode.FLOOR).doubleValue();
+    private static BigDecimal roundDown(BigDecimal value, int decimalPlaces) {
+        return value.setScale(decimalPlaces, RoundingMode.FLOOR);
     }
 
     /** Scale a decimal amount to 6-decimal token integer (as string). */
-    private static String toTokenAmount(double amount, int amountPrecision) {
-        BigDecimal bd = new BigDecimal(amount)
+    private static String toTokenAmount(BigDecimal amount, int amountPrecision) {
+        BigDecimal bd = amount
             .setScale(amountPrecision, RoundingMode.FLOOR)
             .multiply(BigDecimal.TEN.pow(COLLATERAL_TOKEN_DECIMALS));
         return bd.toBigInteger().toString();
@@ -460,9 +428,16 @@ public final class RfqClient {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> e : params.entrySet()) {
             if (sb.length() > 0) sb.append("&");
-            sb.append(e.getKey()).append("=").append(e.getValue());
+            sb.append(urlEncode(e.getKey())).append("=").append(urlEncode(e.getValue()));
         }
         return sb.toString();
+    }
+
+    /**
+     * Percent-encodes a query key/value per {@code application/x-www-form-urlencoded}.
+     */
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     /**
@@ -478,11 +453,11 @@ public final class RfqClient {
             if (val instanceof List<?> list) {
                 for (Object item : list) {
                     if (sb.length() > 0) sb.append("&");
-                    sb.append(e.getKey()).append("=").append(item);
+                    sb.append(urlEncode(e.getKey())).append("=").append(urlEncode(String.valueOf(item)));
                 }
             } else {
                 if (sb.length() > 0) sb.append("&");
-                sb.append(e.getKey()).append("=").append(val);
+                sb.append(urlEncode(e.getKey())).append("=").append(urlEncode(String.valueOf(val)));
             }
         }
         return sb.toString();
