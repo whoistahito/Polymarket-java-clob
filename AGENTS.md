@@ -15,18 +15,14 @@ mvn test -Dtest=OrderBuilderTest
 # Run a single test method
 mvn test -Dtest=OrderBuilderTest#testCreateOrder
 
-# Package fat JAR (main class: com.polymarket.examples.PolymarketExample)
+# Build the library JAR (this repo is a dependency, not an app — no main class)
 mvn clean package
+
+# Install to the local Maven repo so downstream projects (e.g. a trading bot) can depend on it
+mvn clean install
 ```
 
 Test classes match `**/*Test.java` or `**/*Tests.java`.
-
-Run the example app:
-```bash
-export PRIVATE_KEY=0x...
-export FUNDER_ADDRESS=0x...
-mvn exec:java -Dexec.mainClass="com.polymarket.examples.PolymarketExample"
-```
 
 ## Architecture
 
@@ -47,7 +43,8 @@ This Java SDK stays compatible with Polymarket signing behavior from the TypeScr
 - `com.polymarket.ws` — WebSocket live-feed client (`WsClient`, `WsMessageListener`, `ChannelType`, `ConnectionState`)
 - `com.polymarket.ws.model` — WS message types (`WsMessage`, `BookUpdate`, `PriceChange`, `TradeMessage`, `OrderMessage`, `MidpointUpdate`, etc.)
 - `com.polymarket.util` — `Config` (properties loader), `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
-- `com.polymarket.examples` — Runnable examples / main entry point (including `examples.bot` arbitrage components)
+This repo is a pure SDK (library) — it has no application entry point. Trading strategies/bots live in
+separate projects that depend on this artifact.
 
 **Two-level authentication flow:**
 1. **L1 (EIP-712)** — `L1Eip712Signer` — used for API key derivation/creation. Signs a fixed message (`"This message attests that I control the given wallet"`) via EIP-712 with domain `ClobAuthDomain v1`. Produces headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_NONCE`.
@@ -104,7 +101,7 @@ directly with `credentials.private-key` / `credentials.funder-wallet`, or via ex
 | Polygon Amoy (Testnet) | 80002 |
 
 ### Order types
-`GTC` (resting), `GTD` (expires by date), `FOK` (all-or-nothing immediate), `FAK` (fill what's available). The arbitrage strategy uses FAK for entry and GTC for passive hedge orders.
+`GTC` (resting), `GTD` (expires by date), `FOK` (all-or-nothing immediate), `FAK` (fill what's available).
 
 ### Signing compatibility
 

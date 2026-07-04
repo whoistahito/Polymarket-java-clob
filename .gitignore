@@ -8,3 +8,6 @@ secret-key.txt
 funder-wallet.txt
 # Local planning tickets — not versioned
 docs/tickets/
+
+# Maven shade leftover (no longer produced)
+dependency-reduced-pom.xml
