@@ -1170,7 +1170,11 @@ private void invalidateVersionOnMismatch(String message) {
             .build();
 
     CreateOrderOptions resolvedOptions =
-        CreateOrderOptions.builder().tickSize(tickSize).negRisk(negRisk).build();
+            CreateOrderOptions.builder()
+                    .tickSize(tickSize)
+                    .negRisk(negRisk)
+                    .orderMinSize(options.orderMinSize())
+                    .build();
 
     return orderBuilder.buildOrder(withFee, resolvedOptions);
   }

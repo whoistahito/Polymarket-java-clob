@@ -1,14 +1,11 @@
 package com.polymarket.client;
 
-import com.polymarket.model.CreateOrderOptions;
-import com.polymarket.model.OrderDataV2;
-import com.polymarket.model.OrderType;
-import com.polymarket.model.PostOrderPayload;
-import com.polymarket.model.Side;
-import com.polymarket.model.SignatureType;
-import com.polymarket.model.SignedOrder;
-import com.polymarket.model.UserMarketOrder;
-import com.polymarket.model.UserOrder;
+import com.polymarket.model.*;
+import org.web3j.crypto.Credentials;
+import org.web3j.crypto.Sign;
+import org.web3j.crypto.StructuredDataEncoder;
+import org.web3j.utils.Numeric;
+
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -17,10 +14,6 @@ import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.web3j.crypto.Credentials;
-import org.web3j.crypto.Sign;
-import org.web3j.crypto.StructuredDataEncoder;
-import org.web3j.utils.Numeric;
 
 /**
  * Order builder for creating and signing Polymarket orders.
@@ -500,6 +493,15 @@ public final class OrderBuilder {
             order.size() == null || order.size().compareTo(BigDecimal.ZERO) <= 0
         ) {
             throw new IllegalArgumentException("size must be positive");
+        }
+        if (
+                options.orderMinSize() != null
+                        && order.size().compareTo(options.orderMinSize()) < 0
+        ) {
+            throw new IllegalArgumentException(
+                    "size " + order.size() + " is below the market minimum order size "
+                            + options.orderMinSize() + " shares"
+            );
         }
 
         validatePrice(order.price(), options.tickSize());

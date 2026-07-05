@@ -1,23 +1,16 @@
 package com.polymarket.client;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.polymarket.model.CreateOrderOptions;
-import com.polymarket.model.OrderDataV2;
-import com.polymarket.model.OrderType;
-import com.polymarket.model.Side;
-import com.polymarket.model.SignatureType;
-import com.polymarket.model.SignedOrder;
-import com.polymarket.model.UserOrder;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.Map;
+import com.polymarket.model.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.web3j.crypto.Credentials;
+
+import java.math.BigDecimal;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * PMK-007 — V1/V2 signing behaviour + golden-vector parity with the v2 Rust SDK.
@@ -214,6 +207,20 @@ class OrderSigningV2Test {
 
         assertEquals(funder.toLowerCase(), signed.signer().toLowerCase());
         assertTrue(signed.signature().length() > 132);
+    }
+
+    @Test
+    @DisplayName("TC-V2S-008c: order below market orderMinSize is rejected at build time")
+    void belowOrderMinSizeRejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                v2Builder.buildOrder(
+                        UserOrder.builder()
+                                .tokenID(TOKEN_ID).side(Side.BUY)
+                                .price(new BigDecimal("0.50")).size(new BigDecimal("3")).feeRateBps(0).build(),
+                        CreateOrderOptions.builder()
+                                .tickSize("0.01").negRisk(false).orderMinSize(new BigDecimal("5")).build(),
+                        OrderType.GTC));
+        assertTrue(ex.getMessage().contains("minimum order size"), ex.getMessage());
     }
 
     // Scenario: V2 metadata/builder default to bytes32(0)

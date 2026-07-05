@@ -1,23 +1,9 @@
 package com.polymarket.integration;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import com.polymarket.client.ApiKeyCreds;
 import com.polymarket.client.L2HmacSigner;
 import com.polymarket.client.PolymarketClient;
-import com.polymarket.model.AssetType;
-import com.polymarket.model.BalanceAllowanceParams;
-import com.polymarket.model.BalanceAllowanceResponse;
-import com.polymarket.model.BuilderTrade;
-import com.polymarket.model.HeartbeatResponse;
-import com.polymarket.model.OpenOrder;
-import com.polymarket.model.OrderMarketCancelParams;
-import com.polymarket.model.OrderScoring;
-import com.polymarket.model.PaginationPayload;
-import com.polymarket.model.SignatureType;
-import com.polymarket.model.Trade;
-import java.util.List;
-import java.util.Map;
+import com.polymarket.model.*;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -25,6 +11,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for the L2-authenticated (trading) endpoints of
