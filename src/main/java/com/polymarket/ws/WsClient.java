@@ -529,13 +529,13 @@ public final class WsClient {
         try {
             ObjectNode msg = MAPPER.createObjectNode();
             msg.put("type", "user");
+            msg.put("operation", operation);
             ArrayNode mkt = msg.putArray("markets");
             markets.forEach(mkt::add);
             if ("subscribe".equals(operation)) {
-                appendAuth(msg);
-            } else {
-                msg.put("operation", operation);
+                msg.put("initial_dump", true);
             }
+            appendAuth(msg);
             ws.send(MAPPER.writeValueAsString(msg));
         } catch (Exception e) {
             log.error("Failed to serialize user subscription request", e);
@@ -543,12 +543,12 @@ public final class WsClient {
     }
 
     /**
-     * Attach credentials to a user-channel subscribe request.
-     *
-     * <p>The Polymarket user channel expects a nested {@code auth} object holding
-     * {@code apiKey}, {@code secret}, and {@code passphrase} — no HMAC signature or
-     * timestamp. Sending the older top-level {@code signature}/{@code timestamp}
-     * shape makes the server drop the connection the instant the frame arrives.
+     * Attach credentials to a user-channel request, matching Polymarket's official
+     * rs-clob-client-v2: a nested {@code auth} object holding {@code apiKey}, {@code secret},
+     * and {@code passphrase} — no HMAC signature or timestamp. The full frame is
+     * {@code {type, operation, markets, [initial_dump], auth}}. The older shape (top-level
+     * {@code signature}/{@code timestamp}) makes the server drop the connection on receipt;
+     * omitting {@code operation} makes it reply {@code INVALID OPERATION}.
      */
     private void appendAuth(ObjectNode node) {
         ObjectNode auth = node.putObject("auth");
