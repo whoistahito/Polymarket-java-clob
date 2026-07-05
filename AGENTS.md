@@ -26,8 +26,9 @@ Test classes match `**/*Test.java` or `**/*Tests.java`.
 
 ## Architecture
 
-This Java SDK stays compatible with Polymarket signing behavior from the TypeScript and Rust reference SDKs (
-`TS-SDK-OVERVIEW.md`, `rs-clob-client/src`).
+This Java SDK stays compatible with Polymarket signing behavior from the upstream TypeScript and Rust
+reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-v2` (Rust) on GitHub.
+(These are external references; they are not vendored into this repo.)
 
 **Package layout:**
 
@@ -87,7 +88,13 @@ directly with `credentials.private-key` / `credentials.funder-wallet`, or via ex
 ### Decimal arithmetic
 - All prices and amounts use `BigDecimal`. Never use `double`/`float` for financial values.
 - Token amounts use **6 decimal places** (USDC standard); multiply by `10^6` before sending to contracts.
-- Rounding: `RoundingMode.HALF_UP` throughout.
+- Rounding is per-field, matching the TS/Rust reference clients — do **not** use `HALF_UP` for amounts:
+  - **Price → tick**: nearest tick (`HALF_UP`) via `roundToTickSize`.
+  - **Order size**: `DOWN` (truncate) to `RoundConfig.size` decimals.
+  - **Maker/taker amounts**: `DOWN` (truncate) — the Rust ref uses `trunc_with_scale`, the TS ref
+    uses roundUp→roundDown. `RoundConfig.amount == price + size` decimals, so with a tick-rounded
+    price the product already fits exactly (e.g. `1.9996` stays `1.9996`, never rounds up to `2.0`).
+  - **Market-buy precision**: quantized `DOWN` to fixed unit steps (`normalizeMarketBuyPrecision`).
 
 ### Model classes
 - Use Lombok (`@Data`, `@Builder`, `@Value`, etc.) to reduce boilerplate.
@@ -105,14 +112,12 @@ directly with `credentials.private-key` / `credentials.funder-wallet`, or via ex
 
 ### Signing compatibility
 
-EIP-712 signing, When modifying `L1Eip712Signer`, `OrderBuilder`, or `OrderUtils`, Also verify salt masking matches
-`rs-clob-client/src/clob/order_builder.rs` (`to_ieee_754_int`).
+EIP-712 signing: when modifying `L1Eip712Signer`, `OrderBuilder`, or `OrderUtils`, verify salt masking
+matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/rs-clob-client-v2`.
 
 ### Testing conventions
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Current test suite contains 49 `*Test.java` classes under `src/test/java`
+- Current test suite contains 57 `*Test.java` classes under `src/test/java`
 
-### Proxy support
-`HttpClient` supports HTTP proxies (e.g., Bright Data) via `ProxyConfig`. Configure via `config.properties` with `proxy.enabled`, `proxy.host`, `proxy.port`, `proxy.username`, `proxy.password`, or build `ProxyConfig.fromEnvironment()`.

@@ -560,9 +560,13 @@ public final class OrderBuilder {
 
         boolean isBuy = side == Side.BUY;
         BigDecimal baseAmount = roundedSize;
+        // Reference clients truncate the amount (Rust trunc_with_scale; TS roundUp→roundDown), never
+        // round it up. Price is pre-rounded to tick and amount == price+size decimals, so the product
+        // already fits in `amount` decimals (this only pads) — but DOWN matches the reference and
+        // stays correct if that invariant ever changes.
         BigDecimal calculatedAmount = roundedSize
             .multiply(price)
-            .setScale(config.amount(), RoundingMode.HALF_UP);
+                .setScale(config.amount(), RoundingMode.DOWN);
 
         String makerAmount = toBlockchainUnits(
             isBuy ? calculatedAmount : baseAmount
