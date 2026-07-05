@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.polymarket.client.ApiKeyCreds;
-import com.polymarket.client.L2HmacSigner;
 import com.polymarket.ws.model.BestBidAsk;
 import com.polymarket.ws.model.BookUpdate;
 import com.polymarket.ws.model.LastTradePrice;
@@ -109,7 +108,6 @@ public final class WsClient {
     private final ApiKeyCreds apiKeyCreds;
     private final String walletAddress;
     private final boolean emitMidpointUpdates;
-    private final L2HmacSigner l2Signer = new L2HmacSigner();
 
     /** Registry of typed per-subscription callbacks (Rust parity). */
     private final TypedCallbackRegistry typedCallbacks = new TypedCallbackRegistry();
@@ -531,12 +529,12 @@ public final class WsClient {
         try {
             ObjectNode msg = MAPPER.createObjectNode();
             msg.put("type", "user");
-            msg.put("operation", operation);
             ArrayNode mkt = msg.putArray("markets");
             markets.forEach(mkt::add);
             if ("subscribe".equals(operation)) {
-                msg.put("initial_dump", true);
-                appendL2Auth(msg);
+                appendAuth(msg);
+            } else {
+                msg.put("operation", operation);
             }
             ws.send(MAPPER.writeValueAsString(msg));
         } catch (Exception e) {
@@ -545,22 +543,18 @@ public final class WsClient {
     }
 
     /**
-     * Append L2 HMAC auth fields to a subscription JSON node.
+     * Attach credentials to a user-channel subscribe request.
      *
-     * <p>The Polymarket user channel expects {@code apiKey}, {@code secret},
-     * {@code passphrase}, {@code timestamp}, and {@code signature} embedded
-     * in the subscription request.
+     * <p>The Polymarket user channel expects a nested {@code auth} object holding
+     * {@code apiKey}, {@code secret}, and {@code passphrase} — no HMAC signature or
+     * timestamp. Sending the older top-level {@code signature}/{@code timestamp}
+     * shape makes the server drop the connection the instant the frame arrives.
      */
-    private void appendL2Auth(ObjectNode node) {
-        long ts = System.currentTimeMillis() / 1000L;
-        String signature = l2Signer.sign(
-            apiKeyCreds.getSecret(), ts, "GET", "/ws/user", ""
-        );
-        node.put("apiKey",     apiKeyCreds.getKey());
-        node.put("secret",     apiKeyCreds.getSecret());
-        node.put("passphrase", apiKeyCreds.getPassphrase());
-        node.put("timestamp",  String.valueOf(ts));
-        node.put("signature",  signature);
+    private void appendAuth(ObjectNode node) {
+        ObjectNode auth = node.putObject("auth");
+        auth.put("apiKey",     apiKeyCreds.getKey());
+        auth.put("secret",     apiKeyCreds.getSecret());
+        auth.put("passphrase", apiKeyCreds.getPassphrase());
     }
 
     private void requireUserAuth() {
