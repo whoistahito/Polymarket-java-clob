@@ -1,17 +1,26 @@
 package com.polymarket.integration;
 
 import com.polymarket.client.ApiKeyCreds;
+import com.polymarket.client.AsyncPolymarketClient;
+import com.polymarket.client.HttpStatusException;
 import com.polymarket.client.PolymarketClient;
-import com.polymarket.integration.LiveTestSupport.*;
 import com.polymarket.model.*;
+import com.polymarket.ws.WsClient;
+import com.polymarket.ws.WsMessageListener;
+import com.polymarket.ws.model.WsMessage;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static com.polymarket.integration.LiveTestSupport.*;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -23,11 +32,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * market to canary on. See {@link LiveTestSupport} for the domain model and configuration knobs.
  *
  * <p>{@link #bootstrap()} authenticates and resolves the wallet + market once; the numbered checks
- * then exercise a facet each. All but {@link #orderLifecycle()} are read-only. The write path posts
- * a <b>GTC buy at the minimum tick price</b>, marked <b>post-only</b>, capped at {@code
- * POLYMARKET_MAX_SPEND} — three independent rails ensure it can never fill (tick price far below
- * market, a pre-submit {@code price < bestAsk} assertion, and exchange-side post-only rejection).
- * It is cancelled by <i>its own id</i> in a {@code finally} block; real orders are never touched.
+ * then exercise a facet each. Every write goes through {@link LiveTestSupport#signNonCrossingBuy}, a
+ * BUY at the minimum tick that <b>provably cannot fill</b> (three rails: tick price far below
+ * market, a pre-submit {@code price < bestAsk} check, and — for resting orders — exchange-side
+ * post-only rejection). Order sizes come from the market's {@code orderMinSize}, bounded by a hard
+ * {@code POLYMARKET_MAX_SPEND} notional cap. Every order is cancelled by <i>its own id</i>; real
+ * orders on the account are never touched. No order ever crosses the book, so none can fill.
  */
 @DisplayName("Live CLOB smoke test (opt-in)")
 @EnabledIfEnvironmentVariable(named = "POLYMARKET_LIVE", matches = "1")
@@ -67,6 +77,10 @@ class LiveSmokeTest {
         log("using token %s tickSize=%s negRisk=%s",
                 redact(market.tokenId()), market.tickSize(), market.negRisk());
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Read-only checks
+    // ---------------------------------------------------------------------------------------------
 
     @Test
     @Order(1)
@@ -143,67 +157,228 @@ class LiveSmokeTest {
 
     @Test
     @Order(7)
-    @DisplayName("place a non-fillable GTC order, see it resting, then cancel it")
+    @DisplayName("trade history reads (list, possibly empty)")
+    void tradeHistoryReads() throws Exception {
+        List<Trade> trades = client.getTrades();
+        assertNotNull(trades, "getTrades returned null");
+        log("account has %d trade(s)", trades.size());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Write path — every order is provably non-fillable and cleaned up
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @Order(8)
+    @DisplayName("GTC: place a non-fillable order, see it resting, then cancel it")
     void orderLifecycle() throws Exception {
-        OrderBookSummary book = market.book();
-        BigDecimal price = new BigDecimal(market.tickSize()); // lowest possible price
-        BigDecimal bestAsk = bestAskPrice(book.getAsks());
-        // A buy fills only if price >= bestAsk. Refuse to place anything that could cross.
-        assertTrue(
-                bestAsk == null || price.compareTo(bestAsk) < 0,
-                "price " + price + " would cross bestAsk " + bestAsk
-                        + " — pick a market not trading at the minimum tick");
-
-        BigDecimal size = new BigDecimal(
-                firstNonBlank(cfg.testSizeOverride(), firstNonBlank(book.getMinOrderSize(), "5")));
-        BigDecimal notional = price.multiply(size);
-        assertTrue(
-                notional.compareTo(cfg.maxSpend()) <= 0,
-                "notional " + notional + " exceeds POLYMARKET_MAX_SPEND " + cfg.maxSpend());
-        log("will rest BUY size=%s @ price=%s (notional=%s, cap=%s)", size, price, notional, cfg.maxSpend());
-
-        String createdOrderId = null;
+        SignedOrder signed = signNonCrossingBuy(client, market, cfg, null, resolveSize(market, cfg));
+        log("signed order: maker=%s signer=%s sigType=%s",
+                redact(signed.maker()), redact(signed.signer()), signed.signatureType());
+        String id = null;
         try {
-            SignedOrder signed = client.createOrder(
-                    UserOrder.builder()
-                            .tokenID(market.tokenId())
-                            .price(price)
-                            .size(size)
-                            .side(Side.BUY)
-                            .build(),
-                    CreateOrderOptions.builder().tickSize(market.tickSize()).negRisk(market.negRisk()).build());
-            assertNotNull(signed, "createOrder returned null");
-            log("signed order: maker=%s signer=%s sigType=%s",
-                    redact(signed.maker()), redact(signed.signer()), signed.signatureType());
-
-            // GTC + postOnly: a resting maker order the exchange rejects if it would ever cross.
             OrderResponse resp = client.postOrder(signed, OrderType.GTC, true, false);
-            assertNotNull(resp, "postOrder returned null");
             assertTrue(resp.success(), "postOrder failed: " + resp.errorMsg());
-            createdOrderId = resp.orderID();
-            assertNotNull(createdOrderId, "no orderID in response");
-            log("posted order %s (status=%s)", createdOrderId, resp.status());
+            id = resp.orderID();
+            assertNotNull(id, "no orderID in response");
+            log("posted order %s (status=%s)", id, resp.status());
 
-            assertTrue(
-                    containsOrder(client.getOpenOrders(), createdOrderId),
-                    "posted order not found in open orders");
+            assertTrue(containsOrder(client.getOpenOrders(), id), "posted order not found in open orders");
 
-            client.cancelOrder(createdOrderId);
-            log("cancelled order %s", createdOrderId);
-
-            assertTrue(
-                    !containsOrder(client.getOpenOrders(), createdOrderId),
-                    "order still open after cancel");
-            createdOrderId = null; // cleaned up
+            client.cancelOrder(id);
+            assertTrue(!containsOrder(client.getOpenOrders(), id), "order still open after cancel");
+            id = null; // cleaned up
         } finally {
-            if (createdOrderId != null) {
+            cleanup(id);
+        }
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("GTC: single-order fetch by id round-trips")
+    void getOrderByIdRoundTrips() throws Exception {
+        SignedOrder signed = signNonCrossingBuy(client, market, cfg, null, resolveSize(market, cfg));
+        String id = null;
+        try {
+            OrderResponse resp = client.postOrder(signed, OrderType.GTC, true, false);
+            assertTrue(resp.success(), "postOrder failed: " + resp.errorMsg());
+            id = resp.orderID();
+
+            OpenOrder fetched = client.getOrder(id);
+            assertNotNull(fetched, "getOrder returned null");
+            assertEquals(id, fetched.getId(), "getOrder returned a different order");
+            assertEquals(market.tokenId(), fetched.getAssetId(), "getOrder asset id mismatch");
+        } finally {
+            cleanup(id);
+        }
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("GTD: order rests with an expiry, then cancel")
+    void gtdOrderRestsThenCancel() throws Exception {
+        long expiration = Instant.now().getEpochSecond() + 300; // 5 min out; cancelled well before
+        SignedOrder signed = signNonCrossingBuy(client, market, cfg, expiration, resolveSize(market, cfg));
+        String id = null;
+        try {
+            OrderResponse resp = client.postOrder(signed, OrderType.GTD, true, false);
+            assertTrue(resp.success(), "GTD postOrder failed: " + resp.errorMsg());
+            id = resp.orderID();
+            assertTrue(containsOrder(client.getOpenOrders(), id), "GTD order not resting");
+
+            client.cancelOrder(id);
+            assertTrue(!containsOrder(client.getOpenOrders(), id), "GTD order still open after cancel");
+            id = null;
+        } finally {
+            cleanup(id);
+        }
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("FOK/FAK: marketable orders don't rest (killed or rejected), never fill")
+    void marketableOrdersDoNotRest() throws Exception {
+        // Sized at the market minimum (orderMinSize) and priced at the tick, so they cannot cross
+        // and never fill. The exchange either kills them or rejects them (its own marketable-size
+        // rule) — either way nothing rests. Exercises the FOK/FAK submit path without spending.
+        for (OrderType type : List.of(OrderType.FOK, OrderType.FAK)) {
+            SignedOrder signed = signNonCrossingBuy(client, market, cfg, null, resolveSize(market, cfg));
+            postExpectingNoResting(signed, type, false, type + " non-crossing");
+        }
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("batch cancel removes multiple resting orders in one call")
+    void batchCancelRemovesAll() throws Exception {
+        BigDecimal size = resolveSize(market, cfg);
+        List<String> ids = new ArrayList<>();
+        try {
+            for (BigDecimal s : List.of(size, size.add(BigDecimal.ONE))) {
+                SignedOrder signed = signNonCrossingBuy(client, market, cfg, null, s);
+                OrderResponse resp = client.postOrder(signed, OrderType.GTC, true, false);
+                assertTrue(resp.success(), "postOrder failed: " + resp.errorMsg());
+                ids.add(resp.orderID());
+            }
+            client.cancelOrders(ids);
+
+            List<OpenOrder> open = client.getOpenOrders();
+            for (String id : ids) {
+                assertTrue(!containsOrder(open, id), "order " + id + " still open after batch cancel");
+            }
+            ids.clear();
+        } finally {
+            if (!ids.isEmpty()) {
                 try {
-                    client.cancelOrder(createdOrderId);
-                    log("cleanup cancelled leftover order %s", createdOrderId);
+                    client.cancelOrders(ids);
                 } catch (Exception e) {
-                    log("CLEANUP FAILED for %s — cancel it manually: %s", createdOrderId, e.getMessage());
+                    log("CLEANUP FAILED for %s — cancel manually: %s", ids, e.getMessage());
                 }
             }
+        }
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("async wrapper runs the full order lifecycle")
+    void asyncOrderLifecycle() throws Exception {
+        AsyncPolymarketClient async = AsyncPolymarketClient.wrap(client);
+        SignedOrder signed = signNonCrossingBuy(client, market, cfg, null, resolveSize(market, cfg));
+        String id = null;
+        try {
+            OrderResponse resp = async.postOrder(signed, OrderType.GTC, true, false).get(30, TimeUnit.SECONDS);
+            assertTrue(resp.success(), "async postOrder failed: " + resp.errorMsg());
+            id = resp.orderID();
+            assertTrue(
+                    containsOrder(async.getOpenOrders().get(30, TimeUnit.SECONDS), id),
+                    "async order not resting");
+
+            async.cancelOrder(id).get(30, TimeUnit.SECONDS);
+            assertTrue(
+                    !containsOrder(async.getOpenOrders().get(30, TimeUnit.SECONDS), id),
+                    "async order still open after cancel");
+            id = null;
+        } finally {
+            if (id != null) {
+                try {
+                    async.cancelOrder(id).get(30, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    log("CLEANUP FAILED for %s — cancel manually: %s", id, e.getMessage());
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Live feed
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @Order(15)
+    @DisplayName("WS market channel streams a book snapshot")
+    void wsMarketChannelStreamsBook() throws Exception {
+        CountDownLatch got = new CountDownLatch(1);
+        AtomicReference<WsMessage> first = new AtomicReference<>();
+        WsClient ws = WsClient.builder()
+                .listener(new WsMessageListener() {
+                    @Override
+                    public void onMessage(WsMessage m) {
+                        if (first.compareAndSet(null, m)) got.countDown();
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        log("ws error: %s", e.getMessage());
+                    }
+
+                    @Override
+                    public void onClose(int code, String reason) {
+                    }
+                })
+                .build();
+        try {
+            ws.subscribeMarket(List.of(market.tokenId()));
+            assertTrue(got.await(15, TimeUnit.SECONDS), "no WS message within 15s of subscribing");
+            log("ws first message: %s", first.get().getClass().getSimpleName());
+        } finally {
+            ws.close();
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Local helpers
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Posts an order that must never rest — a marketable kill (FOK/FAK) or a post-only rejection.
+     * Tolerates both server outcomes: an HTTP rejection (exception) or a non-resting response. Fails
+     * only if the order actually rests, and cancels it if so.
+     */
+    private void postExpectingNoResting(SignedOrder signed, OrderType type, boolean postOnly, String label)
+            throws Exception {
+        try {
+            OrderResponse resp = client.postOrder(signed, type, postOnly, false);
+            log("%s -> success=%s status=%s err=%s", label, resp.success(), resp.status(), resp.errorMsg());
+            String id = resp.orderID();
+            if (id != null && containsOrder(client.getOpenOrders(), id)) {
+                client.cancelOrder(id); // safety: should never happen for a kill/rejection
+                fail(label + " unexpectedly rested (id=" + id + ")");
+            }
+        } catch (HttpStatusException e) {
+            log("%s -> rejected by exchange: %s", label, e.getMessage()); // e.g. post-only cross
+        }
+    }
+
+    /**
+     * Best-effort cancel of a leftover order id in a finally block.
+     */
+    private void cleanup(String id) {
+        if (id == null) return;
+        try {
+            client.cancelOrder(id);
+            log("cleanup cancelled leftover order %s", id);
+        } catch (Exception e) {
+            log("CLEANUP FAILED for %s — cancel it manually: %s", id, e.getMessage());
         }
     }
 }

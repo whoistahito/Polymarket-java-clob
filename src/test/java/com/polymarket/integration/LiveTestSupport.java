@@ -261,6 +261,54 @@ final class LiveTestSupport {
     }
 
     // -------------------------------------------------------------------------------------------
+    // Order construction (write path, but nothing here submits — the test does that)
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * Order size: explicit override, else the book's min, else a safe default.
+     */
+    static BigDecimal resolveSize(CanaryMarket m, EnvConfig cfg) {
+        return new BigDecimal(firstNonBlank(cfg.testSizeOverride(),
+                firstNonBlank(m.book().getMinOrderSize(), "5")));
+    }
+
+    /**
+     * Create options carrying the market's tick, neg-risk, and per-market {@code orderMinSize}.
+     */
+    static CreateOrderOptions orderOptions(CanaryMarket m) {
+        String min = m.book().getMinOrderSize();
+        return CreateOrderOptions.builder()
+                .tickSize(m.tickSize()).negRisk(m.negRisk())
+                .orderMinSize(min != null && !min.isBlank() ? new BigDecimal(min) : null)
+                .build();
+    }
+
+    /**
+     * Signs a BUY at the minimum tick — provably non-crossing, so it can never fill regardless of
+     * order type (GTC rests, FOK/FAK die). Throws if the market is trading at the tick (would cross)
+     * or the notional exceeds {@code POLYMARKET_MAX_SPEND}. Pass a non-null {@code expiration} (unix
+     * seconds) to make it a GTD order.
+     */
+    static SignedOrder signNonCrossingBuy(
+            PolymarketClient client, CanaryMarket m, EnvConfig cfg, Long expiration, BigDecimal size)
+            throws Exception {
+        BigDecimal price = new BigDecimal(m.tickSize());
+        BigDecimal bestAsk = bestAskPrice(m.book().getAsks());
+        if (bestAsk != null && price.compareTo(bestAsk) >= 0) {
+            throw new IllegalStateException("tick price " + price + " would cross bestAsk " + bestAsk
+                    + " — pick a market not trading at the minimum tick");
+        }
+        BigDecimal notional = price.multiply(size);
+        if (notional.compareTo(cfg.maxSpend()) > 0) {
+            throw new IllegalStateException("notional " + notional + " exceeds cap " + cfg.maxSpend());
+        }
+        UserOrder.UserOrderBuilder ub = UserOrder.builder()
+                .tokenID(m.tokenId()).price(price).size(size).side(Side.BUY);
+        if (expiration != null) ub.expiration(expiration);
+        return client.createOrder(ub.build(), orderOptions(m));
+    }
+
+    // -------------------------------------------------------------------------------------------
     // Misc utilities
     // -------------------------------------------------------------------------------------------
 
