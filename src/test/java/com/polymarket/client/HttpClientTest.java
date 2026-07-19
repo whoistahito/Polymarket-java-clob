@@ -1,6 +1,7 @@
 package com.polymarket.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.polymarket.model.OrderResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +106,18 @@ class HttpClientTest {
         Map<String, Object> order = (Map<String, Object>) result.get("order");
         assertEquals("123", order.get("tokenId"));
         assertEquals("BUY", order.get("side"));
+    }
+
+    @Test
+    @DisplayName("TC-HC-007a: Official orderID field deserializes explicitly")
+    void testOrderResponseIdDeserialization() throws JsonProcessingException {
+        OrderResponse response = client.parseJson(
+                "{\"success\":true,\"errorMsg\":\"\",\"orderID\":\"0xabc\",\"status\":\"matched\"}",
+                OrderResponse.class);
+
+        assertTrue(response.success());
+        assertEquals("0xabc", response.orderID());
+        assertEquals("matched", response.status());
     }
 
     @Test

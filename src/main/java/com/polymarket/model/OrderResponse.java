@@ -1,6 +1,7 @@
 package com.polymarket.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import lombok.Builder;
 
@@ -21,7 +22,7 @@ import lombok.Builder;
 public record OrderResponse(
     boolean success,
     String errorMsg,
-    String orderID,
+    @JsonProperty("orderID") String orderID,
     List<String> transactionsHashes,
     List<String> tradeIDs,
     String status,

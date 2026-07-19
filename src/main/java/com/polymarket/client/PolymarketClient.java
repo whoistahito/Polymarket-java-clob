@@ -618,6 +618,19 @@ public final class PolymarketClient {
   public OrderResponse createAndPostOrder(
       String tokenId, Side side, BigDecimal price, BigDecimal size, OrderType orderType)
       throws IOException {
+    return createAndPostOrder(tokenId, side, price, size, orderType, false, false);
+  }
+
+  /** Create and post a limit order with explicit post-only/deferred-execution flags. */
+  public OrderResponse createAndPostOrder(
+      String tokenId,
+      Side side,
+      BigDecimal price,
+      BigDecimal size,
+      OrderType orderType,
+      boolean postOnly,
+      boolean deferExec)
+      throws IOException {
     requireL2Auth();
 
     String tickSize = getTickSize(tokenId);
@@ -639,7 +652,7 @@ public final class PolymarketClient {
     SignedOrder signedOrder = orderBuilder.buildOrder(userOrder, options, orderType);
 
     PostOrderPayload payload =
-        orderBuilder.buildPayload(signedOrder, apiCreds.getKey(), orderType, false, false);
+        orderBuilder.buildPayload(signedOrder, apiCreds.getKey(), orderType, deferExec, postOnly);
 
     return postOrder(payload);
   }
@@ -714,23 +727,15 @@ public final class PolymarketClient {
       ) throws IOException {
     requireL2Auth();
 
-    String tickSize = getTickSize(tokenId);
-    int feeRateBps = getFeeRateBps(tokenId);
-    boolean negRisk = getNegRisk(tokenId);
-
     UserMarketOrder userOrder =
         UserMarketOrder.builder()
             .tokenID(tokenId)
             .side(side)
             .amount(amount)
-            .feeRateBps(feeRateBps)
             .orderType(orderType)
             .build();
 
-    CreateOrderOptions options =
-        CreateOrderOptions.builder().tickSize(tickSize).negRisk(negRisk).build();
-
-    SignedOrder signedOrder = orderBuilder.buildMarketOrder(userOrder, options);
+    SignedOrder signedOrder = createMarketOrder(userOrder, CreateOrderOptions.builder().build());
 
     PostOrderPayload payload =
         orderBuilder.buildPayload(signedOrder, apiCreds.getKey(), orderType, false, false);
@@ -1150,7 +1155,8 @@ private void invalidateVersionOnMismatch(String message) {
     resolveVersion();
     String tickSize =
         options.tickSize() != null ? options.tickSize() : getTickSize(order.tokenID());
-    boolean negRisk = Boolean.TRUE.equals(options.negRisk());
+    boolean negRisk =
+        options.negRisk() != null ? options.negRisk() : getNegRisk(order.tokenID());
 
     int feeRateBps =
         (order.feeRateBps() != null && order.feeRateBps() > 0)
@@ -1191,7 +1197,8 @@ private void invalidateVersionOnMismatch(String message) {
     resolveVersion();
     String tickSize =
         options.tickSize() != null ? options.tickSize() : getTickSize(order.tokenID());
-    boolean negRisk = Boolean.TRUE.equals(options.negRisk());
+    boolean negRisk =
+        options.negRisk() != null ? options.negRisk() : getNegRisk(order.tokenID());
 
     int feeRateBps =
         (order.feeRateBps() != null && order.feeRateBps() > 0)

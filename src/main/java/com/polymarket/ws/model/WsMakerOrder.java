@@ -22,8 +22,17 @@ public class WsMakerOrder {
 
     private String outcome;
 
+    /** Side of this maker order. Top-level trade side is always the taker's side. */
+    private String side;
+
     /** API key of the maker. */
     private String owner;
 
+    @JsonProperty("maker_address")
+    private String makerAddress;
+
     private String price;
+
+    @JsonProperty("fee_rate_bps")
+    private String feeRateBps;
 }

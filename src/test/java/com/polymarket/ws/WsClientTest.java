@@ -283,6 +283,41 @@ class WsClientTest {
     }
 
     @Test
+    @DisplayName("TC-WS-017c deserialise official nested maker-order fields")
+    void deserialiseTradeMakerOrder() throws Exception {
+        String json = """
+            {
+              "event_type": "trade",
+              "id": "t1",
+              "asset_id": "taker-token",
+              "side": "BUY",
+              "size": "50",
+              "status": "MATCHED",
+              "trader_side": "MAKER",
+              "maker_orders": [{
+                "asset_id": "maker-token",
+                "matched_amount": "6.66",
+                "order_id": "order-1",
+                "side": "SELL",
+                "owner": "api-key",
+                "maker_address": "0xmaker",
+                "price": "0.50",
+                "fee_rate_bps": "0"
+              }]
+            }
+            """;
+
+        TradeMessage trade = (TradeMessage) MAPPER.readValue(json, WsMessage.class);
+        assertEquals("taker-token", trade.getAssetId());
+        assertEquals(1, trade.getMakerOrders().size());
+        assertEquals("maker-token", trade.getMakerOrders().get(0).getAssetId());
+        assertEquals("6.66", trade.getMakerOrders().get(0).getMatchedAmount());
+        assertEquals("SELL", trade.getMakerOrders().get(0).getSide());
+        assertEquals("0xmaker", trade.getMakerOrders().get(0).getMakerAddress());
+        assertEquals("0", trade.getMakerOrders().get(0).getFeeRateBps());
+    }
+
+    @Test
     @DisplayName("TC-WS-017a trade match time from live wire key 'matchtime'")
     void deserialiseTradeMatchTimeLiveKey() throws Exception {
         String json = """

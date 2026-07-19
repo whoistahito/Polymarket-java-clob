@@ -344,8 +344,9 @@ public final class HttpClient {
                     }
                     String body = resp.body().string();
                     if (!resp.isSuccessful()) {
-                        // Keep this minimal; callers can parse body if needed for error details.
                         throw new HttpStatusException(
+                            resp.code(),
+                            body,
                             "HTTP " +
                                 resp.code() +
                                 " for " +
@@ -360,6 +361,10 @@ public final class HttpClient {
                 }
             } catch (IOException e) {
                 lastException = e;
+                if (e instanceof HttpStatusException status
+                    && !isRetryableStatus(status.statusCode())) {
+                    throw e;
+                }
                 if (attempt < attempts - 1) {
                     // brief back-off before retry
                     try { Thread.sleep(200L * (attempt + 1)); } catch (InterruptedException ie) {
@@ -370,6 +375,10 @@ public final class HttpClient {
             }
         }
         throw lastException;
+    }
+
+    private static boolean isRetryableStatus(int statusCode) {
+        return statusCode == 425 || statusCode == 429 || statusCode >= 500;
     }
 
     private static void applyHeaders(

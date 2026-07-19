@@ -77,4 +77,20 @@ class HttpClientRetryTest {
         assertThrows(IOException.class, () -> client.get(url, Collections.emptyMap()));
         assertEquals(1, server.getRequestCount());
     }
+
+    @Test
+    @DisplayName("TC-HCR-004: 400 response is not retried and preserves its body")
+    void testBadRequestIsNotRetried() {
+        server.enqueue(new MockResponse().setResponseCode(400)
+                .setBody("{\"error\":\"no orders found to match with FAK order\"}"));
+
+        HttpClient client = new HttpClient.Builder().maxRetries(2).build();
+        HttpStatusException error = assertThrows(
+                HttpStatusException.class,
+                () -> client.get(server.url("/test").toString(), Collections.emptyMap()));
+
+        assertEquals(400, error.statusCode());
+        assertEquals("{\"error\":\"no orders found to match with FAK order\"}", error.responseBody());
+        assertEquals(1, server.getRequestCount());
+    }
 }

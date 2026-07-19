@@ -368,6 +368,20 @@ public final class AsyncPolymarketClient {
     return async(() -> client.createAndPostOrder(tokenId, side, price, size, orderType));
   }
 
+  public CompletableFuture<OrderResponse> createAndPostOrder(
+      String tokenId,
+      Side side,
+      BigDecimal price,
+      BigDecimal size,
+      OrderType orderType,
+      boolean postOnly,
+      boolean deferExec) {
+    return async(
+        () ->
+            client.createAndPostOrder(
+                tokenId, side, price, size, orderType, postOnly, deferExec));
+  }
+
   public CompletableFuture<List<OrderResponse>> createAndPostOrders(
       List<UserOrder> orders, OrderType orderType) {
     return async(() -> client.createAndPostOrders(orders, orderType));

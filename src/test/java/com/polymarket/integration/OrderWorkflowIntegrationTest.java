@@ -321,16 +321,44 @@ class OrderWorkflowIntegrationTest {
     @Test
     @DisplayName("TC-IT-207: createAndPostMarketOrder() fetches metadata and posts FAK order")
     void testCreateAndPostMarketOrder() throws Exception {
+        enqueue("{\"version\": 2}");
         enqueue("{\"tick_size\": \"0.01\", \"minimum\": 0.01}");
-        enqueue("{\"fee_rate_bps\": 30}");
         enqueue("{\"neg_risk\": false}");
-        // createAndPostMarketOrder calls orderBuilder.buildMarketOrder() directly — no getOrderBook HTTP call
-        enqueue(orderSuccessResponse("live"));
+        enqueue("{\"fee_rate_bps\": 30}");
+        enqueue("""
+                {
+                  "market":"0xmarket", "asset_id":"%s", "timestamp":"1", "hash":"h",
+                  "bids":[], "asks":[{"price":"0.50","size":"500"}],
+                  "min_order_size":"5", "tick_size":"0.01", "neg_risk":false,
+                  "last_trade_price":"0.50"
+                }
+                """.formatted(TOKEN_ID));
+        enqueue(orderSuccessResponse("matched"));
 
         OrderResponse response = client.createAndPostMarketOrder(
                 TOKEN_ID, Side.BUY, new BigDecimal("100"), OrderType.FAK);
 
         assertTrue(response.success());
         assertEquals(ORDER_RESPONSE_ID, response.orderID());
+        assertEquals("matched", response.status());
+    }
+
+    @Test
+    @DisplayName("TC-IT-208: single order overload sends postOnly")
+    void testCreateAndPostSinglePostOnlyOrder() throws Exception {
+        enqueue("{\"tick_size\": \"0.01\", \"minimum\": 0.01}");
+        enqueue("{\"fee_rate_bps\": 30}");
+        enqueue("{\"neg_risk\": false}");
+        enqueue(orderSuccessResponse("live"));
+
+        OrderResponse response = client.createAndPostOrder(
+                TOKEN_ID, Side.SELL, new BigDecimal("0.50"), new BigDecimal("6.66"),
+                OrderType.GTC, true, false);
+
+        assertTrue(response.success());
+        RecordedRequest request = null;
+        for (int i = 0; i < 4; i++) request = server.takeRequest();
+        assertNotNull(request);
+        assertTrue(request.getBody().readUtf8().contains("\"postOnly\":true"));
     }
 }
