@@ -641,6 +641,10 @@ public final class WsClient {
 
         @Override
         public void onFailure(WebSocket ws, Throwable t, Response r) {
+            if (closed) {
+                log.debug("Market channel stopped after client close: {}", t.toString());
+                return;
+            }
             log.error("Market channel failure", t);
             marketState.set(ConnectionState.disconnected());
             synchronized (WsClient.this) { marketWs = null; }
@@ -649,11 +653,17 @@ public final class WsClient {
         }
 
         @Override
+        public void onClosing(WebSocket ws, int code, String reason) {
+            ws.close(code, reason);
+        }
+
+        @Override
         public void onClosed(WebSocket ws, int code, String reason) {
             log.debug("Market channel closed: {} {}", code, reason);
             marketState.set(ConnectionState.disconnected());
             synchronized (WsClient.this) { marketWs = null; }
             listener.onClose(code, reason);
+            scheduleReconnect(ChannelType.MARKET);
         }
     }
 
@@ -673,6 +683,10 @@ public final class WsClient {
 
         @Override
         public void onFailure(WebSocket ws, Throwable t, Response r) {
+            if (closed) {
+                log.debug("User channel stopped after client close: {}", t.toString());
+                return;
+            }
             log.error("User channel failure", t);
             userState.set(ConnectionState.disconnected());
             synchronized (WsClient.this) { userWs = null; }
@@ -681,11 +695,17 @@ public final class WsClient {
         }
 
         @Override
+        public void onClosing(WebSocket ws, int code, String reason) {
+            ws.close(code, reason);
+        }
+
+        @Override
         public void onClosed(WebSocket ws, int code, String reason) {
             log.debug("User channel closed: {} {}", code, reason);
             userState.set(ConnectionState.disconnected());
             synchronized (WsClient.this) { userWs = null; }
             listener.onClose(code, reason);
+            scheduleReconnect(ChannelType.USER);
         }
     }
 
@@ -721,7 +741,11 @@ public final class WsClient {
         }
 
         log.info("{} channel: scheduling reconnect attempt {} in {} ms", channel, attempt, delay);
-        scheduler.schedule(() -> doReconnect(channel, attempt), delay, TimeUnit.MILLISECONDS);
+        try {
+            scheduler.schedule(() -> doReconnect(channel, attempt), delay, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // close() won the race after the closed check above
+        }
     }
 
     private synchronized void doReconnect(ChannelType channel, int attempt) {

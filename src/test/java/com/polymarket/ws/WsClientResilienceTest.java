@@ -8,6 +8,11 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -243,5 +248,39 @@ class WsClientResilienceTest {
         // The important thing is the client doesn't crash
         assertNotNull(client.getConnectionState(ChannelType.MARKET));
         client.close();
+    }
+
+    @Test
+    @DisplayName("TC-WS-M3-051 remote clean close reconnects the market channel")
+    void remoteCleanCloseReconnectsMarketChannel() throws Exception {
+        CountDownLatch reconnected = new CountDownLatch(1);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                @Override public void onOpen(WebSocket webSocket, Response response) {
+                    webSocket.close(1000, "restart");
+                }
+            }));
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                @Override public void onOpen(WebSocket webSocket, Response response) {
+                    reconnected.countDown();
+                }
+                @Override public void onClosing(WebSocket webSocket, int code, String reason) {
+                    webSocket.close(code, reason);
+                }
+            }));
+
+            String wsBase = server.url("/").toString().replaceFirst("^http", "ws");
+            wsBase = wsBase.substring(0, wsBase.length() - 1);
+            WsClient client = WsClient.builder()
+                .listener(noopListener)
+                .wsBase(wsBase)
+                .reconnectDelayMs(25)
+                .maxReconnectAttempts(1)
+                .build();
+
+            client.subscribeMarket(List.of("tok1"));
+            assertTrue(reconnected.await(3, TimeUnit.SECONDS));
+            client.close();
+        }
     }
 }

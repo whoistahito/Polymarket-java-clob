@@ -20,8 +20,8 @@ public interface WsMessageListener {
     /**
      * Called when a WebSocket error occurs (network failure, parse error, etc.).
      *
-     * <p>After this callback the connection is considered closed; call
-     * {@link WsClient#reconnect()} or create a new {@link WsClient} to resume.
+     * <p>After this callback {@link WsClient} automatically schedules a reconnect unless the client
+     * was explicitly closed or its retry limit was reached.
      *
      * @param error the cause of the failure
      */
