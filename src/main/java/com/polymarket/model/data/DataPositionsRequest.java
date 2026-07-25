@@ -27,7 +27,7 @@ import lombok.Value;
  * than one share. Reconciling a partial exit means passing {@code 0} explicitly.
  */
 @Value
-@Builder
+@Builder(toBuilder = true)
 public class DataPositionsRequest {
 
     /** The holder's proxy wallet address (0x-prefixed, 40 hex chars). Required. */

@@ -6,6 +6,7 @@ import com.polymarket.model.data.DataPositionsRequest;
 import com.polymarket.model.data.DataTrade;
 import com.polymarket.model.data.DataTradesRequest;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,12 @@ import java.util.Map;
 public final class DataClient {
 
     static final String DEFAULT_HOST = "https://data-api.polymarket.com";
+
+    /** Documented maximum {@code limit} for {@code GET /positions} (Ticket 036). */
+    static final int MAX_POSITIONS_LIMIT = 500;
+
+    /** Documented maximum {@code offset} for {@code GET /positions} (Ticket 036). */
+    static final int MAX_POSITIONS_OFFSET = 10_000;
 
     private final String host;
     private final HttpClient http;
@@ -92,9 +99,18 @@ public final class DataClient {
     }
 
     /**
-     * Fetches a wallet's current positions from the Data API (Ticket 025).
+     * Fetches ALL of a wallet's current positions from the Data API, following offset pagination to
+     * the end (Ticket 036).
      *
      * <p>Maps to {@code GET https://data-api.polymarket.com/positions}. No authentication required.
+     * {@code limit}/{@code offset} pagination is offset-based, and the response is a bare array with
+     * no total count — reading only the first page silently truncates any wallet holding more than
+     * one page's worth of positions, which the caller cannot detect from the response shape alone.
+     * This method walks {@code offset} forward by the effective page size (the request's own
+     * {@code limit}, clamped to the documented maximum of 500, or 500 itself when unset) until a page
+     * comes back shorter than that page size — the only end-of-data signal the API gives — or until
+     * the documented {@code offset} ceiling of 10,000 is reached. Use {@link
+     * #positionsPaginated(DataPositionsRequest)} for the explicit single-page read.
      *
      * <p>Each returned {@link DataPosition} is an <b>absolute snapshot</b> of the wallet's current
      * holding, not a delta and not a running total: after a sell, a later call legitimately reports a
@@ -102,7 +118,8 @@ public final class DataClient {
      * impose monotonic semantics, because doing so would hide a real reduction.
      *
      * @param req filter parameters; {@code user} is required
-     * @return the wallet's current positions, empty when it holds none; never {@code null}
+     * @return every one of the wallet's current positions across all pages, empty when it holds
+     *     none; never {@code null}
      * @throws IOException on HTTP or deserialization failure
      * @throws IllegalStateException if the request omits {@code user} or sets conflicting filters
      */
@@ -110,11 +127,70 @@ public final class DataClient {
         if (req == null) {
             throw new IllegalArgumentException("a positions request is required");
         }
+        int pageLimit = clampLimit(req.getLimit());
+        int offset = req.getOffset() != null ? req.getOffset() : 0;
+
+        List<DataPosition> results = new ArrayList<>();
+        while (true) {
+            DataPositionsRequest pageReq = req.toBuilder().limit(pageLimit).offset(offset).build();
+            List<DataPosition> page = fetchPositionsPage(pageReq);
+            results.addAll(page);
+
+            if (page.size() < pageLimit) {
+                // A page shorter than what was requested is the only end-of-data signal the API
+                // gives — there is no total count to compare against.
+                return results;
+            }
+            offset += pageLimit;
+            if (offset > MAX_POSITIONS_OFFSET) {
+                // The documented offset ceiling stops the walk here rather than requesting an
+                // offset the API is not obliged to honour.
+                return results;
+            }
+        }
+    }
+
+    /**
+     * Fetches ONE page of positions with no auto-pagination (Ticket 036's explicit single-page API,
+     * mirroring {@link PolymarketClient#getOpenOrdersPaginated}).
+     *
+     * <p>{@code limit} is clamped to the documented maximum of 500, same as {@link
+     * #positions(DataPositionsRequest)}; {@code offset} is used exactly as given.
+     *
+     * @param req filter parameters; {@code user} is required
+     * @return the one page the API returned, empty when it holds no matching positions; never
+     *     {@code null}
+     * @throws IOException on HTTP or deserialization failure
+     * @throws IllegalStateException if the request omits {@code user} or sets conflicting filters
+     */
+    public List<DataPosition> positionsPaginated(DataPositionsRequest req) throws IOException {
+        if (req == null) {
+            throw new IllegalArgumentException("a positions request is required");
+        }
+        Integer requested = req.getLimit();
+        DataPositionsRequest clamped =
+            requested != null && requested > MAX_POSITIONS_LIMIT
+                ? req.toBuilder().limit(MAX_POSITIONS_LIMIT).build()
+                : req;
+        return fetchPositionsPage(clamped);
+    }
+
+    private List<DataPosition> fetchPositionsPage(DataPositionsRequest req) throws IOException {
         String url = buildUrl("positions", req.toQueryParams());
         String json = http.get(url, Collections.emptyMap());
         List<DataPosition> positions =
             http.parseJson(json, new TypeReference<List<DataPosition>>() {});
         return positions == null ? List.of() : positions;
+    }
+
+    private static int clampLimit(Integer requested) {
+        if (requested == null || requested > MAX_POSITIONS_LIMIT) {
+            return MAX_POSITIONS_LIMIT;
+        }
+        // A non-positive limit would make the "short page" end-of-data check in positions() never
+        // trip, looping forever at a fixed offset. Floor it at 1 rather than trust a caller-supplied
+        // page size of 0 or less.
+        return Math.max(1, requested);
     }
 
     // -------------------------------------------------------------------------
