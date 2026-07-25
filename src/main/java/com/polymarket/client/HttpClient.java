@@ -158,24 +158,43 @@ public final class HttpClient {
     }
 
     /**
-     * Returns a derived client sharing this client's connection pool, proxy, object mapper, and
-     * app-level retry budget, but with OkHttp's automatic connection-failure retry disabled
-     * (Ticket 035).
+     * Returns a derived client sharing this client's connection pool, proxy, and object mapper, but
+     * with BOTH of this SDK's automatic-replay mechanisms turned off, unconditionally — not
+     * inherited from this client (Ticket 035).
      *
-     * <p>{@code retryOnConnectionFailure(true)} (the default here, see {@link
-     * #defaultOkHttpClient}) lets OkHttp silently resend a request on a fresh connection after the
-     * original one broke mid-flight — {@code call.execute()} then returns a normal response with no
-     * signal that two requests went out. That is harmless for an idempotent GET, but {@code
-     * POST /order} gives no exactly-once guarantee: a silent resend can put the same order on the
-     * book twice. Order placement must run on the client returned here (or otherwise be exempted
-     * from automatic replay); GET/read paths may keep the client that made this call.
+     * <p>{@code POST /order} gives no exactly-once guarantee: a resend can put the same order on the
+     * book twice, so nothing is allowed to resubmit it without the caller's knowledge. Two separate
+     * mechanisms can do exactly that, and both are disabled here regardless of how this client (the
+     * one this method is called on) was configured:
      *
-     * @return a new {@link HttpClient} wrapping the same connection pool with connection-failure
-     *     retry turned off
+     * <ul>
+     *   <li><b>OkHttp's connection-failure retry</b> — {@code retryOnConnectionFailure(true)} (the
+     *       default here, see {@link #defaultOkHttpClient}) lets OkHttp silently resend a request on
+     *       a fresh connection after the original one broke mid-flight; {@code call.execute()} then
+     *       returns a normal response with no signal that two requests went out.</li>
+     *   <li><b>This class's own app-level retry loop</b> ({@link #executeToString}, governed by
+     *       {@link #maxRetries}) — it retries on any {@link IOException} and on retryable HTTP
+     *       statuses (425/429/5xx) for ANY method, including POST. If the derived client inherited
+     *       this client's {@code maxRetries}, a caller who raises it for GET resilience would
+     *       silently re-enable the exact POST /order replay this method exists to remove. The
+     *       returned client is therefore hardcoded to {@code maxRetries = 0}, independent of this
+     *       client's value, so order placement is immune by construction rather than by the accident
+     *       of whoever built this client leaving retries at zero.</li>
+     * </ul>
+     *
+     * <p>Order placement must run on the client returned here (or otherwise be exempted from both
+     * mechanisms above); GET/read paths may keep the client that made this call, retry budget and
+     * all — repeating a lost read is safe.
+     *
+     * @return a new {@link HttpClient} wrapping the same connection pool, with connection-failure
+     *     retry turned off and the app-level retry budget forced to zero
      */
     public HttpClient withoutConnectionFailureRetry() {
         OkHttpClient noReplayOk = ok.newBuilder().retryOnConnectionFailure(false).build();
-        return new HttpClient(noReplayOk, mapper, proxyConfig, maxRetries);
+        // maxRetries is hardcoded to 0, NOT inherited as `this.maxRetries`: see the class-level
+        // mechanism #2 above. Order placement must never replay, no matter what a caller sets for
+        // reads.
+        return new HttpClient(noReplayOk, mapper, proxyConfig, 0);
     }
 
     // =========================================================================

@@ -63,10 +63,12 @@ public final class PolymarketClient {
     this.funderAddress = builder.funderAddress;
     this.signatureType = builder.signatureType;
     this.http = builder.http;
-    // POST /order is not idempotent (Ticket 035): OkHttp's own connection-failure retry could
-    // transparently resend a lost submission and duplicate a live order on the book, so order
-    // placement runs on a client with that behaviour disabled. Every other path keeps using `http`,
-    // where OkHttp replaying a lost GET is safe.
+    // POST /order is not idempotent (Ticket 035): either OkHttp's own connection-failure retry, or
+    // this SDK's app-level maxRetries loop (HttpClient#executeToString), could transparently resend
+    // a lost submission and duplicate a live order on the book. withoutConnectionFailureRetry()
+    // disables both — unconditionally, not inherited from `http`'s own maxRetries — so raising
+    // maxRetries for read resilience can never re-enable an order-submission replay. Every other
+    // path keeps using `http`, where replaying a lost GET/read is safe.
     this.orderHttp = this.http.withoutConnectionFailureRetry();
     this.useServerTime = builder.useServerTime;
     this.geoBlockToken = builder.geoBlockToken;
