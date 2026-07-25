@@ -15,22 +15,29 @@ import com.polymarket.ws.model.NewMarket;
 import com.polymarket.ws.model.OrderBookLevel;
 import com.polymarket.ws.model.OrderMessage;
 import com.polymarket.ws.model.PriceChange;
+import com.polymarket.ws.model.PriceChangeBatchEntry;
 import com.polymarket.ws.model.TickSizeChange;
 import com.polymarket.ws.model.TradeMessage;
 import com.polymarket.ws.model.WsMessage;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -54,26 +61,30 @@ import org.slf4j.LoggerFactory;
  *       {@code trade} and {@code order} events.</li>
  * </ul>
  *
- * <p>Build via the nested {@link Builder}:
+ * <h3>Registration is separate from subscription (Ticket 026)</h3>
+ *
+ * <p>{@code register*} methods are purely local: they attach a typed callback with a token/market
+ * filter and open no socket and send no frame. Subscription is a separate, explicit act. Register
+ * every handler first, then subscribe once — that ordering is what guarantees the initial snapshot
+ * cannot arrive before a handler exists to receive it:
+ *
  * <pre>{@code
- * WsClient ws = WsClient.builder()
- *     .listener(myListener)
- *     .build();
- * ws.subscribeMarket(List.of("token123..."));
+ * WsClient ws = WsClient.builder().listener(myListener).build();
+ * ws.registerBookUpdates(tokens, book -> ...);
+ * ws.registerPriceChanges(tokens, change -> ...);
+ * ws.subscribeMarket(tokens);           // one frame, one initial dump
  * }</pre>
  *
- * <p>For user-channel subscriptions supply {@link ApiKeyCreds} and the wallet
- * address to the builder:
- * <pre>{@code
- * WsClient ws = WsClient.builder()
- *     .apiKeyCreds(creds)
- *     .walletAddress("0x...")
- *     .listener(myListener)
- *     .build();
- * ws.subscribeUser(List.of("0xConditionId..."));
- * }</pre>
+ * <p>The subscribed token set is authoritative: {@link #subscribeMarket(List)} adds to it,
+ * {@link #unsubscribeMarket(List)} removes from it, and a reconnect restores exactly what is in it.
  *
- * <p>Call {@link #close()} to release the WebSocket connection.
+ * <h3>Lifecycle and heartbeats (Ticket 027)</h3>
+ *
+ * <p>Lifecycle callbacks carry the {@link ChannelType} and a per-channel connection generation, so a
+ * consumer can invalidate only the channel that dropped and can tell pre-reconnect data from fresh
+ * data. Each open channel sends the documented text {@code PING} every 10 seconds.
+ *
+ * <p>Call {@link #close()} to release the WebSocket connections.
  */
 public final class WsClient {
 
@@ -87,6 +98,22 @@ public final class WsClient {
 
     private static final String MARKET_PATH = "/ws/market";
     private static final String USER_PATH    = "/ws/user";
+
+    /** The documented heartbeat: the literal text {@code PING}, answered with {@code PONG}. */
+    private static final String PING_FRAME = "PING";
+
+    /** Documented heartbeat cadence: every 10 seconds per open channel. */
+    private static final long DEFAULT_PING_INTERVAL_MS = 10_000L;
+
+    /**
+     * How long a connection must stay up before its reconnect budget is considered spent.
+     *
+     * <p>Resetting the attempt counter on every successful handshake makes {@code
+     * maxReconnectAttempts} meaningless against a server that accepts the handshake and closes
+     * immediately — each cycle looks like a fresh start and the loop never ends. A connection only
+     * counts as healthy once it has survived this long.
+     */
+    private static final long DEFAULT_STABLE_CONNECTION_MS = 30_000L;
 
     /** No-op listener used when the builder caller omits {@link Builder#listener}. */
     private static final WsMessageListener NOOP_LISTENER = new WsMessageListener() {
@@ -108,8 +135,10 @@ public final class WsClient {
     private final ApiKeyCreds apiKeyCreds;
     private final String walletAddress;
     private final boolean emitMidpointUpdates;
+    private final long pingIntervalMs;
+    private final long stableConnectionMs;
 
-    /** Registry of typed per-subscription callbacks (Rust parity). */
+    /** Registry of typed per-subscription callbacks with their token/market filters. */
     private final TypedCallbackRegistry typedCallbacks = new TypedCallbackRegistry();
 
     // Reconnect configuration
@@ -117,10 +146,10 @@ public final class WsClient {
     private final long reconnectDelayMs;    // base delay; doubles each attempt
     private final long maxReconnectDelayMs;
 
-    // Scheduler for reconnect tasks (shared; single-threaded daemon thread)
+    /** Scheduler for reconnect tasks and heartbeats (shared; daemon threads). */
     private final ScheduledExecutorService scheduler =
-        Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "polymarket-ws-reconnect");
+        Executors.newScheduledThreadPool(2, r -> {
+            Thread t = new Thread(r, "polymarket-ws-scheduler");
             t.setDaemon(true);
             return t;
         });
@@ -140,10 +169,29 @@ public final class WsClient {
     private final AtomicInteger marketAttempt = new AtomicInteger(0);
     private final AtomicInteger userAttempt   = new AtomicInteger(0);
 
-    // Stored subscriptions for re-subscription after reconnect
-    private volatile List<String> marketAssetIds = Collections.emptyList();
+    /**
+     * Per-channel connection generation (Ticket 027). Starts at 0 (never connected) and increments
+     * on every successful open, so consumers can date cached state against a connection.
+     */
+    private final AtomicLong marketGeneration = new AtomicLong(0);
+    private final AtomicLong userGeneration   = new AtomicLong(0);
+
+    /** Wall-clock instant each channel last opened, for the stability check above. */
+    private final AtomicLong marketOpenedAtMs = new AtomicLong(0);
+    private final AtomicLong userOpenedAtMs   = new AtomicLong(0);
+
+    /** Per-channel heartbeat tasks, cancelled on close and restarted on reconnect. */
+    private volatile ScheduledFuture<?> marketHeartbeat;
+    private volatile ScheduledFuture<?> userHeartbeat;
+
+    /**
+     * Authoritative subscription sets (Ticket 026). Subscribe adds, unsubscribe removes, and a
+     * reconnect restores exactly these — so subscribing to A and then B reconnects as A+B rather
+     * than as B alone. Insertion-ordered so frames are reproducible.
+     */
+    private final Set<String> marketAssetIds = new LinkedHashSet<>();
     private volatile boolean marketCustomFeatures = false;
-    private volatile List<String> userMarkets = Collections.emptyList();
+    private final Set<String> userMarkets = new LinkedHashSet<>();
 
     /** Set when {@link #close()} is called to suppress further reconnects. */
     private volatile boolean closed = false;
@@ -162,18 +210,40 @@ public final class WsClient {
         this.maxReconnectAttempts = b.maxReconnectAttempts;
         this.reconnectDelayMs     = b.reconnectDelayMs;
         this.maxReconnectDelayMs  = b.maxReconnectDelayMs;
+        this.pingIntervalMs       = b.pingIntervalMs;
+        this.stableConnectionMs   = b.stableConnectionMs;
     }
 
     // --------------------------------------------------------------------- //
-    // Public API                                                              //
+    // Registration handle                                                     //
+    // --------------------------------------------------------------------- //
+
+    /**
+     * Handle to a registered callback (Ticket 026).
+     *
+     * <p>Removing a registration is local and idempotent — it never touches the socket, so tearing
+     * down one consumer's handlers cannot disturb another's subscription.
+     */
+    public interface Registration extends AutoCloseable {
+
+        /** Stop delivering events to this callback. Idempotent. */
+        void remove();
+
+        /** Alias for {@link #remove()} so a registration works in try-with-resources. */
+        @Override
+        default void close() { remove(); }
+    }
+
+    // --------------------------------------------------------------------- //
+    // Subscription API                                                        //
     // --------------------------------------------------------------------- //
 
     /**
      * Open the market channel and subscribe to the given asset IDs.
      *
-     * <p>The underlying WebSocket connection is established lazily on the first call
-     * to this method.  Subsequent calls reuse the same connection and send a new
-     * subscribe frame.
+     * <p>The asset IDs are ADDED to the authoritative subscription set. On a fresh connection the
+     * client sends the documented initial frame (carrying the whole set and {@code initial_dump});
+     * on an already-open connection it sends a dynamic update frame carrying only the new IDs.
      *
      * @param assetIds      token IDs to subscribe to (must not be empty)
      * @param customFeatures if {@code true}, also receive {@code best_bid_ask},
@@ -183,16 +253,25 @@ public final class WsClient {
         if (assetIds == null || assetIds.isEmpty()) {
             throw new IllegalArgumentException("assetIds must not be empty");
         }
-        // Store for re-subscription after reconnect
-        this.marketAssetIds = new ArrayList<>(assetIds);
-        this.marketCustomFeatures = customFeatures;
+        List<String> added = new ArrayList<>();
+        for (String id : assetIds) {
+            if (id != null && marketAssetIds.add(id)) {
+                added.add(id);
+            }
+        }
+        this.marketCustomFeatures = customFeatures || this.marketCustomFeatures;
 
         if (marketWs == null) {
             marketState.set(ConnectionState.connecting());
             marketAttempt.set(0);
+            // The listener registered on this socket sends the INITIAL frame once the handshake
+            // completes: sending before onOpen races the connection and the frame is dropped.
             marketWs = openChannel(wsBase + MARKET_PATH, new MarketWebSocketListener());
+            return;
         }
-        sendMarketSubscription(marketWs, assetIds, customFeatures, "subscribe");
+        if (!added.isEmpty()) {
+            sendMarketUpdate(marketWs, added, "subscribe");
+        }
     }
 
     /** Convenience overload — no custom features. */
@@ -201,49 +280,84 @@ public final class WsClient {
     }
 
     /**
-     * Send an unsubscribe frame for the given asset IDs on the market channel.
+     * Remove the given asset IDs from the authoritative set and send an unsubscribe frame.
+     *
+     * <p>A reconnect after this restores only what remains, so an unsubscribed token never comes
+     * back on its own.
      *
      * @param assetIds token IDs to unsubscribe from
      */
     public synchronized void unsubscribeMarket(List<String> assetIds) {
-        if (marketWs == null) return;
-        sendMarketSubscription(marketWs, assetIds, false, "unsubscribe");
+        if (assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+        List<String> removed = new ArrayList<>();
+        for (String id : assetIds) {
+            if (marketAssetIds.remove(id)) {
+                removed.add(id);
+            }
+        }
+        if (marketWs != null && !removed.isEmpty()) {
+            sendMarketUpdate(marketWs, removed, "unsubscribe");
+        }
     }
 
     /**
      * Open the authenticated user channel and subscribe to the given market condition IDs.
      *
      * <p>Requires {@link Builder#apiKeyCreds(ApiKeyCreds)} and
-     * {@link Builder#walletAddress(String)} to be set.
+     * {@link Builder#walletAddress(String)} to be set. Condition IDs are ADDED to the authoritative
+     * user set.
      *
      * @param markets condition IDs to subscribe to
      */
     public synchronized void subscribeUser(List<String> markets) {
         requireUserAuth();
-        // Store for re-subscription after reconnect
-        this.userMarkets = new ArrayList<>(markets);
+        List<String> added = new ArrayList<>();
+        if (markets != null) {
+            for (String market : markets) {
+                if (market != null && userMarkets.add(market)) {
+                    added.add(market);
+                }
+            }
+        }
 
         if (userWs == null) {
             userState.set(ConnectionState.connecting());
             userAttempt.set(0);
             userWs = openChannel(wsBase + USER_PATH, new UserWebSocketListener());
+            return;
         }
-        sendUserSubscription(userWs, markets, "subscribe");
+        if (!added.isEmpty()) {
+            sendUserSubscription(userWs, added, "subscribe", false);
+        }
     }
 
     /**
-     * Send an unsubscribe frame for the given condition IDs on the user channel.
+     * Remove the given condition IDs from the authoritative set and send an unsubscribe frame.
      *
      * @param markets condition IDs to unsubscribe from
      */
     public synchronized void unsubscribeUser(List<String> markets) {
-        if (userWs == null) return;
-        sendUserSubscription(userWs, markets, "unsubscribe");
+        if (markets == null || markets.isEmpty()) {
+            return;
+        }
+        List<String> removed = new ArrayList<>();
+        for (String market : markets) {
+            if (userMarkets.remove(market)) {
+                removed.add(market);
+            }
+        }
+        if (userWs != null && !removed.isEmpty()) {
+            sendUserSubscription(userWs, removed, "unsubscribe", false);
+        }
     }
 
-    /** Close both the market and user WebSocket connections and stop the reconnect scheduler. */
+    /** Close both the market and user WebSocket connections and stop all scheduled work. */
     public synchronized void close() {
         closed = true;
+        cancelHeartbeat(ChannelType.MARKET);
+        cancelHeartbeat(ChannelType.USER);
         scheduler.shutdownNow();
         if (marketWs != null) {
             marketWs.close(1000, "Client closed");
@@ -258,19 +372,15 @@ public final class WsClient {
     }
 
     // --------------------------------------------------------------------- //
-    // Health-check API (Milestone 3)                                         //
+    // Health-check API                                                       //
     // --------------------------------------------------------------------- //
 
-    /**
-     * Returns {@code true} if the market channel is in the {@link ConnectionState.Connected} state.
-     */
+    /** Returns {@code true} if the market channel is connected. */
     public boolean isMarketConnected() {
         return marketState.get().isConnected();
     }
 
-    /**
-     * Returns {@code true} if the user channel is in the {@link ConnectionState.Connected} state.
-     */
+    /** Returns {@code true} if the user channel is connected. */
     public boolean isUserConnected() {
         return userState.get().isConnected();
     }
@@ -288,197 +398,223 @@ public final class WsClient {
     }
 
     /**
-     * Returns the total number of subscribed asset IDs across both channels.
+     * Returns the channel's connection generation (Ticket 027): {@code 0} before it has ever
+     * connected, then 1 for the first connection and incrementing on each reconnect.
      *
-     * <p>Counts market channel asset IDs plus user channel market IDs.
+     * <p>Data received under an older generation predates the current connection and must not be
+     * combined with data received under the current one.
      */
-    public int getSubscriptionCount() {
+    public long getConnectionGeneration(ChannelType channel) {
+        return switch (channel) {
+            case MARKET -> marketGeneration.get();
+            case USER   -> userGeneration.get();
+        };
+    }
+
+    /** The authoritative market subscription set, in subscription order. */
+    public synchronized List<String> getSubscribedAssetIds() {
+        return List.copyOf(marketAssetIds);
+    }
+
+    /** The authoritative user subscription set, in subscription order. */
+    public synchronized List<String> getSubscribedMarkets() {
+        return List.copyOf(userMarkets);
+    }
+
+    /** Total number of subscribed asset IDs plus user market IDs across both channels. */
+    public synchronized int getSubscriptionCount() {
         return marketAssetIds.size() + userMarkets.size();
     }
 
     // --------------------------------------------------------------------- //
-    // Typed per-subscription callbacks (Rust parity)                         //
+    // Registration-only typed callbacks (Ticket 026)                         //
     // --------------------------------------------------------------------- //
 
     /**
-     * Subscribe to real-time orderbook snapshots and register a typed callback.
+     * Register a book-snapshot callback for the given tokens. Performs NO network action.
      *
-     * <p>Mirrors Rust {@code subscribe_orderbook() -> Stream<BookUpdate>}.
-     * Multiple callbacks may be registered; all are invoked for each update.
-     *
-     * @param assetIds token IDs to monitor (opens the market channel if not yet connected)
-     * @param callback receives each {@link BookUpdate}
+     * @param assetIds tokens this callback cares about; empty or {@code null} means every token
+     * @param callback receives each matching {@link BookUpdate}
+     * @return a handle that removes the callback
      */
-    public void onBookUpdate(List<String> assetIds, Consumer<BookUpdate> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.bookUpdates.add(callback);
-        subscribeMarket(assetIds);
+    public Registration registerBookUpdates(
+        Collection<String> assetIds, Consumer<BookUpdate> callback) {
+        return typedCallbacks.bookUpdates.register(assetIds, callback);
     }
 
     /**
-     * Subscribe to real-time price change events and register a typed callback.
+     * Register a price-change callback for the given tokens. Performs NO network action.
      *
-     * <p>Mirrors Rust {@code subscribe_prices() -> Stream<PriceChange>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link PriceChange}
+     * <p>A batched {@code price_change} frame is delivered when ANY entry in the batch matches the
+     * filter; entries for other tokens are still present on the message, so a filtered consumer must
+     * check each entry's {@code asset_id}.
      */
-    public void onPriceChange(List<String> assetIds, Consumer<PriceChange> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.priceChanges.add(callback);
-        subscribeMarket(assetIds);
+    public Registration registerPriceChanges(
+        Collection<String> assetIds, Consumer<PriceChange> callback) {
+        return typedCallbacks.priceChanges.register(assetIds, callback);
+    }
+
+    /** Register a last-trade-price callback for the given tokens. Performs NO network action. */
+    public Registration registerLastTradePrices(
+        Collection<String> assetIds, Consumer<LastTradePrice> callback) {
+        return typedCallbacks.lastTradePrices.register(assetIds, callback);
+    }
+
+    /** Register a tick-size-change callback for the given tokens. Performs NO network action. */
+    public Registration registerTickSizeChanges(
+        Collection<String> assetIds, Consumer<TickSizeChange> callback) {
+        return typedCallbacks.tickSizeChanges.register(assetIds, callback);
     }
 
     /**
-     * Subscribe to last-trade-price updates and register a typed callback.
-     *
-     * <p>Mirrors Rust {@code subscribe_last_trade_price() -> Stream<LastTradePrice>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link LastTradePrice}
-     */
-    public void onLastTradePrice(List<String> assetIds, Consumer<LastTradePrice> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.lastTradePrices.add(callback);
-        subscribeMarket(assetIds);
-    }
-
-    /**
-     * Subscribe to tick-size-change events and register a typed callback.
-     *
-     * <p>Mirrors Rust {@code subscribe_tick_size_change() -> Stream<TickSizeChange>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link TickSizeChange}
-     */
-    public void onTickSizeChange(List<String> assetIds, Consumer<TickSizeChange> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.tickSizeChanges.add(callback);
-        subscribeMarket(assetIds);
-    }
-
-    /**
-     * Subscribe to synthetic midpoint updates and register a typed callback.
+     * Register a synthetic midpoint callback for the given tokens. Performs NO network action.
      *
      * <p>Midpoints are derived from {@link BookUpdate} events: {@code (bestBid + bestAsk) / 2}.
-     * Calling this method automatically enables midpoint derivation regardless of the
-     * {@link Builder#emitMidpointUpdates(boolean)} builder flag.
-     *
-     * <p>Mirrors Rust {@code subscribe_midpoints() -> Stream<MidpointUpdate>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link MidpointUpdate}
+     * Registering one enables midpoint derivation regardless of the builder flag.
      */
-    public void onMidpointUpdate(List<String> assetIds, Consumer<MidpointUpdate> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.midpointUpdates.add(callback);
+    public Registration registerMidpointUpdates(
+        Collection<String> assetIds, Consumer<MidpointUpdate> callback) {
+        return typedCallbacks.midpointUpdates.register(assetIds, callback);
+    }
+
+    /**
+     * Register a best-bid/ask callback for the given tokens. Performs NO network action.
+     *
+     * <p>These events only arrive when the subscription enables custom features — pass
+     * {@code customFeatures = true} to {@link #subscribeMarket(List, boolean)}.
+     */
+    public Registration registerBestBidAsks(
+        Collection<String> assetIds, Consumer<BestBidAsk> callback) {
+        return typedCallbacks.bestBidAsks.register(assetIds, callback);
+    }
+
+    /** Register a new-market callback. Requires custom features on the subscription. */
+    public Registration registerNewMarkets(
+        Collection<String> assetIds, Consumer<NewMarket> callback) {
+        return typedCallbacks.newMarkets.register(assetIds, callback);
+    }
+
+    /** Register a market-resolved callback. Requires custom features on the subscription. */
+    public Registration registerMarketResolutions(
+        Collection<String> assetIds, Consumer<MarketResolved> callback) {
+        return typedCallbacks.marketResolutions.register(assetIds, callback);
+    }
+
+    /**
+     * Register an order-update callback filtered by market condition ID. Performs NO network action.
+     *
+     * @param markets condition IDs this callback cares about; empty or {@code null} means all
+     */
+    public Registration registerOrders(
+        Collection<String> markets, Consumer<OrderMessage> callback) {
+        return typedCallbacks.orders.register(markets, callback);
+    }
+
+    /** Register a trade callback filtered by market condition ID. Performs NO network action. */
+    public Registration registerTrades(
+        Collection<String> markets, Consumer<TradeMessage> callback) {
+        return typedCallbacks.trades.register(markets, callback);
+    }
+
+    /**
+     * Register a callback for every user-channel event (orders and trades), filtered by market
+     * condition ID. Performs NO network action.
+     */
+    public Registration registerUserEvents(
+        Collection<String> markets, Consumer<WsMessage> callback) {
+        return typedCallbacks.userEvents.register(markets, callback);
+    }
+
+    // --------------------------------------------------------------------- //
+    // Deprecated register-and-subscribe callbacks                            //
+    // --------------------------------------------------------------------- //
+
+    /**
+     * @deprecated Sends a subscribe frame as a side effect, so registering several handlers requests
+     *     several initial dumps and a handler registered after the first frame can miss the snapshot
+     *     it was registered for. Use {@link #registerBookUpdates} followed by one explicit
+     *     {@link #subscribeMarket(List)} (Ticket 026).
+     */
+    @Deprecated
+    public void onBookUpdate(List<String> assetIds, Consumer<BookUpdate> callback) {
+        registerBookUpdates(assetIds, callback);
         subscribeMarket(assetIds);
     }
 
-    /**
-     * Subscribe to best-bid/ask events (custom features) and register a typed callback.
-     *
-     * <p>Enables {@code custom_feature_enabled} on the subscription frame.
-     * Mirrors Rust {@code subscribe_best_bid_ask() -> Stream<BestBidAsk>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link BestBidAsk}
-     */
+    /** @deprecated Use {@link #registerPriceChanges} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
+    public void onPriceChange(List<String> assetIds, Consumer<PriceChange> callback) {
+        registerPriceChanges(assetIds, callback);
+        subscribeMarket(assetIds);
+    }
+
+    /** @deprecated Use {@link #registerLastTradePrices} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
+    public void onLastTradePrice(List<String> assetIds, Consumer<LastTradePrice> callback) {
+        registerLastTradePrices(assetIds, callback);
+        subscribeMarket(assetIds);
+    }
+
+    /** @deprecated Use {@link #registerTickSizeChanges} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
+    public void onTickSizeChange(List<String> assetIds, Consumer<TickSizeChange> callback) {
+        registerTickSizeChanges(assetIds, callback);
+        subscribeMarket(assetIds);
+    }
+
+    /** @deprecated Use {@link #registerMidpointUpdates} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
+    public void onMidpointUpdate(List<String> assetIds, Consumer<MidpointUpdate> callback) {
+        registerMidpointUpdates(assetIds, callback);
+        subscribeMarket(assetIds);
+    }
+
+    /** @deprecated Use {@link #registerBestBidAsks} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
     public void onBestBidAsk(List<String> assetIds, Consumer<BestBidAsk> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.bestBidAsks.add(callback);
+        registerBestBidAsks(assetIds, callback);
         subscribeMarket(assetIds, true);
     }
 
-    /**
-     * Subscribe to new-market events (custom features) and register a typed callback.
-     *
-     * <p>Enables {@code custom_feature_enabled} on the subscription frame.
-     * Mirrors Rust {@code subscribe_new_markets() -> Stream<NewMarket>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link NewMarket}
-     */
+    /** @deprecated Use {@link #registerNewMarkets} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
     public void onNewMarket(List<String> assetIds, Consumer<NewMarket> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.newMarkets.add(callback);
+        registerNewMarkets(assetIds, callback);
         subscribeMarket(assetIds, true);
     }
 
-    /**
-     * Subscribe to market-resolved events (custom features) and register a typed callback.
-     *
-     * <p>Enables {@code custom_feature_enabled} on the subscription frame.
-     * Mirrors Rust {@code subscribe_market_resolutions() -> Stream<MarketResolved>}.
-     *
-     * @param assetIds token IDs to monitor
-     * @param callback receives each {@link MarketResolved}
-     */
+    /** @deprecated Use {@link #registerMarketResolutions} plus one explicit subscribe (Ticket 026). */
+    @Deprecated
     public void onMarketResolved(List<String> assetIds, Consumer<MarketResolved> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.marketResolutions.add(callback);
+        registerMarketResolutions(assetIds, callback);
         subscribeMarket(assetIds, true);
     }
 
-    /**
-     * Subscribe to all user-channel events and register a typed callback.
-     *
-     * <p>Receives both {@link TradeMessage} and {@link OrderMessage} events.
-     * Requires {@link Builder#apiKeyCreds(ApiKeyCreds)} and
-     * {@link Builder#walletAddress(String)} to be set.
-     * Mirrors Rust {@code subscribe_user_events() -> Stream<WsMessage>}.
-     *
-     * @param markets condition IDs to monitor
-     * @param callback receives each raw {@link WsMessage} from the user channel
-     */
+    /** @deprecated Use {@link #registerUserEvents} plus one explicit {@link #subscribeUser(List)}. */
+    @Deprecated
     public void onUserEvent(List<String> markets, Consumer<WsMessage> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.userEvents.add(callback);
+        registerUserEvents(markets, callback);
         subscribeUser(markets);
     }
 
-    /**
-     * Subscribe to order-update events on the user channel and register a typed callback.
-     *
-     * <p>Receives only {@link OrderMessage} events (placements, fills, cancellations).
-     * Requires authentication.
-     * Mirrors Rust {@code subscribe_orders() -> Stream<OrderMessage>}.
-     *
-     * @param markets condition IDs to monitor
-     * @param callback receives each {@link OrderMessage}
-     */
+    /** @deprecated Use {@link #registerOrders} plus one explicit {@link #subscribeUser(List)}. */
+    @Deprecated
     public void onOrder(List<String> markets, Consumer<OrderMessage> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.orders.add(callback);
+        registerOrders(markets, callback);
         subscribeUser(markets);
     }
 
-    /**
-     * Subscribe to trade-execution events on the user channel and register a typed callback.
-     *
-     * <p>Receives only {@link TradeMessage} events.
-     * Requires authentication.
-     * Mirrors Rust {@code subscribe_trades() -> Stream<TradeMessage>}.
-     *
-     * @param markets condition IDs to monitor
-     * @param callback receives each {@link TradeMessage}
-     */
+    /** @deprecated Use {@link #registerTrades} plus one explicit {@link #subscribeUser(List)}. */
+    @Deprecated
     public void onTrade(List<String> markets, Consumer<TradeMessage> callback) {
-        Objects.requireNonNull(callback, "callback must not be null");
-        typedCallbacks.trades.add(callback);
+        registerTrades(markets, callback);
         subscribeUser(markets);
     }
 
-    /**
-     * Returns the current market-channel {@link WebSocket}, or {@code null} if
-     * not yet connected.
-     */
+    /** Returns the current market-channel {@link WebSocket}, or {@code null} if not connected. */
     public WebSocket getMarketWebSocket() { return marketWs; }
 
-    /**
-     * Returns the current user-channel {@link WebSocket}, or {@code null} if
-     * not yet connected.
-     */
+    /** Returns the current user-channel {@link WebSocket}, or {@code null} if not connected. */
     public WebSocket getUserWebSocket() { return userWs; }
 
     // --------------------------------------------------------------------- //
@@ -488,7 +624,7 @@ public final class WsClient {
     public static Builder builder() { return new Builder(); }
 
     // --------------------------------------------------------------------- //
-    // Internal helpers                                                        //
+    // Subscription frames                                                     //
     // --------------------------------------------------------------------- //
 
     private WebSocket openChannel(String url, WebSocketListener wsListener) {
@@ -497,34 +633,56 @@ public final class WsClient {
         return okHttp.newWebSocket(request, wsListener);
     }
 
-    private static void sendMarketSubscription(
-        WebSocket ws,
-        List<String> assetIds,
-        boolean customFeatures,
-        String operation
-    ) {
+    /**
+     * Send the INITIAL market subscription for the whole authoritative set: the documented frame
+     * carrying {@code initial_dump}, which is what makes the server replay a full book snapshot for
+     * every subscribed token. Sent on connect and on every reconnect.
+     */
+    private void sendMarketInitialSubscription(WebSocket ws, Collection<String> assetIds) {
+        try {
+            ObjectNode msg = MAPPER.createObjectNode();
+            msg.put("type", "market");
+            msg.put("operation", "subscribe");
+            ArrayNode ids = msg.putArray("assets_ids");
+            assetIds.forEach(ids::add);
+            msg.put("initial_dump", true);
+            if (marketCustomFeatures) {
+                msg.put("custom_feature_enabled", true);
+            }
+            ws.send(MAPPER.writeValueAsString(msg));
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize initial market subscription", e);
+        }
+    }
+
+    /**
+     * Send a DYNAMIC market update frame for a delta of tokens.
+     *
+     * <p>Deliberately omits {@code initial_dump}: that field belongs to the initial subscription, and
+     * re-sending it on every add would make the server replay snapshots for tokens the consumer
+     * already has in sync.
+     */
+    private void sendMarketUpdate(WebSocket ws, Collection<String> assetIds, String operation) {
         try {
             ObjectNode msg = MAPPER.createObjectNode();
             msg.put("type", "market");
             msg.put("operation", operation);
             ArrayNode ids = msg.putArray("assets_ids");
             assetIds.forEach(ids::add);
-            if ("subscribe".equals(operation)) {
-                msg.put("initial_dump", true);
-            }
-            if (customFeatures) {
+            if (marketCustomFeatures) {
                 msg.put("custom_feature_enabled", true);
             }
             ws.send(MAPPER.writeValueAsString(msg));
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize market subscription request", e);
+            log.error("Failed to serialize market {} request", operation, e);
         }
     }
 
     private void sendUserSubscription(
         WebSocket ws,
-        List<String> markets,
-        String operation
+        Collection<String> markets,
+        String operation,
+        boolean initial
     ) {
         try {
             ObjectNode msg = MAPPER.createObjectNode();
@@ -532,7 +690,7 @@ public final class WsClient {
             msg.put("operation", operation);
             ArrayNode mkt = msg.putArray("markets");
             markets.forEach(mkt::add);
-            if ("subscribe".equals(operation)) {
+            if (initial) {
                 msg.put("initial_dump", true);
             }
             appendAuth(msg);
@@ -566,36 +724,120 @@ public final class WsClient {
 
     private static OkHttpClient defaultOkHttpClient() {
         return new OkHttpClient.Builder()
-            .pingInterval(30, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)   // disable read timeout for WS
+            .pingInterval(0, TimeUnit.SECONDS)      // the documented heartbeat is a text PING
+            .readTimeout(0, TimeUnit.MILLISECONDS)  // disable read timeout for WS
             .build();
     }
 
+    // --------------------------------------------------------------------- //
+    // Heartbeats (Ticket 027)                                                //
+    // --------------------------------------------------------------------- //
+
+    /**
+     * Start the documented text heartbeat for a channel: {@code PING} every 10 seconds, which the
+     * server answers with {@code PONG}. An OkHttp protocol ping is NOT the documented protocol and
+     * does not keep the subscription alive.
+     */
+    private void startHeartbeat(ChannelType channel) {
+        cancelHeartbeat(channel);
+        if (closed || pingIntervalMs <= 0) {
+            return;
+        }
+        try {
+            ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
+                () -> sendPing(channel), pingIntervalMs, pingIntervalMs, TimeUnit.MILLISECONDS);
+            if (channel == ChannelType.MARKET) {
+                marketHeartbeat = task;
+            } else {
+                userHeartbeat = task;
+            }
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // close() won the race
+        }
+    }
+
+    private void sendPing(ChannelType channel) {
+        WebSocket ws = channel == ChannelType.MARKET ? marketWs : userWs;
+        if (ws == null || closed) {
+            return;
+        }
+        try {
+            ws.send(PING_FRAME);
+        } catch (RuntimeException e) {
+            // A send failure is surfaced through the socket's own failure callback; swallowing it
+            // here keeps a doomed heartbeat from killing the shared scheduler thread.
+            log.debug("{} channel heartbeat send failed: {}", channel, e.toString());
+        }
+    }
+
+    private void cancelHeartbeat(ChannelType channel) {
+        ScheduledFuture<?> task = channel == ChannelType.MARKET ? marketHeartbeat : userHeartbeat;
+        if (task != null) {
+            task.cancel(false);
+        }
+        if (channel == ChannelType.MARKET) {
+            marketHeartbeat = null;
+        } else {
+            userHeartbeat = null;
+        }
+    }
+
+    // --------------------------------------------------------------------- //
+    // Listener invocation (exception-isolated, Ticket 027)                    //
+    // --------------------------------------------------------------------- //
+
+    /**
+     * Run an application callback without letting it escape.
+     *
+     * <p>An exception thrown by a consumer's {@code onClose}/{@code onError} used to propagate out of
+     * the OkHttp callback and skip the reconnect scheduling that followed it — leaving the channel
+     * permanently dead while the consumer believed it was live.
+     */
+    private void safely(String what, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException | Error e) {
+            log.warn("WebSocket listener threw from {}: {}", what, e.toString(), e);
+        }
+    }
+
+    // --------------------------------------------------------------------- //
+    // Dispatch                                                                //
+    // --------------------------------------------------------------------- //
+
     /** Dispatch a raw JSON frame to the registered listener. */
     private void dispatch(String text) {
+        if (text == null) {
+            return;
+        }
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || "PONG".equalsIgnoreCase(trimmed) || "PING".equalsIgnoreCase(trimmed)) {
+            return; // heartbeat traffic, not a message
+        }
         try {
             // Handle JSON arrays (batch) vs single objects
-            JsonNode root = MAPPER.readTree(text);
+            JsonNode root = MAPPER.readTree(trimmed);
             if (root.isArray()) {
                 for (JsonNode element : root) {
                     dispatchNode(element.toString());
                 }
             } else {
-                dispatchNode(text);
+                dispatchNode(trimmed);
             }
         } catch (Exception e) {
             log.warn("Failed to parse WebSocket frame: {}", text, e);
-            listener.onError(e);
+            safely("onError", () -> listener.onError(e));
         }
     }
 
     private void dispatchNode(String json) throws Exception {
         WsMessage msg = MAPPER.readValue(json, WsMessage.class);
-        listener.onMessage(msg);
+        safely("onMessage", () -> listener.onMessage(msg));
         typedCallbacks.dispatch(msg);
 
         // Optionally derive MidpointUpdate from BookUpdate
-        if ((emitMidpointUpdates || typedCallbacks.hasMidpointCallbacks()) && msg instanceof BookUpdate book) {
+        if ((emitMidpointUpdates || typedCallbacks.midpointUpdates.hasCallbacks())
+            && msg instanceof BookUpdate book) {
             emitMidpoint(book);
         }
     }
@@ -614,7 +856,7 @@ public final class WsClient {
             update.setMarket(book.getMarket());
             update.setMidpoint(mid.toPlainString());
             update.setTimestamp(book.getTimestamp());
-            listener.onMessage(update);
+            safely("onMessage", () -> listener.onMessage(update));
             typedCallbacks.dispatch(update);
         } catch (NumberFormatException e) {
             log.debug("Cannot compute midpoint: {}", e.getMessage());
@@ -628,10 +870,23 @@ public final class WsClient {
     private class MarketWebSocketListener extends WebSocketListener {
         @Override
         public void onOpen(WebSocket ws, Response response) {
-            log.debug("Market channel opened");
-            marketAttempt.set(0);
+            long generation = marketGeneration.incrementAndGet();
+            marketOpenedAtMs.set(System.currentTimeMillis());
             marketState.set(ConnectionState.connected());
-            listener.onOpen();
+            log.debug("Market channel opened (generation {})", generation);
+
+            List<String> ids;
+            synchronized (WsClient.this) {
+                ids = List.copyOf(marketAssetIds);
+            }
+            // Signal BEFORE the subscription frame: everything that follows belongs to this
+            // generation, so a consumer clears freshness here and cannot mix in pre-reconnect data.
+            safely("onResubscribe", () -> listener.onResubscribe(ChannelType.MARKET, generation));
+            if (!ids.isEmpty()) {
+                sendMarketInitialSubscription(ws, ids);
+            }
+            startHeartbeat(ChannelType.MARKET);
+            safely("onOpen", () -> listener.onOpen(ChannelType.MARKET, generation));
         }
 
         @Override
@@ -645,11 +900,18 @@ public final class WsClient {
                 log.debug("Market channel stopped after client close: {}", t.toString());
                 return;
             }
-            log.error("Market channel failure", t);
-            marketState.set(ConnectionState.disconnected());
-            synchronized (WsClient.this) { marketWs = null; }
-            listener.onError(t instanceof Exception ? (Exception) t : new RuntimeException(t));
-            scheduleReconnect(ChannelType.MARKET);
+            long generation = marketGeneration.get();
+            try {
+                log.error("Market channel failure", t);
+                marketState.set(ConnectionState.disconnected());
+                cancelHeartbeat(ChannelType.MARKET);
+                synchronized (WsClient.this) { marketWs = null; }
+                Exception error = t instanceof Exception ex ? ex : new RuntimeException(t);
+                safely("onError", () -> listener.onError(ChannelType.MARKET, generation, error));
+            } finally {
+                // In `finally` so a throwing application callback can never strand the channel.
+                scheduleReconnect(ChannelType.MARKET);
+            }
         }
 
         @Override
@@ -659,21 +921,41 @@ public final class WsClient {
 
         @Override
         public void onClosed(WebSocket ws, int code, String reason) {
-            log.debug("Market channel closed: {} {}", code, reason);
-            marketState.set(ConnectionState.disconnected());
-            synchronized (WsClient.this) { marketWs = null; }
-            listener.onClose(code, reason);
-            scheduleReconnect(ChannelType.MARKET);
+            if (closed) {
+                return;
+            }
+            long generation = marketGeneration.get();
+            try {
+                log.debug("Market channel closed: {} {}", code, reason);
+                marketState.set(ConnectionState.disconnected());
+                cancelHeartbeat(ChannelType.MARKET);
+                synchronized (WsClient.this) { marketWs = null; }
+                safely("onClose",
+                    () -> listener.onClose(ChannelType.MARKET, generation, code, reason));
+            } finally {
+                scheduleReconnect(ChannelType.MARKET);
+            }
         }
     }
 
     private class UserWebSocketListener extends WebSocketListener {
         @Override
         public void onOpen(WebSocket ws, Response response) {
-            log.debug("User channel opened");
-            userAttempt.set(0);
+            long generation = userGeneration.incrementAndGet();
+            userOpenedAtMs.set(System.currentTimeMillis());
             userState.set(ConnectionState.connected());
-            listener.onOpen();
+            log.debug("User channel opened (generation {})", generation);
+
+            List<String> markets;
+            synchronized (WsClient.this) {
+                markets = List.copyOf(userMarkets);
+            }
+            safely("onResubscribe", () -> listener.onResubscribe(ChannelType.USER, generation));
+            // The user channel is authenticated by the subscription frame itself, so it is sent even
+            // with an empty market list (an empty list means "every market").
+            sendUserSubscription(ws, markets, "subscribe", true);
+            startHeartbeat(ChannelType.USER);
+            safely("onOpen", () -> listener.onOpen(ChannelType.USER, generation));
         }
 
         @Override
@@ -687,11 +969,17 @@ public final class WsClient {
                 log.debug("User channel stopped after client close: {}", t.toString());
                 return;
             }
-            log.error("User channel failure", t);
-            userState.set(ConnectionState.disconnected());
-            synchronized (WsClient.this) { userWs = null; }
-            listener.onError(t instanceof Exception ? (Exception) t : new RuntimeException(t));
-            scheduleReconnect(ChannelType.USER);
+            long generation = userGeneration.get();
+            try {
+                log.error("User channel failure", t);
+                userState.set(ConnectionState.disconnected());
+                cancelHeartbeat(ChannelType.USER);
+                synchronized (WsClient.this) { userWs = null; }
+                Exception error = t instanceof Exception ex ? ex : new RuntimeException(t);
+                safely("onError", () -> listener.onError(ChannelType.USER, generation, error));
+            } finally {
+                scheduleReconnect(ChannelType.USER);
+            }
         }
 
         @Override
@@ -701,11 +989,19 @@ public final class WsClient {
 
         @Override
         public void onClosed(WebSocket ws, int code, String reason) {
-            log.debug("User channel closed: {} {}", code, reason);
-            userState.set(ConnectionState.disconnected());
-            synchronized (WsClient.this) { userWs = null; }
-            listener.onClose(code, reason);
-            scheduleReconnect(ChannelType.USER);
+            if (closed) {
+                return;
+            }
+            long generation = userGeneration.get();
+            try {
+                log.debug("User channel closed: {} {}", code, reason);
+                userState.set(ConnectionState.disconnected());
+                cancelHeartbeat(ChannelType.USER);
+                synchronized (WsClient.this) { userWs = null; }
+                safely("onClose", () -> listener.onClose(ChannelType.USER, generation, code, reason));
+            } finally {
+                scheduleReconnect(ChannelType.USER);
+            }
         }
     }
 
@@ -718,11 +1014,33 @@ public final class WsClient {
      *
      * <p>The delay for attempt {@code n} (1-based) is:
      * {@code min(reconnectDelayMs * 2^(n-1), maxReconnectDelayMs)}.
+     *
+     * <p>The attempt counter is reset only by a connection that STAYED UP for
+     * {@code stableConnectionMs}. A server that completes the handshake and closes immediately
+     * therefore burns the retry budget instead of resetting it every cycle.
      */
     private void scheduleReconnect(ChannelType channel) {
         if (closed) return;
 
+        boolean hasSubscriptions;
+        synchronized (this) {
+            hasSubscriptions = channel == ChannelType.MARKET
+                ? !marketAssetIds.isEmpty()
+                : !userMarkets.isEmpty() || apiKeyCreds != null;
+        }
+        if (!hasSubscriptions) {
+            log.debug("{} channel: nothing subscribed — not reconnecting", channel);
+            return;
+        }
+
         AtomicInteger attemptCounter = channel == ChannelType.MARKET ? marketAttempt : userAttempt;
+        AtomicLong openedAt = channel == ChannelType.MARKET ? marketOpenedAtMs : userOpenedAtMs;
+        long uptime = openedAt.get() == 0 ? 0 : System.currentTimeMillis() - openedAt.get();
+        if (uptime >= stableConnectionMs) {
+            attemptCounter.set(0);
+        }
+        openedAt.set(0);
+
         int attempt = attemptCounter.incrementAndGet();
 
         if (maxReconnectAttempts > 0 && attempt > maxReconnectAttempts) {
@@ -752,20 +1070,18 @@ public final class WsClient {
         if (closed) return;
         log.info("{} channel: reconnecting (attempt {})", channel, attempt);
 
+        // The reconnected socket re-subscribes from its own onOpen, using the authoritative set —
+        // so an add or removal made while the channel was down is honoured on reconnect.
         if (channel == ChannelType.MARKET) {
-            if (marketWs != null) return; // already reconnected
-            List<String> ids = marketAssetIds;
-            if (ids.isEmpty()) return;    // nothing to re-subscribe
+            if (marketWs != null) return;   // already reconnected
+            if (marketAssetIds.isEmpty()) return;
             marketState.set(ConnectionState.connecting());
             marketWs = openChannel(wsBase + MARKET_PATH, new MarketWebSocketListener());
-            sendMarketSubscription(marketWs, ids, marketCustomFeatures, "subscribe");
         } else {
             if (userWs != null) return;
-            List<String> markets = userMarkets;
-            if (markets.isEmpty()) return;
+            if (apiKeyCreds == null) return;
             userState.set(ConnectionState.connecting());
             userWs = openChannel(wsBase + USER_PATH, new UserWebSocketListener());
-            sendUserSubscription(userWs, markets, "subscribe");
         }
     }
 
@@ -794,6 +1110,8 @@ public final class WsClient {
         private int maxReconnectAttempts = 0;
         private long reconnectDelayMs    = 1_000L;
         private long maxReconnectDelayMs = 60_000L;
+        private long pingIntervalMs      = DEFAULT_PING_INTERVAL_MS;
+        private long stableConnectionMs  = DEFAULT_STABLE_CONNECTION_MS;
 
         private Builder() {}
 
@@ -870,6 +1188,25 @@ public final class WsClient {
             return this;
         }
 
+        /**
+         * Interval between documented text {@code PING} frames, per open channel
+         * (default: 10 000 ms, the documented cadence). A value {@code <= 0} disables the heartbeat.
+         */
+        public Builder pingIntervalMs(long intervalMs) {
+            this.pingIntervalMs = intervalMs;
+            return this;
+        }
+
+        /**
+         * How long a connection must stay up before its reconnect budget resets
+         * (default: 30 000 ms). Lower it only in tests.
+         */
+        public Builder stableConnectionMs(long stableMs) {
+            if (stableMs < 0) throw new IllegalArgumentException("stableConnectionMs must be >= 0");
+            this.stableConnectionMs = stableMs;
+            return this;
+        }
+
         public WsClient build() {
             return new WsClient(this);
         }
@@ -880,6 +1217,65 @@ public final class WsClient {
     // --------------------------------------------------------------------- //
 
     /**
+     * One callback plus the token/market filter it was registered with.
+     *
+     * <p>An empty filter means "everything"; otherwise the message must match or the callback is not
+     * invoked. Holding the filter alongside the callback is what stops a handler registered for one
+     * token from seeing another token's events.
+     */
+    private static final class FilteredCallback<T> {
+        private final Set<String> filter;
+        private final Consumer<T> callback;
+
+        FilteredCallback(Collection<String> filter, Consumer<T> callback) {
+            this.filter = filter == null || filter.isEmpty()
+                ? Collections.emptySet()
+                : Set.copyOf(filter);
+            this.callback = callback;
+        }
+
+        boolean matches(Predicate<Set<String>> messageMatchesFilter) {
+            return filter.isEmpty() || messageMatchesFilter.test(filter);
+        }
+    }
+
+    /** A list of filtered callbacks for one message type. */
+    private static final class CallbackList<T> {
+
+        private final CopyOnWriteArrayList<FilteredCallback<T>> callbacks =
+            new CopyOnWriteArrayList<>();
+
+        Registration register(Collection<String> filter, Consumer<T> callback) {
+            Objects.requireNonNull(callback, "callback must not be null");
+            FilteredCallback<T> entry = new FilteredCallback<>(filter, callback);
+            callbacks.add(entry);
+            // Removal is by identity and idempotent: removing twice is a no-op, never a surprise.
+            return () -> callbacks.remove(entry);
+        }
+
+        boolean hasCallbacks() {
+            return !callbacks.isEmpty();
+        }
+
+        /**
+         * Invoke every callback whose filter matches. One callback throwing must not stop the rest —
+         * consumers are independent and a recorder's bug must not blind the trading path.
+         */
+        void dispatch(T message, Predicate<Set<String>> messageMatchesFilter) {
+            for (FilteredCallback<T> entry : callbacks) {
+                if (!entry.matches(messageMatchesFilter)) {
+                    continue;
+                }
+                try {
+                    entry.callback.accept(message);
+                } catch (RuntimeException | Error e) {
+                    log.warn("WebSocket callback threw: {}", e.toString(), e);
+                }
+            }
+        }
+    }
+
+    /**
      * Holds per-message-type callback lists.
      *
      * <p>All lists use {@link CopyOnWriteArrayList} so that callbacks can be registered
@@ -887,21 +1283,21 @@ public final class WsClient {
      */
     private static final class TypedCallbackRegistry {
 
-        final CopyOnWriteArrayList<Consumer<BookUpdate>>     bookUpdates      = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<PriceChange>>    priceChanges     = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<LastTradePrice>> lastTradePrices  = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<TickSizeChange>> tickSizeChanges  = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<MidpointUpdate>> midpointUpdates  = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<BestBidAsk>>     bestBidAsks      = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<NewMarket>>      newMarkets       = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<MarketResolved>> marketResolutions = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<WsMessage>>      userEvents       = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<OrderMessage>>   orders           = new CopyOnWriteArrayList<>();
-        final CopyOnWriteArrayList<Consumer<TradeMessage>>   trades           = new CopyOnWriteArrayList<>();
+        final CallbackList<BookUpdate>     bookUpdates       = new CallbackList<>();
+        final CallbackList<PriceChange>    priceChanges      = new CallbackList<>();
+        final CallbackList<LastTradePrice> lastTradePrices   = new CallbackList<>();
+        final CallbackList<TickSizeChange> tickSizeChanges   = new CallbackList<>();
+        final CallbackList<MidpointUpdate> midpointUpdates   = new CallbackList<>();
+        final CallbackList<BestBidAsk>     bestBidAsks       = new CallbackList<>();
+        final CallbackList<NewMarket>      newMarkets        = new CallbackList<>();
+        final CallbackList<MarketResolved> marketResolutions = new CallbackList<>();
+        final CallbackList<WsMessage>      userEvents        = new CallbackList<>();
+        final CallbackList<OrderMessage>   orders            = new CallbackList<>();
+        final CallbackList<TradeMessage>   trades            = new CallbackList<>();
 
-        /** Returns {@code true} if any midpoint callbacks are registered. */
-        boolean hasMidpointCallbacks() {
-            return !midpointUpdates.isEmpty();
+        /** Matcher for a message identified by a single asset/market ID. */
+        private static Predicate<Set<String>> byId(String id) {
+            return filter -> id != null && filter.contains(id);
         }
 
         /**
@@ -912,28 +1308,55 @@ public final class WsClient {
          */
         void dispatch(WsMessage msg) {
             if (msg instanceof BookUpdate book) {
-                bookUpdates.forEach(cb -> cb.accept(book));
+                bookUpdates.dispatch(book, byId(book.getAssetId()));
             } else if (msg instanceof PriceChange pc) {
-                priceChanges.forEach(cb -> cb.accept(pc));
+                // A batch is delivered when ANY entry touches a filtered token.
+                priceChanges.dispatch(pc, filter -> batchTouches(pc, filter));
             } else if (msg instanceof LastTradePrice ltp) {
-                lastTradePrices.forEach(cb -> cb.accept(ltp));
+                lastTradePrices.dispatch(ltp, byId(ltp.getAssetId()));
             } else if (msg instanceof TickSizeChange tsc) {
-                tickSizeChanges.forEach(cb -> cb.accept(tsc));
+                tickSizeChanges.dispatch(tsc, byId(tsc.getAssetId()));
             } else if (msg instanceof MidpointUpdate mid) {
-                midpointUpdates.forEach(cb -> cb.accept(mid));
+                midpointUpdates.dispatch(mid, byId(mid.getAssetId()));
             } else if (msg instanceof BestBidAsk bba) {
-                bestBidAsks.forEach(cb -> cb.accept(bba));
+                bestBidAsks.dispatch(bba, byId(bba.getAssetId()));
             } else if (msg instanceof NewMarket nm) {
-                newMarkets.forEach(cb -> cb.accept(nm));
+                // These lifecycle events name every token in the market, so match on any of them.
+                newMarkets.dispatch(nm, filter -> containsAny(filter, nm.getAssetIds()));
             } else if (msg instanceof MarketResolved mr) {
-                marketResolutions.forEach(cb -> cb.accept(mr));
+                marketResolutions.dispatch(mr, filter -> containsAny(filter, mr.getAssetIds()));
             } else if (msg instanceof OrderMessage order) {
-                orders.forEach(cb -> cb.accept(order));
-                userEvents.forEach(cb -> cb.accept(msg));
+                orders.dispatch(order, byId(order.getMarket()));
+                userEvents.dispatch(order, byId(order.getMarket()));
             } else if (msg instanceof TradeMessage trade) {
-                trades.forEach(cb -> cb.accept(trade));
-                userEvents.forEach(cb -> cb.accept(msg));
+                trades.dispatch(trade, byId(trade.getMarket()));
+                userEvents.dispatch(trade, byId(trade.getMarket()));
             }
+        }
+
+        private static boolean containsAny(Set<String> filter, List<String> ids) {
+            if (ids == null) {
+                return false;
+            }
+            for (String id : ids) {
+                if (id != null && filter.contains(id)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean batchTouches(PriceChange pc, Set<String> filter) {
+            List<PriceChangeBatchEntry> entries = pc.getPriceChanges();
+            if (entries == null) {
+                return false;
+            }
+            for (PriceChangeBatchEntry entry : entries) {
+                if (entry != null && filter.contains(entry.getAssetId())) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

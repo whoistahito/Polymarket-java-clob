@@ -77,7 +77,8 @@ public final class PolymarketClient {
 
     this.gammaClient = new GammaClient.Builder().host(this.gammaHost).httpClient(this.http).build();
 
-    this.dataClient = new DataClient.Builder().httpClient(this.http).build();
+    this.dataClient =
+        new DataClient.Builder().host(builder.dataHost).httpClient(this.http).build();
 
     this.heartbeatManager = new HeartbeatManager(id -> postHeartbeat(id));
   }
@@ -86,6 +87,7 @@ public final class PolymarketClient {
 
     private String clobHost = "https://clob.polymarket.com";
     private String gammaHost = "https://gamma-api.polymarket.com";
+    private String dataHost = DataClient.DEFAULT_HOST;
     private int chainId = 137; // Polygon Mainnet
     private Credentials credentials;
     private ApiKeyCreds apiCreds;
@@ -104,6 +106,12 @@ public final class PolymarketClient {
 
     public Builder gammaHost(String gammaHost) {
       this.gammaHost = stripTrailingSlash(gammaHost);
+      return this;
+    }
+
+    /** Override the Data API host ({@code https://data-api.polymarket.com} by default). */
+    public Builder dataHost(String dataHost) {
+      this.dataHost = stripTrailingSlash(dataHost);
       return this;
     }
 
@@ -333,6 +341,25 @@ public final class PolymarketClient {
   public Map<String, Object> getMarket(String conditionId) throws IOException {
     String response = http.get(clobUrl(CLOB_MARKETS + "/" + conditionId), Collections.emptyMap());
     return http.parseJsonObject(response);
+  }
+
+  /**
+   * Read a market's typed order-construction rules — its price tick and minimum order size
+   * (Ticket 024).
+   *
+   * <p>Unlike {@link #getMarket(String)}, which hands back an untyped map whose numbers have already
+   * been coerced to {@code double}, this deserializes both rules straight into {@link BigDecimal},
+   * preserving the exact decimals the exchange published. Either field is {@code null} when the
+   * response omitted it, so a caller can fail closed instead of trading on an assumed default.
+   *
+   * @param conditionId the market's condition ID
+   * @return the typed rules; never {@code null}, but individual fields may be
+   * @throws IOException on HTTP or deserialization failure
+   */
+  public MarketRules getMarketRules(String conditionId) throws IOException {
+    String response = http.get(clobUrl(CLOB_MARKETS + "/" + conditionId), Collections.emptyMap());
+    MarketRules rules = http.parseJson(response, MarketRules.class);
+    return rules == null ? MarketRules.EMPTY : rules;
   }
 
   public PaginationPayload<Map<String, Object>> getSimplifiedMarkets(String nextCursor)
@@ -592,23 +619,90 @@ public final class PolymarketClient {
     return getOpenOrders(qParams);
   }
 
+  /**
+   * Fetch ALL open orders matching {@code params}, following the pagination cursor to the end.
+   *
+   * <p>{@code GET /data/orders} answers with a paginated envelope. Reading only the first page makes
+   * every resting order beyond it invisible, which silently breaks reconciliation for any wallet
+   * with more open orders than one page holds — so this walks the cursor. Use
+   * {@link #getOpenOrdersPaginated(Map, String)} when you want to drive the paging yourself
+   * (Ticket 025).
+   *
+   * @param params optional filters ({@code id}, {@code market}, {@code asset_id}); the cursor is
+   *     managed here and any {@code next_cursor} passed in is ignored
+   * @return every matching open order across all pages, in server order
+   */
   public List<OpenOrder> getOpenOrders(Map<String, String> params) throws IOException {
     requireL2Auth();
     String endpoint = CLOB_OPEN_ORDERS;
     Map<String, String> qParams = params != null ? new HashMap<>(params) : new HashMap<>();
+    qParams.remove("next_cursor");
+
+    List<OpenOrder> results = new ArrayList<>();
+    String cursor = null;
+    // Guard against a server that keeps handing back the same cursor: an unbounded loop here would
+    // hang the reconciliation thread rather than fail.
+    Set<String> seenCursors = new HashSet<>();
+    while (true) {
+      Map<String, String> pageParams = new HashMap<>(qParams);
+      if (cursor != null) {
+        pageParams.put("next_cursor", cursor);
+      }
+      String queryString = buildQueryString(pageParams);
+      String requestPath = endpoint + queryString;
+      String response =
+          http.get(clobUrl(endpoint) + queryString, l2Headers("GET", requestPath, null));
+
+      if (response.stripLeading().startsWith("[")) {
+        // A bare array carries no cursor, so it is the whole result by definition.
+        results.addAll(http.parseJson(response, new TypeReference<List<OpenOrder>>() {}));
+        return results;
+      }
+
+      PaginationPayload<OpenOrder> page =
+          http.parseJson(response, new TypeReference<PaginationPayload<OpenOrder>>() {});
+      if (page.getData() != null) {
+        results.addAll(page.getData());
+      }
+      cursor = page.getNextCursor();
+      if (cursor == null || cursor.isEmpty() || END_CURSOR.equals(cursor)
+          || !seenCursors.add(cursor)) {
+        return results;
+      }
+    }
+  }
+
+  /**
+   * Fetch ONE page of open orders together with its cursor (Ticket 025).
+   *
+   * <p>The explicit page API for callers that want to bound the work per cycle rather than have
+   * {@link #getOpenOrders(Map)} walk every page.
+   *
+   * @param params optional filters ({@code id}, {@code market}, {@code asset_id})
+   * @param nextCursor the cursor from the previous page, or {@code null} to start at the beginning
+   * @return one page plus its {@code next_cursor}
+   */
+  public PaginationPayload<OpenOrder> getOpenOrdersPaginated(
+      Map<String, String> params, String nextCursor) throws IOException {
+    requireL2Auth();
+    String endpoint = CLOB_OPEN_ORDERS;
+    Map<String, String> qParams = params != null ? new HashMap<>(params) : new HashMap<>();
+    if (nextCursor != null && !nextCursor.isEmpty()) {
+      qParams.put("next_cursor", nextCursor);
+    }
     String queryString = buildQueryString(qParams);
     String requestPath = endpoint + queryString;
-
     String response =
         http.get(clobUrl(endpoint) + queryString, l2Headers("GET", requestPath, null));
-    if (!response.stripLeading().startsWith("[")) {
-      Map<String, Object> page = http.parseJsonObject(response);
-      Object data = page.get("data");
-      return data == null
-          ? Collections.emptyList()
-          : http.parseJson(http.toJsonMinified(data), new TypeReference<List<OpenOrder>>() {});
+
+    if (response.stripLeading().startsWith("[")) {
+      // Normalize a bare array into the same envelope so callers have one shape to handle.
+      return PaginationPayload.<OpenOrder>builder()
+          .data(http.parseJson(response, new TypeReference<List<OpenOrder>>() {}))
+          .nextCursor(END_CURSOR)
+          .build();
     }
-    return http.parseJson(response, new TypeReference<List<OpenOrder>>() {});
+    return http.parseJson(response, new TypeReference<PaginationPayload<OpenOrder>>() {});
   }
 
   /**
@@ -873,6 +967,69 @@ private void invalidateVersionOnMismatch(String message) {
     PostOrderPayload payload =
         orderBuilder.buildPayload(signedOrder, apiCreds.getKey(), orderType, deferExec, postOnly);
     return postOrder(payload);
+  }
+
+  /**
+   * Submit an order and return its typed disposition instead of throwing (Ticket 022).
+   *
+   * <p>{@link #postOrder(PostOrderPayload)} raises an {@link HttpStatusException} for every non-2xx
+   * response and returns a nullable-field record for every 2xx, which forces each caller to
+   * re-derive whether an order is actually live. This method does that derivation once: the returned
+   * {@link OrderSubmission} is {@code ACCEPTED} only for a coherent success carrying a nonblank order
+   * ID, {@code REJECTED} only when the exchange definitively refused the order, and {@code UNKNOWN}
+   * for transport loss, a generic 5xx, an unreadable body, or a contradictory success.
+   *
+   * <p>An {@code UNKNOWN} submission may or may not be resting. Reconcile before re-submitting.
+   *
+   * @param payload the signed order payload
+   * @return the classified disposition; never {@code null}, never throws for an exchange outcome
+   * @throws IllegalStateException if L2 credentials are missing (a caller bug, not an outcome)
+   */
+  public OrderSubmission submitOrder(PostOrderPayload payload) {
+    requireL2Auth();
+    String endpoint = CLOB_POST_ORDER;
+    String body;
+    Map<String, String> headers;
+    try {
+      body = http.toJsonMinified(payload);
+      headers = l2Headers("POST", endpoint, body);
+    } catch (IOException | RuntimeException e) {
+      // Nothing left this process, so the order is definitively not live. Re-sending the identical
+      // payload would fail the same way, so this is a rejection rather than a retryable one.
+      return new OrderSubmission(
+          OrderSubmissionStatus.REJECTED, null, OrderSubmission.NO_HTTP_STATUS, null,
+          "order payload could not be prepared: " + e, false, e);
+    }
+
+    String response;
+    try {
+      response = http.postJsonRaw(clobUrl(endpoint), headers, body);
+    } catch (HttpStatusException e) {
+      invalidateVersionOnMismatch(e.getMessage());
+      return OrderSubmission.fromFailure(e);
+    } catch (IOException | RuntimeException e) {
+      return OrderSubmission.fromFailure(e);
+    }
+
+    try {
+      return OrderSubmission.fromResponse(
+          http.parseJson(response, OrderResponse.class), 200, response);
+    } catch (IOException | RuntimeException e) {
+      // A 2xx we cannot read proves nothing either way — the order may be resting.
+      return OrderSubmission.fromResponse(null, 200, response);
+    }
+  }
+
+  /**
+   * Submit a signed order and return its typed disposition (Ticket 022).
+   *
+   * @see #submitOrder(PostOrderPayload)
+   */
+  public OrderSubmission submitOrder(
+      SignedOrder signedOrder, OrderType orderType, boolean postOnly, boolean deferExec) {
+    requireL2Auth();
+    return submitOrder(
+        orderBuilder.buildPayload(signedOrder, apiCreds.getKey(), orderType, deferExec, postOnly));
   }
 
   /**

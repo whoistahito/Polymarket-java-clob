@@ -57,7 +57,13 @@ public class OrderMessage extends WsMessage {
     @JsonProperty("size_matched")
     private String sizeMatched;
 
-    /** Unix timestamp of the event (may be absent). */
+    /**
+     * Unix timestamp of the event (may be absent).
+     *
+     * <p>Kept as the wire string. Reformatting it would make two frames that arrived in a known
+     * order indistinguishable, and there is no server sequence number to fall back on — consumers
+     * that need ordering must record their own receive sequence.
+     */
     private String timestamp;
 
     /** Associated trade IDs (may be absent). */
@@ -66,6 +72,26 @@ public class OrderMessage extends WsMessage {
 
     /** Order status (may be absent). */
     private String status;
+
+    /**
+     * Order creation timestamp (Ticket 028). Documented on the user channel; may be absent.
+     *
+     * <p>Typed as a string because the wire carries it both quoted and unquoted, and because the
+     * exact representation is audit evidence.
+     */
+    @JsonProperty("created_at")
+    private String createdAt;
+
+    /** Expiration timestamp for GTD orders (Ticket 028); may be absent or {@code "0"}. */
+    private String expiration;
+
+    /** Order type — {@code "GTC"}, {@code "GTD"}, {@code "FOK"}, or {@code "FAK"} (Ticket 028). */
+    @JsonProperty("order_type")
+    private String orderType;
+
+    /** Wallet address the order was made from (Ticket 028); may be absent. */
+    @JsonProperty("maker_address")
+    private String makerAddress;
 
     @Override
     public boolean isUser() { return true; }

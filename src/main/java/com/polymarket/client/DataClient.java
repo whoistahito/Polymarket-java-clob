@@ -1,6 +1,8 @@
 package com.polymarket.client;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.polymarket.model.data.DataPosition;
+import com.polymarket.model.data.DataPositionsRequest;
 import com.polymarket.model.data.DataTrade;
 import com.polymarket.model.data.DataTradesRequest;
 import java.io.IOException;
@@ -87,6 +89,32 @@ public final class DataClient {
         String url = buildUrl("trades", queryParams);
         String json = http.get(url, Collections.emptyMap());
         return http.parseJson(json, new TypeReference<List<DataTrade>>() {});
+    }
+
+    /**
+     * Fetches a wallet's current positions from the Data API (Ticket 025).
+     *
+     * <p>Maps to {@code GET https://data-api.polymarket.com/positions}. No authentication required.
+     *
+     * <p>Each returned {@link DataPosition} is an <b>absolute snapshot</b> of the wallet's current
+     * holding, not a delta and not a running total: after a sell, a later call legitimately reports a
+     * smaller size. This method reports the API's figures unmodified — it does not clamp, merge, or
+     * impose monotonic semantics, because doing so would hide a real reduction.
+     *
+     * @param req filter parameters; {@code user} is required
+     * @return the wallet's current positions, empty when it holds none; never {@code null}
+     * @throws IOException on HTTP or deserialization failure
+     * @throws IllegalStateException if the request omits {@code user} or sets conflicting filters
+     */
+    public List<DataPosition> positions(DataPositionsRequest req) throws IOException {
+        if (req == null) {
+            throw new IllegalArgumentException("a positions request is required");
+        }
+        String url = buildUrl("positions", req.toQueryParams());
+        String json = http.get(url, Collections.emptyMap());
+        List<DataPosition> positions =
+            http.parseJson(json, new TypeReference<List<DataPosition>>() {});
+        return positions == null ? List.of() : positions;
     }
 
     // -------------------------------------------------------------------------

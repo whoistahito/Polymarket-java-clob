@@ -33,9 +33,56 @@ public record GammaMarket(
         List<String> outcomes,
 
         @JsonDeserialize(using = JsonEmbeddedListDeserializer.class)
-        List<String> outcomePrices
+        List<String> outcomePrices,
+
+        /**
+         * Minimum price increment for this market, exact (Ticket 024). Null when the response
+         * omitted it, so a caller can fail closed rather than assume a tick.
+         */
+        BigDecimal orderPriceMinTickSize,
+
+        /** Minimum order size in shares, exact (Ticket 024). Null when the response omitted it. */
+        BigDecimal orderMinSize
 ) {
+  /**
+   * Source-compatible constructor for callers written before the market rules were modelled
+   * (Ticket 024). Leaves both rules {@code null}, which reads as "unknown" rather than a default.
+   */
+  public GammaMarket(
+      String id,
+      String question,
+      String endDate,
+      BigDecimal volume24hr,
+      Boolean acceptingOrders,
+      Boolean active,
+      Boolean closed,
+      Boolean enableOrderBook,
+      List<String> clobTokenIds,
+      List<String> outcomes,
+      List<String> outcomePrices) {
+    this(id, question, endDate, volume24hr, acceptingOrders, active, closed, enableOrderBook,
+        clobTokenIds, outcomes, outcomePrices, null, null);
+  }
+
+  /**
+   * This market's order-construction rules as one typed value (Ticket 024).
+   *
+   * <p>Prefer this over reading the two fields separately: {@link MarketRules#isValid()} states in
+   * one call whether an order may be built for this market at all.
+   */
+  public MarketRules marketRules() {
+    return MarketRules.of(orderPriceMinTickSize, orderMinSize);
+  }
+
   // JavaBean-style accessors for callers that prefer get...() methods.
+  public BigDecimal getOrderPriceMinTickSize() {
+    return orderPriceMinTickSize();
+  }
+
+  public BigDecimal getOrderMinSize() {
+    return orderMinSize();
+  }
+
   public String getId() {
     return id();
   }

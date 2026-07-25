@@ -13,6 +13,7 @@ import com.polymarket.model.GammaMarket;
 import com.polymarket.model.HeartbeatResponse;
 import com.polymarket.model.LastTradePriceResult;
 import com.polymarket.model.MarketPrice;
+import com.polymarket.model.MarketRules;
 import com.polymarket.model.MarketReward;
 import com.polymarket.model.MarketTradeEvent;
 import com.polymarket.model.Notification;
@@ -22,6 +23,7 @@ import com.polymarket.model.OrderBookSummary;
 import com.polymarket.model.OrderMarketCancelParams;
 import com.polymarket.model.OrderResponse;
 import com.polymarket.model.OrderScoring;
+import com.polymarket.model.OrderSubmission;
 import com.polymarket.model.OrderType;
 import com.polymarket.model.PaginationPayload;
 import com.polymarket.model.PostOrderPayload;
@@ -247,6 +249,16 @@ public final class AsyncPolymarketClient {
     return async(() -> client.getMarket(conditionId));
   }
 
+  /**
+   * Read a market's typed tick and minimum order size as exact {@link java.math.BigDecimal}s
+   * (Ticket 024).
+   *
+   * @see PolymarketClient#getMarketRules(String)
+   */
+  public CompletableFuture<MarketRules> getMarketRules(String conditionId) {
+    return async(() -> client.getMarketRules(conditionId));
+  }
+
   public CompletableFuture<PaginationPayload<Map<String, Object>>> getSimplifiedMarkets(
       String nextCursor) {
     return async(() -> client.getSimplifiedMarkets(nextCursor));
@@ -408,6 +420,37 @@ public final class AsyncPolymarketClient {
   public CompletableFuture<OrderResponse> postOrder(
       SignedOrder signedOrder, OrderType orderType, boolean postOnly, boolean deferExec) {
     return async(() -> client.postOrder(signedOrder, orderType, postOnly, deferExec));
+  }
+
+  /**
+   * Fetch ONE page of open orders together with its cursor (Ticket 025).
+   *
+   * @see PolymarketClient#getOpenOrdersPaginated(Map, String)
+   */
+  public CompletableFuture<PaginationPayload<OpenOrder>> getOpenOrdersPaginated(
+      Map<String, String> params, String nextCursor) {
+    return async(() -> client.getOpenOrdersPaginated(params, nextCursor));
+  }
+
+  /**
+   * Submit an order and complete with its typed disposition (Ticket 022).
+   *
+   * <p>The future completes normally for every exchange-side outcome — including transport loss,
+   * which arrives as {@link com.polymarket.model.OrderSubmissionStatus#UNKNOWN} rather than an
+   * exceptional completion, so a caller cannot mistake it for a rejection.
+   */
+  public CompletableFuture<OrderSubmission> submitOrder(PostOrderPayload payload) {
+    return async(() -> client.submitOrder(payload));
+  }
+
+  /**
+   * Submit a signed order and complete with its typed disposition (Ticket 022).
+   *
+   * @see #submitOrder(PostOrderPayload)
+   */
+  public CompletableFuture<OrderSubmission> submitOrder(
+      SignedOrder signedOrder, OrderType orderType, boolean postOnly, boolean deferExec) {
+    return async(() -> client.submitOrder(signedOrder, orderType, postOnly, deferExec));
   }
 
   public CompletableFuture<List<OrderResponse>> postOrders(List<PostOrderPayload> orderPayloads) {

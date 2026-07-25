@@ -56,16 +56,33 @@ public final class OrderBuilder {
         )
     );
 
-    private static final Map<String, RoundConfig> ROUND_CONFIGS = Map.of(
-        "0.1",
+    /**
+     * Rounding profile per documented tick size, keyed by the tick's numeric value so that
+     * {@code "0.01"} and {@code "0.010"} resolve identically.
+     *
+     * <p>{@code price} is the number of decimals the tick's grid needs, {@code size} is fixed at the
+     * exchange's two-decimal share precision, and {@code amount == price + size}. The official
+     * markets also use {@code 0.005} and {@code 0.0025}; those grids need 3 and 4 price decimals
+     * respectively. There is deliberately NO default entry — an unrecognised tick must fail loudly
+     * rather than sign against the wrong grid (Ticket 023).
+     */
+    private static final Map<BigDecimal, RoundConfig> ROUND_CONFIGS = Map.of(
+        new BigDecimal("0.1"),
         new RoundConfig(1, 2, 3),
-        "0.01",
+        new BigDecimal("0.01"),
         new RoundConfig(2, 2, 4),
-        "0.001",
+        new BigDecimal("0.005"),
         new RoundConfig(3, 2, 5),
-        "0.0001",
+        new BigDecimal("0.0025"),
+        new RoundConfig(4, 2, 6),
+        new BigDecimal("0.001"),
+        new RoundConfig(3, 2, 5),
+        new BigDecimal("0.0001"),
         new RoundConfig(4, 2, 6)
     );
+
+    /** Documented tick sizes, ordered for a readable rejection message. */
+    private static final String SUPPORTED_TICKS = "0.1, 0.01, 0.005, 0.0025, 0.001, 0.0001";
 
     private final Credentials credentials;
     private final int chainId;
@@ -166,18 +183,16 @@ public final class OrderBuilder {
   /** Build and sign a limit order with optional order-type-aware amount normalization. */
   public SignedOrder buildOrder(
       UserOrder userOrder, CreateOrderOptions options, OrderType orderType) {
+        // Resolve the tick FIRST: an unknown tick has no valid rounding profile, so nothing below
+        // (price validation, amount calculation, signing) may run against a guessed one.
+        BigDecimal tickSizeDecimal = resolveTickSize(options.tickSize());
+        RoundConfig roundConfig = ROUND_CONFIGS.get(tickSizeDecimal.stripTrailingZeros());
+
         validateInputs(userOrder, options);
 
-        String tickSize = options.tickSize();
-        BigDecimal tickSizeDecimal = new BigDecimal(tickSize);
         BigDecimal roundedPrice = roundToTickSize(
             userOrder.price(),
             tickSizeDecimal
-        );
-
-        RoundConfig roundConfig = ROUND_CONFIGS.getOrDefault(
-            tickSize,
-            ROUND_CONFIGS.get("0.01")
         );
 
         RawAmounts amounts = calculateAmounts(
@@ -191,6 +206,10 @@ public final class OrderBuilder {
       // Exchange requires market-buy style amounts for taker-like order types.
       amounts = normalizeMarketBuyPrecision(amounts);
     }
+
+        // The minimum is a property of the SIGNED quantity, not the caller's request: a 10.009-share
+        // order truncates to 10.00 and would breach a 10.005 minimum the raw figure appears to meet.
+        validateNormalizedMinimum(userOrder.side(), amounts, options.orderMinSize());
 
         String taker =
             userOrder.taker() != null ? userOrder.taker() : ZERO_ADDRESS;
@@ -240,10 +259,10 @@ public final class OrderBuilder {
         UserMarketOrder userMarketOrder,
         CreateOrderOptions options
     ) {
-        validateMarketInputs(userMarketOrder, options);
+        BigDecimal tickSizeDecimal = resolveTickSize(options.tickSize());
+        RoundConfig roundConfig = ROUND_CONFIGS.get(tickSizeDecimal.stripTrailingZeros());
 
-        String tickSize = options.tickSize();
-        BigDecimal tickSizeDecimal = new BigDecimal(tickSize);
+        validateMarketInputs(userMarketOrder, options);
 
         // For market orders, if price is missing, it should have been estimated by the client.
         // If provided, we validate/round it.
@@ -253,17 +272,16 @@ public final class OrderBuilder {
                 : BigDecimal.ONE;
         BigDecimal roundedPrice = roundToTickSize(price, tickSizeDecimal);
 
-        RoundConfig roundConfig = ROUND_CONFIGS.getOrDefault(
-            tickSize,
-            ROUND_CONFIGS.get("0.01")
-        );
-
         RawAmounts amounts = calculateMarketAmounts(
             userMarketOrder.side(),
             userMarketOrder.amount(),
             roundedPrice,
             roundConfig
         );
+
+        // A market BUY's `amount` is USDC, so the share count only exists after the division above —
+        // the minimum can only be checked here, against the quantity actually being signed.
+        validateNormalizedMinimum(userMarketOrder.side(), amounts, options.orderMinSize());
 
         String taker =
             userMarketOrder.taker() != null
@@ -494,17 +512,70 @@ public final class OrderBuilder {
         ) {
             throw new IllegalArgumentException("size must be positive");
         }
-        if (
-                options.orderMinSize() != null
-                        && order.size().compareTo(options.orderMinSize()) < 0
-        ) {
-            throw new IllegalArgumentException(
-                    "size " + order.size() + " is below the market minimum order size "
-                            + options.orderMinSize() + " shares"
-            );
-        }
+        // The minimum is NOT checked here: it belongs after truncation, once the signed share
+        // quantity is known (see validateNormalizedMinimum).
 
         validatePrice(order.price(), options.tickSize());
+    }
+
+    /**
+     * Resolve a tick size string to its exact decimal value, rejecting anything the exchange does not
+     * document (Ticket 023).
+     *
+     * <p>A silent fallback to the {@code 0.01} profile mis-rounds every price on a {@code 0.005} or
+     * {@code 0.0025} market and can sign an order the exchange will refuse, so an unrecognised tick
+     * fails here — before any amount is calculated and long before anything is signed.
+     */
+    private static BigDecimal resolveTickSize(String tickSize) {
+        if (tickSize == null || tickSize.isBlank()) {
+            throw new IllegalArgumentException(
+                "tick size is required; supported ticks are " + SUPPORTED_TICKS
+            );
+        }
+        BigDecimal parsed;
+        try {
+            parsed = new BigDecimal(tickSize.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                "unsupported tick size '" + tickSize + "'; supported ticks are " + SUPPORTED_TICKS
+            );
+        }
+        // Compare by value, not by string: "0.010" is the same grid as "0.01".
+        if (!ROUND_CONFIGS.containsKey(parsed.stripTrailingZeros())) {
+            throw new IllegalArgumentException(
+                "unsupported tick size '" + tickSize + "'; supported ticks are " + SUPPORTED_TICKS
+            );
+        }
+        return parsed;
+    }
+
+    /**
+     * Compare the market's minimum against the share quantity that will actually be signed
+     * (Ticket 023).
+     *
+     * <p>The share leg is the taker amount for a BUY and the maker amount for a SELL, in both the
+     * limit and market paths. Reading it back out of the computed amounts means the check sees every
+     * truncation that has already been applied — size rounding and, for taker-style buys, market-buy
+     * precision quantization.
+     */
+    private static void validateNormalizedMinimum(
+        Side side,
+        RawAmounts amounts,
+        BigDecimal orderMinSize
+    ) {
+        if (orderMinSize == null || orderMinSize.signum() <= 0) {
+            return; // no per-market minimum supplied — leave enforcement to the exchange
+        }
+        String shareUnits =
+            side == Side.BUY ? amounts.takerAmount() : amounts.makerAmount();
+        BigDecimal shares = new BigDecimal(shareUnits).divide(DECIMAL_MULTIPLIER);
+        if (shares.compareTo(orderMinSize) < 0) {
+            throw new IllegalArgumentException(
+                "normalized size " + shares.toPlainString()
+                    + " is below the market minimum order size "
+                    + orderMinSize.toPlainString() + " shares"
+            );
+        }
     }
 
     private void validateMarketInputs(

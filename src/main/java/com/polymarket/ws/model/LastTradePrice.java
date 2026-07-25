@@ -37,6 +37,15 @@ public class LastTradePrice extends WsMessage {
     @JsonProperty("fee_rate_bps")
     private String feeRateBps;
 
-    /** Unix timestamp in milliseconds (string on the wire). */
+    /** Unix timestamp in milliseconds (string on the wire), preserved exactly as received. */
     private String timestamp;
+
+    /**
+     * On-chain transaction hash for the trade that produced this price (Ticket 028).
+     *
+     * <p>Documented on the market channel and the only identity field tying a public trade to its
+     * settlement, so a recorder cannot audit a replay without it. May be absent on older frames.
+     */
+    @JsonProperty("transaction_hash")
+    private String transactionHash;
 }

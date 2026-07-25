@@ -44,5 +44,23 @@ public record GammaMarketDetail(
         BigDecimal spread,
         List<GammaTag> tags,
         List<GammaEvent> events,
-        List<GammaClobReward> clobRewards
-) {}
+        List<GammaClobReward> clobRewards,
+
+        /**
+         * Minimum price increment for this market, exact (Ticket 024). Null when the response
+         * omitted it, so a caller can fail closed rather than assume a tick.
+         */
+        BigDecimal orderPriceMinTickSize,
+
+        /** Minimum order size in shares, exact (Ticket 024). Null when the response omitted it. */
+        BigDecimal orderMinSize
+) {
+
+    /**
+     * This market's order-construction rules as one typed value (Ticket 024), ready to hand to
+     * order construction without a {@code double} round trip.
+     */
+    public com.polymarket.model.MarketRules marketRules() {
+        return com.polymarket.model.MarketRules.of(orderPriceMinTickSize, orderMinSize);
+    }
+}

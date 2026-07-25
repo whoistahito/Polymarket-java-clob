@@ -398,13 +398,24 @@ public final class RfqClient {
      * Mirrors TS {@code ROUNDING_CONFIG}.
      */
     private static int[] getRoundConfig(String tickSize) {
-        return switch (tickSize) {
-            case "0.1"    -> new int[]{1, 2, 3};
-            case "0.01"   -> new int[]{2, 2, 4};
-            case "0.001"  -> new int[]{3, 2, 5};
-            case "0.0001" -> new int[]{4, 2, 6};
-            default       -> new int[]{2, 2, 4};
-        };
+        // Documented ticks only, compared by value so "0.010" resolves like "0.01". An unknown tick
+        // has no correct profile — falling back to 0.01 would mis-round every 0.005/0.0025 market
+        // (Ticket 023).
+        java.math.BigDecimal tick;
+        try {
+            tick = new java.math.BigDecimal(tickSize.trim()).stripTrailingZeros();
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("unsupported tick size '" + tickSize + "'");
+        }
+        if (tick.compareTo(new java.math.BigDecimal("0.1")) == 0)    return new int[]{1, 2, 3};
+        if (tick.compareTo(new java.math.BigDecimal("0.01")) == 0)   return new int[]{2, 2, 4};
+        if (tick.compareTo(new java.math.BigDecimal("0.005")) == 0)  return new int[]{3, 2, 5};
+        if (tick.compareTo(new java.math.BigDecimal("0.0025")) == 0) return new int[]{4, 2, 6};
+        if (tick.compareTo(new java.math.BigDecimal("0.001")) == 0)  return new int[]{3, 2, 5};
+        if (tick.compareTo(new java.math.BigDecimal("0.0001")) == 0) return new int[]{4, 2, 6};
+        throw new IllegalArgumentException(
+            "unsupported tick size '" + tickSize
+                + "'; supported ticks are 0.1, 0.01, 0.005, 0.0025, 0.001, 0.0001");
     }
 
     private static BigDecimal roundNormal(BigDecimal value, int decimalPlaces) {

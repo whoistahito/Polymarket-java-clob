@@ -63,6 +63,23 @@ are exposed via `startHeartbeats()` / `startHeartbeats(intervalMs)` / `stopHeart
 accessible via `async.rfq()`, `DataClient` via `async.data()`, and heartbeat lifecycle helpers are mirrored on the async
 wrapper.
 
+**Order submission disposition (Ticket 022).** `PolymarketClient.submitOrder(...)` (and the async mirror) returns a
+typed `OrderSubmission` instead of throwing: `ACCEPTED` only for a coherent success carrying a nonblank order ID and
+status, `REJECTED` only when the exchange definitively refused the order (any 4xx, the documented 500
+`order timed out`, a documented 503 service block, or an explicit `success=false`), and `UNKNOWN` for transport loss,
+a generic 5xx, a null/unreadable body, or a contradictory success. `isSafeToRetry()` flags the documented
+"not placed, try again" errors. `postOrder` keeps its throwing behaviour for existing callers.
+
+**Typed market rules (Ticket 024).** `MarketRules` carries `orderPriceMinTickSize` and `orderMinSize` as exact
+`BigDecimal`s (both nullable so callers can fail closed) and converts straight to `CreateOrderOptions` with no
+`double` round trip. Read it with `PolymarketClient.getMarketRules(conditionId)`; `GammaMarket` and
+`GammaMarketDetail` expose the same fields plus a `marketRules()` accessor.
+
+**Reconciliation reads (Ticket 025).** `getOpenOrders(...)` follows the pagination cursor to the end;
+`getOpenOrdersPaginated(params, cursor)` is the explicit single-page API. `DataClient.positions(DataPositionsRequest)`
+returns typed `DataPosition` records with `BigDecimal` sizes. Positions are ABSOLUTE snapshots — the SDK deliberately
+imposes no monotonic semantics, because clamping would hide a real sell.
+
 **`GammaClient`** is a standalone client for `https://gamma-api.polymarket.com` covering 26 endpoints (events, markets, tags, series, comments, sports, profiles, search). Built via `new GammaClient.Builder().build()` or accessed via `PolymarketClient.gamma()`.
 
 **`WsClient`** is built via `WsClient.builder()`. It wraps OkHttp's WebSocket API and supports:
@@ -72,6 +89,22 @@ wrapper.
 - Incoming messages are dispatched as strongly-typed `WsMessage` subtypes to the registered `WsMessageListener`.
 - Auto-reconnect with exponential backoff (`maxReconnectAttempts`, `reconnectDelayMs`, `maxReconnectDelayMs`); re-subscribes on reconnect.
 - Per-channel health-check: `isMarketConnected()`, `isUserConnected()`, `getConnectionState(ChannelType)`, `getSubscriptionCount()`.
+- **Registration is separate from subscription (Ticket 026).** `register*` methods (`registerBookUpdates`,
+  `registerPriceChanges`, `registerLastTradePrices`, `registerTickSizeChanges`, `registerOrders`, `registerTrades`, …)
+  attach a filtered callback and perform NO network action, returning a `WsClient.Registration` removal handle.
+  Register every handler first, then call `subscribeMarket`/`subscribeUser` once — that ordering is what stops the
+  initial snapshot arriving before a handler exists. The older `onBookUpdate`-style methods still work but are
+  deprecated because each one sends its own subscribe frame.
+- The subscribed token/market sets are authoritative: subscribe ADDS, unsubscribe REMOVES, and reconnect restores
+  exactly what remains. Read them with `getSubscribedAssetIds()` / `getSubscribedMarkets()`.
+- **Channel-identified lifecycle (Ticket 027).** `WsMessageListener` gained `onOpen(ChannelType, generation)`,
+  `onError(ChannelType, generation, Exception)`, `onClose(ChannelType, generation, code, reason)`, and
+  `onResubscribe(ChannelType, generation)` — the last fires before any frame of a new generation, so consumers can
+  invalidate only the channel that dropped. `getConnectionGeneration(ChannelType)` exposes the counter.
+  Reconnect is scheduled in a `finally` block and application-callback exceptions are isolated.
+- The documented text `PING` heartbeat is sent every 10 s per open channel (`pingIntervalMs`), cancelled on close and
+  restarted on reconnect. The reconnect budget resets only after a connection stays up for `stableConnectionMs`
+  (default 30 s), so a handshake-then-close loop cannot spin forever.
 
 **`OrderBuilder`** constructs EIP-712 signed order payloads. Contract addresses are hardcoded by chain ID (137 / 80002). Rounding precision is determined by a `RoundConfig` keyed on tick size string (`"0.1"`, `"0.01"`, `"0.001"`, `"0.0001"`). Salt is masked to the IEEE 754 safe integer range (`& ((1L << 53) - 1)`).
 
@@ -88,6 +121,13 @@ directly with `credentials.private-key` / `credentials.funder-wallet`, or via ex
 ### Decimal arithmetic
 - All prices and amounts use `BigDecimal`. Never use `double`/`float` for financial values.
 - Token amounts use **6 decimal places** (USDC standard); multiply by `10^6` before sending to contracts.
+- **Tick sizes (Ticket 023):** the supported grid is `0.1`, `0.01`, `0.005`, `0.0025`, `0.001`, `0.0001`, matched by
+  numeric value so `"0.010"` resolves like `"0.01"`. There is NO fallback profile — an unrecognised tick throws
+  before any amount is calculated, because signing against the wrong grid mis-prices every order on a
+  `0.005`/`0.0025` market.
+- **Minimum order size (Ticket 023)** is compared against the NORMALIZED share quantity read back out of the computed
+  maker/taker amounts (taker for a BUY, maker for a SELL), not the caller's raw size — `10.009` shares truncate to
+  `10.00` and must be rejected against a `10.005` minimum. Enforced on the limit and market BUY/SELL paths alike.
 - Rounding is per-field, matching the TS/Rust reference clients — do **not** use `HALF_UP` for amounts:
   - **Price → tick**: nearest tick (`HALF_UP`) via `roundToTickSize`.
   - **Order size**: `DOWN` (truncate) to `RoundConfig.size` decimals.
@@ -119,5 +159,5 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Current test suite contains 57 `*Test.java` classes under `src/test/java`
+- Current test suite contains 66 `*Test.java` classes under `src/test/java` (956 tests, 14 skipped)
 
