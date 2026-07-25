@@ -36,6 +36,7 @@ public final class PolymarketClient {
   private final String funderAddress;
   private final SignatureType signatureType;
   private final HttpClient http;
+  private final HttpClient orderHttp;
   private final L1Eip712Signer l1Signer;
   private final L2HmacSigner l2Signer;
   private final OrderBuilder orderBuilder;
@@ -62,6 +63,11 @@ public final class PolymarketClient {
     this.funderAddress = builder.funderAddress;
     this.signatureType = builder.signatureType;
     this.http = builder.http;
+    // POST /order is not idempotent (Ticket 035): OkHttp's own connection-failure retry could
+    // transparently resend a lost submission and duplicate a live order on the book, so order
+    // placement runs on a client with that behaviour disabled. Every other path keeps using `http`,
+    // where OkHttp replaying a lost GET is safe.
+    this.orderHttp = this.http.withoutConnectionFailureRetry();
     this.useServerTime = builder.useServerTime;
     this.geoBlockToken = builder.geoBlockToken;
 
@@ -258,6 +264,11 @@ public final class PolymarketClient {
 
   HttpClient getHttp() {
     return http;
+  }
+
+  /** The client used for {@code POST /order}/{@code /orders} — no connection-failure retry (Ticket 035). */
+  HttpClient getOrderHttp() {
+    return orderHttp;
   }
 
   OrderBuilder getOrderBuilder() {
@@ -843,7 +854,10 @@ public final class PolymarketClient {
     String body = http.toJsonMinified(payload);
 
     try {
-      String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
+      // orderHttp, not http: POST /order must not be replayed by OkHttp's own connection-failure
+      // retry (Ticket 035) — see the field javadoc on `orderHttp`.
+      String response =
+          orderHttp.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
       return http.parseJson(response, OrderResponse.class);
     } catch (HttpStatusException e) {
       invalidateVersionOnMismatch(e.getMessage());
@@ -858,7 +872,8 @@ public final class PolymarketClient {
     String endpoint = CLOB_POST_ORDER;
     String body = http.toJsonMinified(orderPayload);
 
-    String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
+    // orderHttp, not http: see Ticket 035 — POST /order is not idempotent.
+    String response = orderHttp.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
     return http.parseJsonObject(response);
   }
 
@@ -887,7 +902,9 @@ private List<OrderResponse> postOrdersChunk(List<PostOrderPayload> orderPayloads
     String body = http.toJsonMinified(normalizedPayloads);
 
     try {
-      String response = http.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
+      // orderHttp, not http: see Ticket 035 — POST /orders is not idempotent either.
+      String response =
+          orderHttp.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
 
       if (Boolean.getBoolean("bot.debug.execution")) {
         System.out.printf("[HTTP] POST %s response: %s%n", endpoint, response);
@@ -1003,7 +1020,9 @@ private void invalidateVersionOnMismatch(String message) {
 
     String response;
     try {
-      response = http.postJsonRaw(clobUrl(endpoint), headers, body);
+      // orderHttp, not http: see Ticket 035 — POST /order is not idempotent, so this must not run
+      // on a client that can transparently replay it after a broken connection.
+      response = orderHttp.postJsonRaw(clobUrl(endpoint), headers, body);
     } catch (HttpStatusException e) {
       invalidateVersionOnMismatch(e.getMessage());
       return OrderSubmission.fromFailure(e);

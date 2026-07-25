@@ -252,4 +252,101 @@ class OrderSubmissionTest {
     void nullFailureUnknown() {
         assertEquals(OrderSubmissionStatus.UNKNOWN, OrderSubmission.fromFailure(null).status());
     }
+
+    // ------------------------------------------------------------------ //
+    // Duplicate-order reclassification (Ticket 035)                      //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    @DisplayName("TC-OSD-018 documented duplicate-order 400 is UNKNOWN, not REJECTED")
+    void duplicateOrderIsUnknownNotRejected() {
+        OrderSubmission submission =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(
+                    400, "{\"error\":\"order 0xabc is invalid. Duplicated.\"}", "HTTP 400"));
+
+        assertEquals(OrderSubmissionStatus.UNKNOWN, submission.status());
+        assertFalse(submission.isSafeToRetry());
+        assertEquals(400, submission.httpStatus());
+        assertTrue(submission.responseBody().contains("Duplicated"));
+    }
+
+    @Test
+    @DisplayName("TC-OSD-019 the duplicate-order match is id-agnostic")
+    void duplicateOrderMatchIsIdAgnostic() {
+        OrderSubmission submission =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(
+                    400,
+                    "{\"error\":\"order 0xdeadbeef00112233 is invalid. Duplicated.\"}",
+                    "HTTP 400"));
+
+        assertEquals(OrderSubmissionStatus.UNKNOWN, submission.status());
+    }
+
+    @Test
+    @DisplayName("TC-OSD-020 a no-match FOK/FAK 400 stays REJECTED — the reclass does not broaden")
+    void noMatchFokFakStillRejectedAfterDuplicateReclass() {
+        OrderSubmission fok =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(
+                    400, "{\"error\":\"no orders found to match with FOK order.\"}", "HTTP 400"));
+        OrderSubmission fak =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(
+                    400, "{\"error\":\"no orders found to match with FAK order.\"}", "HTTP 400"));
+
+        assertEquals(OrderSubmissionStatus.REJECTED, fok.status());
+        assertFalse(fok.isSafeToRetry());
+        assertEquals(OrderSubmissionStatus.REJECTED, fak.status());
+        assertFalse(fak.isSafeToRetry());
+    }
+
+    @Test
+    @DisplayName("TC-OSD-021 'not enough balance / allowance' 400 stays REJECTED via fromFailure")
+    void balanceAllowance400StillRejected() {
+        OrderSubmission submission =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(400, "{\"error\":\"not enough balance / allowance\"}", "HTTP 400"));
+
+        assertEquals(OrderSubmissionStatus.REJECTED, submission.status());
+        assertFalse(submission.isSafeToRetry());
+    }
+
+    @Test
+    @DisplayName("TC-OSD-022 the documented 'order timed out' 500 is unaffected by the duplicate reclass")
+    void orderTimedOutStillRejectedAndRetryableAfterDuplicateReclass() {
+        OrderSubmission submission =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(500, "{\"error\":\"order timed out\"}", "HTTP 500"));
+
+        assertEquals(OrderSubmissionStatus.REJECTED, submission.status());
+        assertTrue(submission.isSafeToRetry());
+    }
+
+    @Test
+    @DisplayName("TC-OSD-023 a generic 500 remains UNKNOWN, unaffected by the duplicate reclass")
+    void genericServerErrorStillUnknownAfterDuplicateReclass() {
+        OrderSubmission submission =
+            OrderSubmission.fromFailure(
+                new HttpStatusException(500, "{\"error\":\"internal error\"}", "HTTP 500"));
+
+        assertEquals(OrderSubmissionStatus.UNKNOWN, submission.status());
+        assertFalse(submission.isSafeToRetry());
+    }
+
+    @Test
+    @DisplayName("TC-OSD-024 a duplicate-order error delivered inside a 2xx success=false body is UNKNOWN")
+    void duplicateOrderInsideSuccessFalseBodyIsUnknown() {
+        OrderResponse response =
+            OrderResponse.builder()
+                .success(false)
+                .errorMsg("order 0xabc is invalid. Duplicated.")
+                .build();
+
+        OrderSubmission submission = OrderSubmission.fromResponse(response, 200, "{}");
+
+        assertEquals(OrderSubmissionStatus.UNKNOWN, submission.status());
+        assertFalse(submission.isSafeToRetry());
+    }
 }

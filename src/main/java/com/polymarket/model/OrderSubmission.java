@@ -17,11 +17,15 @@ import java.util.Locale;
  * <ul>
  *   <li><b>ACCEPTED</b> — a 2xx body with {@code success=true}, a nonblank {@code orderID}, a
  *       nonblank {@code status}, and no error message.</li>
- *   <li><b>REJECTED</b> — any 4xx (the request never entered the book), a documented 500
- *       {@code "order timed out"}, a documented 503 service block, or a 2xx body that explicitly
- *       reports {@code success=false}. Definitively not live.</li>
+ *   <li><b>REJECTED</b> — any 4xx other than the documented duplicate-order error (the request
+ *       never entered the book), a documented 500 {@code "order timed out"}, a documented 503
+ *       service block, or a 2xx body that explicitly reports {@code success=false}. Definitively
+ *       not live.</li>
  *   <li><b>UNKNOWN</b> — transport loss, a generic 5xx, a null body, a success without an order ID,
- *       or a success that also carries an error message. May or may not be live.</li>
+ *       a success that also carries an error message, or the documented duplicate-order 400
+ *       ({@code "order {id} is invalid. Duplicated."}) — a duplicate proves an earlier attempt
+ *       already reached the book, so it is not evidence that nothing is live (Ticket 035). May or
+ *       may not be live.</li>
  * </ul>
  *
  * <p>The HTTP status and raw response body are preserved on every disposition so a caller can log
@@ -52,6 +56,14 @@ public record OrderSubmission(
         "trading is currently cancel-only",
         "post-only mode: only post-only orders and cancels are allowed");
 
+    /**
+     * Documented order-processing duplicate error, HTTP 400: {@code "order {id} is invalid.
+     * Duplicated."} (Ticket 035). Matched without the interpolated order id, and NOT added to
+     * {@link #RETRYABLE_ERRORS} — a duplicate is not itself safe to retry, it is merely not proof of
+     * a definitive rejection.
+     */
+    private static final String DUPLICATE_ORDER_MARKER = "is invalid. duplicated";
+
     // --------------------------------------------------------------------- //
     // Factories                                                              //
     // --------------------------------------------------------------------- //
@@ -76,6 +88,13 @@ public record OrderSubmission(
         String errorMsg = blankToNull(response.errorMsg());
 
         if (!response.success()) {
+            if (isDuplicateOrderError(errorMsg)) {
+                // A duplicate proves an earlier attempt already reached the book (Ticket 035): this
+                // is not evidence that nothing is live, so it cannot be a definitive rejection.
+                return new OrderSubmission(
+                    OrderSubmissionStatus.UNKNOWN, response, httpStatus, responseBody,
+                    errorMsg, false, null);
+            }
             // An explicit failure is definitive: the exchange processed the request and refused it.
             return new OrderSubmission(
                 OrderSubmissionStatus.REJECTED, response, httpStatus, responseBody,
@@ -123,6 +142,14 @@ public record OrderSubmission(
         String message = body != null && !body.isBlank() ? body : status.getMessage();
 
         if (code >= 400 && code < 500) {
+            if (isDuplicateOrderError(message)) {
+                // Documented duplicate-order error (Ticket 035), HTTP 400, "order {id} is invalid.
+                // Duplicated." A duplicate proves an earlier attempt already reached the book, so
+                // this 4xx is NOT evidence that nothing is live. Do not broaden this to other 4xx —
+                // every other 4xx in this branch is still a definitive rejection.
+                return new OrderSubmission(
+                    OrderSubmissionStatus.UNKNOWN, null, code, body, message, false, error);
+            }
             // 4xx means the request was refused before acceptance — nothing is resting.
             return new OrderSubmission(
                 OrderSubmissionStatus.REJECTED, null, code, body, message,
@@ -191,6 +218,10 @@ public record OrderSubmission(
         }
         String normalized = message.toLowerCase(Locale.ROOT);
         return RETRYABLE_ERRORS.stream().anyMatch(normalized::contains);
+    }
+
+    private static boolean isDuplicateOrderError(String message) {
+        return message != null && message.toLowerCase(Locale.ROOT).contains(DUPLICATE_ORDER_MARKER);
     }
 
     private static String blankToNull(String value) {

@@ -210,4 +210,16 @@ class SubmitOrderDispositionTest {
         org.junit.jupiter.api.Assertions.assertThrows(
             HttpStatusException.class, () -> client.postOrder(payload()));
     }
+
+    @Test
+    @DisplayName("TC-SOD-013 a documented duplicate-order 400 is UNKNOWN end to end (Ticket 035)")
+    void duplicateOrderUnknownEndToEnd() {
+        enqueue(400, "{\"error\":\"order 0xabc is invalid. Duplicated.\"}");
+
+        OrderSubmission submission = client.submitOrder(payload());
+
+        assertEquals(OrderSubmissionStatus.UNKNOWN, submission.status());
+        assertFalse(submission.isSafeToRetry());
+        assertEquals(400, submission.httpStatus());
+    }
 }

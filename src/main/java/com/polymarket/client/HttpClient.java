@@ -157,6 +157,27 @@ public final class HttpClient {
         return proxyConfig != null;
     }
 
+    /**
+     * Returns a derived client sharing this client's connection pool, proxy, object mapper, and
+     * app-level retry budget, but with OkHttp's automatic connection-failure retry disabled
+     * (Ticket 035).
+     *
+     * <p>{@code retryOnConnectionFailure(true)} (the default here, see {@link
+     * #defaultOkHttpClient}) lets OkHttp silently resend a request on a fresh connection after the
+     * original one broke mid-flight — {@code call.execute()} then returns a normal response with no
+     * signal that two requests went out. That is harmless for an idempotent GET, but {@code
+     * POST /order} gives no exactly-once guarantee: a silent resend can put the same order on the
+     * book twice. Order placement must run on the client returned here (or otherwise be exempted
+     * from automatic replay); GET/read paths may keep the client that made this call.
+     *
+     * @return a new {@link HttpClient} wrapping the same connection pool with connection-failure
+     *     retry turned off
+     */
+    public HttpClient withoutConnectionFailureRetry() {
+        OkHttpClient noReplayOk = ok.newBuilder().retryOnConnectionFailure(false).build();
+        return new HttpClient(noReplayOk, mapper, proxyConfig, maxRetries);
+    }
+
     // =========================================================================
     // High-level JSON helpers
     // =========================================================================
