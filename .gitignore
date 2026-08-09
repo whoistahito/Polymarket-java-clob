@@ -14,3 +14,17 @@ dependency-reduced-pom.xml
 
 # local live-test secrets (never commit)
 .secrets.env
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+build/
+dist/
+target/
+.dart_tool/
+.gradle/
+Pods/
+.next/
+out/
+.angular/
