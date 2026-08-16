@@ -205,6 +205,6 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **1030 tests, 0 failures, 0 skipped**.
+- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **965 tests, 0 failures, 0 skipped**.
   `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
 
