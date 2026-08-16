@@ -34,7 +34,24 @@ forces direct connections so an ambient HTTP proxy cannot tunnel past it. Anythi
 host fails with `UnknownHostException`. Live checks carry `@Tag("live")`, are excluded from the normal
 run, and are selected only by `-Plive` (which sets `-Dpolymarket.live=true` to lift the guard).
 
-## Architecture
+## Architecture (2.0, in progress)
+
+The 2.0 redesign (issue #1) grows **beside** the 1.0 facade; both compile until the facade is
+deleted. Domain packages are public, transport lives behind `internal`:
+
+- `com.polymarket` — `Polymarket` (entry point, thread-safe, `AutoCloseable`), `PolymarketConfig`
+  (JDK `URI`/`Duration` only), `ReadRetryPolicy`.
+- `com.polymarket.operations` — operator value objects: `ServerTime`, `ServiceHealth`,
+  `PolymarketService`, `GeoblockStatus`.
+- `com.polymarket.internal.http` — `HttpRuntime`, `HttpOutcome`. **Retry is keyed on the
+  operation's idempotency, not on client configuration**: `get` retries within the budget and
+  honours `Retry-After`; `post` executes exactly once, so no read budget can replay an order.
+- `com.polymarket.internal.operations` — `OperationsGateway`, the wire→domain translation.
+
+Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, and no
+transport import inside a public domain package — the gateway does the mapping.
+
+## Architecture (1.0 facade)
 
 This Java SDK stays compatible with Polymarket signing behavior from the upstream TypeScript and Rust
 reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-v2` (Rust) on GitHub.
