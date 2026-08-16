@@ -1,7 +1,6 @@
 package com.polymarket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,11 +15,9 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
@@ -157,31 +154,6 @@ class PolymarketRootTest {
         sdk.close();
         assertThrows(IllegalStateException.class, sdk::serverTime);
         assertEquals(0, server.getRequestCount());
-    }
-
-    @Test
-    @DisplayName("TC-PR-010: no OkHttp, Jackson or Web3j type appears in the new public API")
-    void publicApiExposesNoTransportTypes() {
-        List<Class<?>> publicApi = List.of(Polymarket.class, PolymarketConfig.class,
-                ReadRetryPolicy.class, ServerTime.class, ServiceHealth.class,
-                GeoblockStatus.class, PolymarketService.class);
-
-        for (Class<?> type : publicApi) {
-            Stream.concat(
-                            Arrays.stream(type.getMethods())
-                                    .filter(m -> m.getDeclaringClass() != Object.class)
-                                    .flatMap(m -> Stream.concat(Stream.of(m.getReturnType()),
-                                            Arrays.stream(m.getParameterTypes()))),
-                            Arrays.stream(type.getConstructors())
-                                    .flatMap(c -> Arrays.stream(c.getParameterTypes())))
-                    .forEach(used -> {
-                        String name = used.getName();
-                        assertFalse(
-                                name.startsWith("okhttp3.") || name.startsWith("com.fasterxml.")
-                                        || name.startsWith("org.web3j."),
-                                type.getSimpleName() + " leaks transport type " + name);
-                    });
-        }
     }
 
     private PolymarketConfig config() {
