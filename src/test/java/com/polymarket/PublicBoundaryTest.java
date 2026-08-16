@@ -28,7 +28,7 @@ class PublicBoundaryTest {
     /** The 2.0 bounded contexts only; the legacy 1.0 packages stay unguarded until #28 deletes them. */
     private static final String[] PUBLIC_PACKAGES =
             {"com.polymarket", "com.polymarket.operations..", "com.polymarket.authentication..",
-                    "com.polymarket.markets.."};
+                    "com.polymarket.markets..", "com.polymarket.portfolio.."};
 
     private static final JavaClasses SHIPPED = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

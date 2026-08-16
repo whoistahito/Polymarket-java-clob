@@ -1,0 +1,36 @@
+[
+  {
+    "proxyWallet": "0x56687bf447db6ffa42ffe2208a51ce8ba1a5b63a",
+    "timestamp": 1776250800,
+    "conditionId": "0xbd31dc8a20211944f6b70f31557f1001557b59905b7738480ca09bd4532f84af",
+    "type": "TRADE",
+    "size": 250.75,
+    "usdcSize": 113.414225,
+    "transactionHash": "0x9f2f5e0f4a1f7c5a2d6b8e0c1a3d5f7b9c1e3a5d7f9b1c3e5a7d9f1b3c5e7a9d",
+    "price": 0.4523,
+    "asset": "1343197538147866997676250008839231694243646439454152539053893078719042421992",
+    "side": "BUY",
+    "outcomeIndex": 0,
+    "title": "Will Xi Jinping be out before 2027?",
+    "slug": "xi-jinping-out-before-2027",
+    "eventSlug": "xi-jinping-out",
+    "outcome": "Yes"
+  },
+  {
+    "timestamp": 1776251000,
+    "conditionId": "0xa467b14d51f01b957109d9cbb1d6c124fab2a089d52ed8f471d23c2812e743b7",
+    "type": "REDEEM",
+    "size": 10,
+    "usdcSize": 0,
+    "asset": "32338220190071351435772801779725302244575775216413325951443816017994629993401",
+    "outcomeIndex": 999,
+    "outcome": "",
+    "isCombo": true
+  },
+  {
+    "timestamp": 1776251200,
+    "type": "LOYALTY_AIRDROP",
+    "size": 5,
+    "usdcSize": 5
+  }
+]
