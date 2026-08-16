@@ -7,11 +7,13 @@ import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.markets.MarketsGateway;
 import com.polymarket.internal.markets.OrderBookGateway;
 import com.polymarket.internal.operations.OperationsGateway;
+import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.markets.Markets;
 import com.polymarket.markets.OrderBooks;
 import com.polymarket.operations.GeoblockStatus;
 import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
+import com.polymarket.portfolio.Portfolio;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
@@ -30,6 +32,7 @@ public final class Polymarket implements AutoCloseable {
     private final Authentication authentication;
     private final Markets markets;
     private final OrderBooks orderBooks;
+    private final Portfolio portfolio;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -41,6 +44,7 @@ public final class Polymarket implements AutoCloseable {
                 new AuthenticationGateway(config, runtime, clock));
         this.markets = new Markets(new MarketsGateway(config, runtime));
         this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
+        this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
     }
 
     public static Polymarket withDefaults() {
@@ -88,6 +92,12 @@ public final class Polymarket implements AutoCloseable {
     public OrderBooks orderBooks() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return orderBooks;
+    }
+
+    /** Account state: positions, trades, activity and notifications. */
+    public Portfolio portfolio() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return portfolio;
     }
 
     public ServerTime serverTime() throws IOException {
