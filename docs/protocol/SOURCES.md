@@ -69,8 +69,10 @@ Matches the scope decisions in issue #1.
 1. **Minimum order size.** CLOB `/book.min_order_size` is normalized **shares** and is authoritative
    for signing. Gamma's `orderMinSize` is labelled **USDC notional** and is discovery metadata only.
    Official sources conflict; preserve both.
-2. **Order-book level ordering.** Sources disagree on wire ordering of bids/asks. Sort numerically
-   before any depth calculation.
+2. **Order-book level ordering.** Sources disagree on wire ordering of bids/asks. The CLOB OpenAPI
+   documents "bids sorted by price descending, asks ascending", but every `GET /book` response
+   sampled on 2026-08-16 sent the **exact reverse** (bids ascending, asks descending). Sort
+   numerically before any depth calculation.
 3. **Order `timestamp` units.** V2 documents unix **milliseconds**; V3 documents unix **seconds**.
    Both are official. Do not normalize into one type.
 4. **Neg Risk Adapter.** `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296` is still on the contracts page,

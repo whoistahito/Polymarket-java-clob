@@ -5,8 +5,10 @@ import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.internal.authentication.AuthenticationGateway;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.markets.MarketsGateway;
+import com.polymarket.internal.markets.OrderBookGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.markets.Markets;
+import com.polymarket.markets.OrderBooks;
 import com.polymarket.operations.GeoblockStatus;
 import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
@@ -27,6 +29,7 @@ public final class Polymarket implements AutoCloseable {
     private final OperationsGateway operations;
     private final Authentication authentication;
     private final Markets markets;
+    private final OrderBooks orderBooks;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -37,6 +40,7 @@ public final class Polymarket implements AutoCloseable {
         this.authentication = new Authentication(authority,
                 new AuthenticationGateway(config, runtime, clock));
         this.markets = new Markets(new MarketsGateway(config, runtime));
+        this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
     }
 
     public static Polymarket withDefaults() {
@@ -78,6 +82,12 @@ public final class Polymarket implements AutoCloseable {
     public Markets markets() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return markets;
+    }
+
+    /** Live CLOB order books. Needs no credentials. */
+    public OrderBooks orderBooks() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return orderBooks;
     }
 
     public ServerTime serverTime() throws IOException {
