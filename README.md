@@ -24,8 +24,6 @@ Requires Java 17+.
   HMAC-SHA256 (trading).
 - **Wallets** — `WalletUtils` derives CREATE2 proxy and Gnosis Safe deposit
   wallets from an EOA. Signature types: EOA, POLY_PROXY, POLY_GNOSIS_SAFE.
-- **CTF** — `CtfClient` for split / merge / redeem and position/condition ID
-  computation.
 - **Gamma API** — `GammaClient`: events, markets, tags, series, comments,
   sports, profiles, search.
 - **Data API** — `DataClient`: trade history and holdings.
