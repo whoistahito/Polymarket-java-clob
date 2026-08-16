@@ -6,10 +6,12 @@ import com.polymarket.internal.authentication.AuthenticationGateway;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.markets.MarketsGateway;
 import com.polymarket.internal.operations.OperationsGateway;
+import com.polymarket.internal.rewards.RewardsGateway;
 import com.polymarket.markets.Markets;
 import com.polymarket.operations.GeoblockStatus;
 import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
+import com.polymarket.rewards.Rewards;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
@@ -27,6 +29,7 @@ public final class Polymarket implements AutoCloseable {
     private final OperationsGateway operations;
     private final Authentication authentication;
     private final Markets markets;
+    private final Rewards rewards;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -37,6 +40,7 @@ public final class Polymarket implements AutoCloseable {
         this.authentication = new Authentication(authority,
                 new AuthenticationGateway(config, runtime, clock));
         this.markets = new Markets(new MarketsGateway(config, runtime));
+        this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
     }
 
     public static Polymarket withDefaults() {
@@ -78,6 +82,12 @@ public final class Polymarket implements AutoCloseable {
     public Markets markets() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return markets;
+    }
+
+    /** Market reward programmes and user earnings, one typed cursor page at a time. */
+    public Rewards rewards() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return rewards;
     }
 
     public ServerTime serverTime() throws IOException {

@@ -53,6 +53,12 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `ApiKeyDirectory` **port**.
 - `com.polymarket.internal.operations` / `.authentication` — `OperationsGateway`,
   `AuthenticationGateway` (implements `ApiKeyDirectory`), `L1Attestation`, `L2Attestation`.
+- `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
+  `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
+  `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
+  non-advancing cursor as the end, so no read can spin. `allMarketRewards` is the only all-pages
+  convenience — one market's programmes are practically bounded — and it also refuses to revisit a
+  cursor. Implemented by `com.polymarket.internal.rewards.RewardsGateway`; user reads are L2.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on
