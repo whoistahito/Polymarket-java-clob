@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
 
     <name>Polymarket API Client</name>
-    <description>Java SDK for the Polymarket CLOB, Gamma, Data, CTF and RTDS APIs</description>
+    <description>Java SDK for the Polymarket CLOB, Gamma, Data and RTDS APIs</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -46,12 +46,7 @@
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- Web3/Ethereum -->
-        <dependency>
-            <groupId>org.web3j</groupId>
-            <artifactId>core</artifactId>
-            <version>${web3j.version}</version>
-        </dependency>
+        <!-- Local EIP-712 signing only; no RPC/transaction packages -->
         <dependency>
             <groupId>org.web3j</groupId>
             <artifactId>crypto</artifactId>

@@ -60,6 +60,11 @@ domain-declared ports, never on an internal adapter type**. Only `Polymarket`, t
 wires the two sides together. Secrets redact in `toString`, and absent authority throws
 `AuthenticationRequiredException` before anything reaches the wire.
 
+**No direct-chain behavior (issue #7).** The SDK authorizes routed API requests and never broadcasts a Polygon
+transaction: no RPC, CTF client or ID computation, gas/receipt models, split/merge/redeem, or collateral return.
+Web3j is a signing-only dependency (`org.web3j:crypto`, no `core`); reintroducing `org.web3j.protocol` or
+`org.web3j.tx` fails `DirectChainSurfaceTest`.
+
 ## Architecture (1.0 facade)
 
 This Java SDK stays compatible with Polymarket signing behavior from the upstream TypeScript and Rust
@@ -75,8 +80,6 @@ reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-
 - `com.polymarket.model.data` — Data API request/response models (`DataTrade`, `DataTradesRequest`, `DataSide`,
   `FilterType`)
 - `com.polymarket.model.gamma` — GammaClient request + response models (45 classes)
-- `com.polymarket.ctf` — Conditional Token Framework client (`CtfClient`) and split/merge/redeem + ID-computation
-  request/response models
 - `com.polymarket.ws` — WebSocket live-feed client (`WsClient`, `WsMessageListener`, `ChannelType`, `ConnectionState`)
 - `com.polymarket.ws.model` — WS message types (`WsMessage`, `BookUpdate`, `PriceChange`, `TradeMessage`, `OrderMessage`, `MidpointUpdate`, etc.)
 - `com.polymarket.util` — `Config` (properties loader), `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
@@ -146,7 +149,7 @@ imposes no monotonic semantics, because clamping would hide a real sell.
 
 **`OrderUtils`** is a standalone, client-independent EIP-712 order builder (`util/OrderUtils.java`). Accepts raw `OrderData` with pre-scaled `BigInteger` amounts — no `PolymarketClient` required. Use when you have pre-calculated maker/taker amounts.
 
-**`WalletUtils`** derives CREATE2 proxy and safe wallet addresses from an EOA address, matching the Rust SDK's `derive_proxy_wallet` / `derive_safe_wallet` exactly. Returns `Optional.empty()` for unsupported chain IDs.
+**`WalletUtils`** derives CREATE2 proxy and safe wallet addresses from an EOA address, matching the Rust SDK's `derive_proxy_wallet` / `derive_safe_wallet` exactly. Returns `Optional.empty()` for unsupported chain IDs. Pure local computation — no RPC.
 
 **Configuration** is loaded from `src/main/resources/config.properties` via `Config.load()`. Credentials can be provided
 directly with `credentials.private-key` / `credentials.funder-wallet`, or via external files referenced by
@@ -195,6 +198,6 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **967 tests, 0 failures, 0 skipped**.
+- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **1030 tests, 0 failures, 0 skipped**.
   `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
 
