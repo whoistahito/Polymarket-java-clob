@@ -1,0 +1,81 @@
+{
+  "reviewedOn": "2026-08-16",
+  "source": "https://docs.polymarket.com/trading/combos/builders (Direct API tab)",
+  "basePath": "/v1/builder/rfq",
+  "hostNote": "The gateway host is issued during builder onboarding; it is not published.",
+
+  "auth": {
+    "accountHeaders": ["POLY_ADDRESS", "POLY_API_KEY", "POLY_PASSPHRASE", "POLY_TIMESTAMP", "POLY_SIGNATURE"],
+    "builderHeaders": ["POLY_BUILDER_API_KEY", "POLY_BUILDER_PASSPHRASE", "POLY_BUILDER_TIMESTAMP", "POLY_BUILDER_SIGNATURE"],
+    "hmac": "HMAC-SHA256(base64Decode(secret), timestamp + HTTP_METHOD + FULL_REQUEST_PATH + REQUEST_BODY)",
+    "digestEncoding": "base64url with padding preserved",
+    "timestampUnit": "unix-seconds",
+    "pathExcludesHostAndQuery": true,
+    "bodyOmittedForGet": true
+  },
+
+  "endpoints": [
+    { "method": "POST", "path": "/v1/builder/rfq/requests", "accountAuth": true, "builderAuth": true },
+    { "method": "POST", "path": "/v1/builder/rfq/requests/{rfq_id}/accept", "accountAuth": true, "builderAuth": true },
+    { "method": "GET", "path": "/v1/builder/rfq/requests/{rfq_id}", "accountAuth": true, "builderAuth": false }
+  ],
+
+  "createRequestBody": {
+    "signer_address": "<deposit-wallet-address>",
+    "maker_address": "<deposit-wallet-address>",
+    "signature_type": 3,
+    "leg_position_ids": ["<yes-position-id-1>", "<yes-position-id-2>"],
+    "direction": "BUY",
+    "side": "YES",
+    "requested_size": { "unit": "notional", "value_e6": "1000000" }
+  },
+
+  "legs": { "min": 2, "max": 50, "mustBeUnique": true, "mustBeCompatible": true },
+  "sizeUnits": { "BUY": "notional", "SELL": "shares" },
+  "sideAlwaysYes": true,
+  "amountEncoding": "6-decimal base units as strings (*_e6)",
+  "timestampsInMilliseconds": ["expires_at", "created_at", "submission_deadline"],
+
+  "acceptBody": {
+    "quote_id": "<quote-id>",
+    "signed_order": {
+      "salt": "<salt>",
+      "maker": "<deposit-wallet-address>",
+      "signer": "<deposit-wallet-address>",
+      "tokenId": "<combo-yes-position-id>",
+      "makerAmount": "966191",
+      "takerAmount": "1932381",
+      "side": 0,
+      "signatureType": 3,
+      "timestamp": "<unix-seconds>",
+      "metadata": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "builder": "<builder-code>",
+      "signature": "<order-signature>"
+    }
+  },
+  "acceptRules": [
+    "makerAmount comes from quote.maker_amount_e6 and takerAmount from quote.taker_amount_e6, for both directions.",
+    "tokenId is the returned Combo YES position ID.",
+    "order.builder must equal the returned builder_code.",
+    "Sign before quote.expires_at; the acceptance window is not a fixed duration."
+  ],
+
+  "statuses": {
+    "nonTerminal": ["AWAITING_REQUESTER_ACCEPTANCE", "AWAITING_MAKER_CONFIRMATION", "EXECUTING", "MINED", "RETRYING"],
+    "success": ["CONFIRMED", "FILLED"],
+    "terminalWithoutFill": ["FAILED", "EXPIRED", "CANCELED"]
+  },
+
+  "outcomeRules": [
+    "A business failure (no quote, maker decline, execution failure) returns HTTP 200 with status FAILED and a nested error.",
+    "HTTP 409 means RFQ state conflict, expired acceptance window, quote mismatch, or a status read before acceptance.",
+    "Retrying the same authenticated acceptance does not execute twice; the retry response may omit taker_order_hash.",
+    "rfq_id is the stable recovery identifier after a local timeout.",
+    "A local timeout is not a failed trade."
+  ],
+
+  "quoteFields": {
+    "total_required_e6": "exact requester balance required: collateral including fees for BUY, Combo shares for SELL",
+    "net_receive_e6": "Combo shares received for BUY; exact collateral proceeds after fees for SELL — use it rather than deriving from blended_price_e6"
+  }
+}

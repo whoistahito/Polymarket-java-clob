@@ -1,0 +1,104 @@
+{
+  "reviewedOn": "2026-08-16",
+  "note": "Official Polymarket constraints. Every value carries the source it was read from. Nothing here is derived from this SDK's Java code.",
+
+  "contracts": {
+    "source": "https://docs.polymarket.com/resources/contracts",
+    "chainId": 137,
+    "ctfExchangeV2": "0xE111180000d2663C0091e4f400237545B87B996B",
+    "negRiskCtfExchangeV2": "0xe2222d279d744050d28e00520010520000310F59",
+    "conditionalTokens": "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
+    "negRiskAdapter": "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296",
+    "combosExchangeV3": "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa",
+    "combosPositionManager": "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF",
+    "pusd": "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
+    "polymarketProxyFactory": "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052",
+    "depositWalletFactory": "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07"
+  },
+
+  "collateral": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
+    "token": "pUSD",
+    "replaces": "USDC.e",
+    "decimals": 6,
+    "note": "Standard ERC-20 on Polygon, backed 1:1 by USDC, backing enforced onchain."
+  },
+
+  "signatureTypes": {
+    "source": "https://docs.polymarket.com/trading/combos/market-makers (Sign the Order)",
+    "EOA": 0,
+    "POLY_PROXY": 1,
+    "POLY_GNOSIS_SAFE": 2,
+    "DEPOSIT_WALLET": 3,
+    "depositWalletSignatureIsErc7739Wrapped": true
+  },
+
+  "sideEncoding": {
+    "source": "https://docs.polymarket.com/trading/place-orders",
+    "BUY": 0,
+    "SELL": 1
+  },
+
+  "orderStruct": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
+    "removedInV2": ["nonce", "feeRateBps", "taker"],
+    "addedInV2": ["timestamp", "metadata", "builder"],
+    "expirationIsSignedField": false,
+    "expirationNote": "source: clob-openapi.yaml — expiration remains in the POST /order wire body for GTD handling but is NOT part of the signed Order struct.",
+    "v2TimestampUnit": "unix-milliseconds",
+    "v3TimestampUnit": "unix-seconds",
+    "timestampUnitNote": "The two exchanges disagree: place-orders documents <unix_milliseconds> for V2, combos/market-makers documents <unix_seconds> for V3. Keep them separate; do not normalise."
+  },
+
+  "gtd": {
+    "source": "https://docs.polymarket.com/trading/place-orders",
+    "expirationUnit": "unix-seconds",
+    "securityThresholdSeconds": 60,
+    "minimumFutureSeconds": 180,
+    "note": "GTD orders expire one minute before their stated expiration. For an effective lifetime of N seconds use now + 60 + N. The expiration must be at least 3 minutes in the future.",
+    "gtcExpirationValue": "0"
+  },
+
+  "batchLimits": {
+    "postOrdersMax": 15,
+    "postOrdersSource": "https://docs.polymarket.com/api-reference/trade/post-multiple-orders",
+    "cancelOrdersMax": 1000,
+    "cancelOrdersSource": "https://docs.polymarket.com/changelog/predictions (Jun 15, 2026)"
+  },
+
+  "pagination": {
+    "marketsKeysetMaxLimit": 100,
+    "marketsKeysetSource": "https://docs.polymarket.com/changelog/predictions (May 14, 2026)",
+    "tradesMaxLimit": 500,
+    "tradesMaxOffset": 1000,
+    "tradesSource": "https://docs.polymarket.com/changelog/predictions (Aug 26, 2025)",
+    "cursorStyle": "after_cursor / next_cursor"
+  },
+
+  "settlement": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Jul 17, 2026)",
+    "postOrderReturnsTransactionHashes": false,
+    "postOrderReturnsTradeIds": true,
+    "note": "POST /order and POST /orders return tradeIDs instead of transactionHashes on FAK/FOK matches. Poll trades by tradeID until each has a hash or returns FAILED."
+  },
+
+  "minimumSize": {
+    "clobSigningRule": {
+      "source": "https://docs.polymarket.com/api-reference/market-data/get-order-book",
+      "field": "min_order_size",
+      "unit": "normalized shares",
+      "authoritativeForSigning": true
+    },
+    "gammaDiscoveryMetadata": {
+      "source": "https://docs.polymarket.com/api-reference/markets",
+      "field": "orderMinSize",
+      "unit": "USDC notional (as labelled by Gamma)",
+      "authoritativeForSigning": false
+    },
+    "contradiction": "Official sources conflict on units. Keep both; sign against the live CLOB shares value only. Never merge or substitute one for the other."
+  },
+
+  "orderBookOrdering": {
+    "contradiction": "Official sources disagree about bid/ask level ordering on the wire. Always sort levels numerically before any depth calculation."
+  }
+}
