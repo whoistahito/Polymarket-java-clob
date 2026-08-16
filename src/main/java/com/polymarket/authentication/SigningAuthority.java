@@ -58,20 +58,28 @@ public final class SigningAuthority {
         return Optional.ofNullable(apiCredentials);
     }
 
+    /** The address L2 headers must carry: the local key's own, or the identity's signer. */
+    public String requireSigningAddress(String operation) {
+        return localSigner().map(PrivateKeySigner::address)
+                .or(() -> identity().map(SigningIdentity::signer))
+                .orElseThrow(() -> new AuthenticationRequiredException(
+                        operation + " needs the signing address; supply a local key or identity"));
+    }
+
+    public ApiCredentials requireApiCredentials(String operation) {
+        if (apiCredentials == null) {
+            throw new AuthenticationRequiredException(
+                    operation + " needs L2 API credentials; supply them with withApiCredentials(...)");
+        }
+        return apiCredentials;
+    }
+
     PrivateKeySigner requireLocalSigner(String operation) {
         if (localSigner == null) {
             throw new AuthenticationRequiredException(
                     operation + " needs a local signing key; build the SDK with SigningAuthority.signing(...)");
         }
         return localSigner;
-    }
-
-    ApiCredentials requireApiCredentials(String operation) {
-        if (apiCredentials == null) {
-            throw new AuthenticationRequiredException(
-                    operation + " needs L2 API credentials; supply them with withApiCredentials(...)");
-        }
-        return apiCredentials;
     }
 
     @Override

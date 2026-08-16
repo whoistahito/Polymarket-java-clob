@@ -40,11 +40,7 @@ public final class Authentication {
                 authority.requireApiCredentials("deleteApiKey"), signingAddress("deleteApiKey"));
     }
 
-    /** L2 headers carry the signer's address, which only a local key or an identity supplies. */
     private String signingAddress(String operation) {
-        return authority.localSigner().map(PrivateKeySigner::address)
-                .or(() -> authority.identity().map(SigningIdentity::signer))
-                .orElseThrow(() -> new AuthenticationRequiredException(
-                        operation + " needs the signing address; supply a local key or identity"));
+        return authority.requireSigningAddress(operation);
     }
 }

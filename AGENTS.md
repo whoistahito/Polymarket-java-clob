@@ -53,12 +53,21 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `ApiKeyDirectory` **port**.
 - `com.polymarket.internal.operations` / `.authentication` — `OperationsGateway`,
   `AuthenticationGateway` (implements `ApiKeyDirectory`), `L1Attestation`, `L2Attestation`.
+<<<<<<< HEAD
 - `com.polymarket.markets` — the exact value kernel (`Price`, `TickSize`, `ShareQuantity`,
   `PusdAmount`, `AssetId`, `MarketRules`, `PriceLevel`, `OrderBookSnapshot`), the `MarketCatalog`
   port for Gamma discovery, and the `OrderBookSource` port for live CLOB books. **One `GET /book`
   supplies every signing rule** — tick, minimum shares and neg-risk — so the 2.0 path caches no rule
   and never substitutes a Gamma value (issue #10). Batches go through `GET /books?token_ids=`, not
   the documented POST form, because reads must keep their retry budget.
+=======
+- `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
+  `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
+  `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
+  non-advancing cursor as the end, so no read can spin. `allMarketRewards` is the only all-pages
+  convenience — one market's programmes are practically bounded — and it also refuses to revisit a
+  cursor. Implemented by `com.polymarket.internal.rewards.RewardsGateway`; user reads are L2.
+>>>>>>> worktree-agent-af60486477b5ac98d
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on
@@ -211,6 +220,6 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **975 tests, 0 failures, 0 skipped**.
+- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **1024 tests, 0 failures, 0 skipped**.
   `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
 

@@ -69,10 +69,29 @@
   "pagination": {
     "marketsKeysetMaxLimit": 100,
     "marketsKeysetSource": "https://docs.polymarket.com/changelog/predictions (May 14, 2026)",
-    "tradesMaxLimit": 500,
-    "tradesMaxOffset": 1000,
-    "tradesSource": "https://docs.polymarket.com/changelog/predictions (Aug 26, 2025)",
-    "cursorStyle": "after_cursor / next_cursor"
+    "dataApi": {
+      "source": "https://docs.polymarket.com/api-spec/data-openapi.yaml (read 2026-08-16)",
+      "trades": {
+        "maxLimit": 10000,
+        "maxOffset": 10000
+      },
+      "activity": {
+        "maxLimit": 500,
+        "maxOffset": 5000
+      },
+      "positions": {
+        "maxLimit": 500,
+        "maxOffset": 10000
+      }
+    },
+    "supersededChangelogEntry": "The 2025-08-26 changelog entry capping /trades and /activity at limit 500 / offset 1000 is STALE. The live Data OpenAPI now documents higher, per-endpoint bounds and they no longer agree with each other. Enforce the per-endpoint spec values above; the changelog figure is kept only to explain why earlier code used 500/1000.",
+    "cursorStyle": "Data API is offset-based; CLOB rewards use next_cursor (MA== first, LTE== end)",
+    "clobRewardsCursorParameter": {
+      "name": "next_cursor",
+      "placement": "query string",
+      "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml",
+      "note": "It is a QUERY parameter. 1.0 passed it as an HTTP header, so the server ignored it and every page re-read page 1 \u2014 an unbounded loop. See issue #18."
+    }
   },
   "settlement": {
     "source": "https://docs.polymarket.com/changelog/predictions (Jul 17, 2026)",

@@ -8,12 +8,14 @@ import com.polymarket.internal.markets.MarketsGateway;
 import com.polymarket.internal.markets.OrderBookGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
+import com.polymarket.internal.rewards.RewardsGateway;
 import com.polymarket.markets.Markets;
 import com.polymarket.markets.OrderBooks;
 import com.polymarket.operations.GeoblockStatus;
 import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
+import com.polymarket.rewards.Rewards;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
@@ -33,6 +35,7 @@ public final class Polymarket implements AutoCloseable {
     private final Markets markets;
     private final OrderBooks orderBooks;
     private final Portfolio portfolio;
+    private final Rewards rewards;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -45,6 +48,7 @@ public final class Polymarket implements AutoCloseable {
         this.markets = new Markets(new MarketsGateway(config, runtime));
         this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
         this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
+        this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
     }
 
     public static Polymarket withDefaults() {
@@ -98,6 +102,12 @@ public final class Polymarket implements AutoCloseable {
     public Portfolio portfolio() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return portfolio;
+    }
+
+    /** Market reward programmes and user earnings, one typed cursor page at a time. */
+    public Rewards rewards() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return rewards;
     }
 
     public ServerTime serverTime() throws IOException {
