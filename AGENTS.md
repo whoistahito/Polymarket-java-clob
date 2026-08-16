@@ -46,10 +46,19 @@ deleted. Domain packages are public, transport lives behind `internal`:
 - `com.polymarket.internal.http` — `HttpRuntime`, `HttpOutcome`. **Retry is keyed on the
   operation's idempotency, not on client configuration**: `get` retries within the budget and
   honours `Retry-After`; `post` executes exactly once, so no read budget can replay an order.
-- `com.polymarket.internal.operations` — `OperationsGateway`, the wire→domain translation.
+- `com.polymarket.authentication` — `Authentication` capability, `SigningAuthority`,
+  `PrivateKeySigner` (holds the key, exposes only `address()` and `sign(digest)`), `ApiCredentials`,
+  `SigningIdentity` (sealed: `Eoa`/`ProxyWallet`/`SafeWallet`/`DepositWallet`, valid by
+  construction, each carrying its official signature type), typed outcomes, and the
+  `ApiKeyDirectory` **port**.
+- `com.polymarket.internal.operations` / `.authentication` — `OperationsGateway`,
+  `AuthenticationGateway` (implements `ApiKeyDirectory`), `L1Attestation`, `L2Attestation`.
 
-Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, and no
-transport import inside a public domain package — the gateway does the mapping.
+Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
+import inside a public domain package (the gateway does the mapping), and **capabilities depend on
+domain-declared ports, never on an internal adapter type**. Only `Polymarket`, the composition root,
+wires the two sides together. Secrets redact in `toString`, and absent authority throws
+`AuthenticationRequiredException` before anything reaches the wire.
 
 ## Architecture (1.0 facade)
 

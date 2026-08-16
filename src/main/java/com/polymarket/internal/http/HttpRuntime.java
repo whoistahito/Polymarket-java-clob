@@ -80,6 +80,12 @@ public final class HttpRuntime implements AutoCloseable {
                 .post(RequestBody.create(body, JSON)).build());
     }
 
+    /** Write: executed exactly once. Retrying a delete can race a concurrent recreate. */
+    public HttpOutcome delete(URI base, String path, Map<String, String> headers)
+            throws IOException {
+        return execute(request(base, path, headers).delete().build());
+    }
+
     public JsonNode parse(String body) throws IOException {
         return json.readTree(body);
     }

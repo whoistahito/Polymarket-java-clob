@@ -1,11 +1,15 @@
 package com.polymarket;
 
+import com.polymarket.authentication.Authentication;
+import com.polymarket.authentication.SigningAuthority;
+import com.polymarket.internal.authentication.AuthenticationGateway;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.operations.GeoblockStatus;
 import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import java.io.IOException;
+import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,12 +23,16 @@ public final class Polymarket implements AutoCloseable {
     private final PolymarketConfig config;
     private final HttpRuntime runtime;
     private final OperationsGateway operations;
+    private final Authentication authentication;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    private Polymarket(PolymarketConfig config, HttpRuntime runtime) {
+    private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
+            Clock clock) {
         this.config = config;
         this.runtime = runtime;
         this.operations = new OperationsGateway(config, runtime);
+        this.authentication = new Authentication(authority,
+                new AuthenticationGateway(config, runtime, clock));
     }
 
     public static Polymarket withDefaults() {
@@ -32,18 +40,34 @@ public final class Polymarket implements AutoCloseable {
     }
 
     public static Polymarket with(PolymarketConfig config) {
+        return with(config, SigningAuthority.none());
+    }
+
+    public static Polymarket with(PolymarketConfig config, SigningAuthority authority) {
         Objects.requireNonNull(config, "config");
-        return new Polymarket(config, new HttpRuntime(
-                config.connectTimeout(), config.requestTimeout(), config.readRetryPolicy()));
+        return new Polymarket(config, new HttpRuntime(config.connectTimeout(),
+                config.requestTimeout(), config.readRetryPolicy()), authority, Clock.systemUTC());
     }
 
     /** Test seam: lets a caller supply a runtime whose backoff does not sleep. */
     static Polymarket with(PolymarketConfig config, HttpRuntime runtime) {
-        return new Polymarket(Objects.requireNonNull(config), Objects.requireNonNull(runtime));
+        return with(config, runtime, SigningAuthority.none(), Clock.systemUTC());
+    }
+
+    static Polymarket with(PolymarketConfig config, HttpRuntime runtime,
+            SigningAuthority authority, Clock clock) {
+        return new Polymarket(Objects.requireNonNull(config), Objects.requireNonNull(runtime),
+                Objects.requireNonNull(authority), Objects.requireNonNull(clock));
     }
 
     public PolymarketConfig config() {
         return config;
+    }
+
+    /** API-key lifecycle. Reachable without credentials; each call checks its own authority. */
+    public Authentication authentication() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return authentication;
     }
 
     public ServerTime serverTime() throws IOException {
