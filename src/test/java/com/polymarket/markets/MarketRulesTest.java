@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class MarketRulesTest {
                     "0xcondition", new TokenId("12345"), Instant.ofEpochSecond(1773890758L), "hash-1",
                     List.of(level("0.40", "10"), level("0.44", "5"), level("0.42", "7")),
                     List.of(level("0.55", "9"), level("0.51", "4"), level("0.53", "6")),
-                    rules(), Price.of("0.50"));
+                    rules(), Optional.of(Price.of("0.50")));
         }
 
         private PriceLevel level(String price, String size) {
@@ -95,7 +96,7 @@ class MarketRulesTest {
         void emptySideHasNoBest() {
             OrderBookSnapshot empty = new OrderBookSnapshot(
                     "0xcondition", new TokenId("12345"), Instant.EPOCH, "hash-1",
-                    List.of(), List.of(), rules(), Price.of("0.50"));
+                    List.of(), List.of(), rules(), Optional.of(Price.of("0.50")));
             assertTrue(empty.bestBid().isEmpty());
             assertTrue(empty.bestAsk().isEmpty());
         }

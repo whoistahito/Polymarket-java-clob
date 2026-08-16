@@ -18,13 +18,15 @@ public record OrderBookSnapshot(
         List<PriceLevel> bids,
         List<PriceLevel> asks,
         MarketRules rules,
-        Price lastTradePrice) {
+        Optional<Price> lastTradePrice) {
 
     public OrderBookSnapshot {
         Objects.requireNonNull(conditionId, "conditionId");
         Objects.requireNonNull(asset, "asset");
         Objects.requireNonNull(observedAt, "observedAt");
         Objects.requireNonNull(rules, "rules");
+        // A market that has never traded reports "" on the wire: absent, not zero.
+        Objects.requireNonNull(lastTradePrice, "lastTradePrice");
         // Official sources disagree about wire ordering, so sort numerically before any use.
         bids = sorted(bids, Comparator.comparing(PriceLevel::price).reversed());
         asks = sorted(asks, Comparator.comparing(PriceLevel::price));

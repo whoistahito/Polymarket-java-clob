@@ -93,7 +93,7 @@ class OrderBooksTest {
         assertEquals(TickSize.of("0.01"), book.rules().tickSize());
         assertEquals(ShareQuantity.of("5"), book.rules().minimumShares());
         assertTrue(book.rules().negativeRisk());
-        assertEquals(Price.of("0.060"), book.lastTradePrice());
+        assertEquals(Price.of("0.060"), book.lastTradePrice().orElseThrow());
 
         assertEquals(49, book.bids().size());
         assertEquals(5, book.asks().size());
@@ -212,7 +212,8 @@ class OrderBooksTest {
                 .replace("\"last_trade_price\":\"0.9\"", "\"last_trade_price\":\"\"")));
 
         try (Polymarket sdk = sdk()) {
-            assertNull(sdk.orderBooks().book(TOKEN).orElseThrow().lastTradePrice());
+            assertTrue(sdk.orderBooks().book(TOKEN).orElseThrow().lastTradePrice().isEmpty(),
+                    "a market that never traded reports absence, not a fabricated price");
         }
     }
 

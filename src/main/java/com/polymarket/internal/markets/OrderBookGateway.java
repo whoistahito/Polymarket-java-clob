@@ -80,7 +80,7 @@ public final class OrderBookGateway implements OrderBookSource {
                 new MarketRules(TickSize.of(node.path("tick_size").asText()),
                         ShareQuantity.of(node.path("min_order_size").asText()),
                         node.path("neg_risk").asBoolean()),
-                text(node, "last_trade_price").map(Price::of).orElse(null));
+                text(node, "last_trade_price").map(Price::of));
     }
 
     /** The book timestamp is unix milliseconds; the spec's ten-digit example is a placeholder. */

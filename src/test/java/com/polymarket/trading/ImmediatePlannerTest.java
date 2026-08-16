@@ -14,6 +14,7 @@ import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class ImmediatePlannerTest {
                 List.of(level("0.48", "20"), level("0.50", "30"), level("0.46", "10")),
                 List.of(level("0.54", "30"), level("0.50", "10"), level("0.52", "20")),
                 new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false),
-                Price.of("0.51"));
+                Optional.of(Price.of("0.51")));
     }
 
     @Nested
@@ -180,7 +181,7 @@ class ImmediatePlannerTest {
             OrderBookSnapshot empty = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
                     List.of(), List.of(),
                     new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false),
-                    Price.of("0.51"));
+                    Optional.of(Price.of("0.51")));
 
             assertInstanceOf(ImmediatePlan.InsufficientDepth.class, ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("10"), ExecutionPolicy.FAK), empty));
