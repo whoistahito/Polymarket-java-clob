@@ -102,7 +102,6 @@ public final class PolymarketClient {
     private String funderAddress;
     private SignatureType signatureType = SignatureType.EOA;
     private HttpClient http;
-    private ProxyConfig proxyConfig;
     private boolean useServerTime = false;
     private String geoBlockToken;
     private int maxRetries = 0;
@@ -164,21 +163,6 @@ public final class PolymarketClient {
       return this;
     }
 
-    public Builder proxy(ProxyConfig proxyConfig) {
-      this.proxyConfig = proxyConfig;
-      return this;
-    }
-
-    public Builder proxy(String host, int port, String username, String password) {
-      this.proxyConfig = new ProxyConfig(host, port, username, password);
-      return this;
-    }
-
-    public Builder proxy(String host, int port) {
-      this.proxyConfig = new ProxyConfig(host, port);
-      return this;
-    }
-
     public Builder useServerTime(boolean useServerTime) {
       this.useServerTime = useServerTime;
       return this;
@@ -198,9 +182,6 @@ public final class PolymarketClient {
       Objects.requireNonNull(credentials, "credentials (or privateKey) is required");
       if (http == null) {
         HttpClient.Builder httpBuilder = new HttpClient.Builder();
-        if (proxyConfig != null) {
-          httpBuilder.proxy(proxyConfig);
-        }
         if (maxRetries > 0) {
           httpBuilder.maxRetries(maxRetries);
         }
@@ -907,10 +888,6 @@ private List<OrderResponse> postOrdersChunk(List<PostOrderPayload> orderPayloads
       // orderHttp, not http: see Ticket 035 — POST /orders is not idempotent either.
       String response =
           orderHttp.postJsonRaw(clobUrl(endpoint), l2Headers("POST", endpoint, body), body);
-
-      if (Boolean.getBoolean("bot.debug.execution")) {
-        System.out.printf("[HTTP] POST %s response: %s%n", endpoint, response);
-      }
 
       return http.parseJson(response, new TypeReference<List<OrderResponse>>() {});
     } catch (HttpStatusException e) {

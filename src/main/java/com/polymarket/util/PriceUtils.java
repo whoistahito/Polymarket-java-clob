@@ -13,7 +13,6 @@ import java.security.NoSuchAlgorithmException;
 
 /**
  * Utility class for price calculations and tick rounding.
- * Handles all decimal math operations for the arbitrage bot.
  */
 public class PriceUtils {
 
@@ -26,7 +25,6 @@ public class PriceUtils {
     // Common constants
     public static final BigDecimal ZERO = BigDecimal.ZERO;
     public static final BigDecimal ONE = BigDecimal.ONE;
-    public static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     public static final BigDecimal TEN_THOUSAND = new BigDecimal("10000");
 
     /**
@@ -72,95 +70,6 @@ public class PriceUtils {
      */
     public static BigDecimal feeRateFromBps(int bps) {
         return new BigDecimal(bps).divide(TEN_THOUSAND, MATH_CONTEXT);
-    }
-
-    /**
-     * Calculate outcome costs based on which leg was executed first.
-     *
-     * @param leg1Outcome "A" or "B"
-     * @param leg1Price Price paid for leg 1
-     * @param leg2Price Price paid for leg 2
-     * @return Array [aCostPerShare, bCostPerShare]
-     */
-    public static BigDecimal[] calculateOutcomeCosts(String leg1Outcome, BigDecimal leg1Price, BigDecimal leg2Price) {
-        if ("A".equals(leg1Outcome)) {
-            return new BigDecimal[]{leg1Price, leg2Price};
-        } else {
-            return new BigDecimal[]{leg2Price, leg1Price};
-        }
-    }
-
-    /**
-     * Calculate final costs and profit for a completed trade.
-     *
-     * @param aCostPerShare Cost per share for outcome A
-     * @param bCostPerShare Cost per share for outcome B
-     * @param tradeSize Number of shares
-     * @param feeRate Fee rate as decimal (e.g., 0.01 for 1%)
-     * @return Array [totalCostPerShare, totalCost, totalFees, profit]
-     */
-    public static BigDecimal[] calculateTradeCompletion(
-            BigDecimal aCostPerShare,
-            BigDecimal bCostPerShare,
-            BigDecimal tradeSize,
-            BigDecimal feeRate) {
-
-        // Total cost per share pair (one A + one B)
-        BigDecimal totalCostPerShare = aCostPerShare.add(bCostPerShare);
-
-        // Total investment
-        BigDecimal totalCost = totalCostPerShare.multiply(tradeSize);
-
-        // Estimated fees (2 trades, fee applied to each)
-        BigDecimal totalFees = totalCostPerShare
-                .multiply(feeRate)
-                .multiply(new BigDecimal("2"))
-                .multiply(tradeSize);
-
-        // Guaranteed payout is $1.00 per share pair
-        // Profit = (payout - cost - fees) * shares
-        BigDecimal profit = ONE.subtract(totalCostPerShare)
-                .multiply(tradeSize)
-                .subtract(totalFees);
-
-        return new BigDecimal[]{totalCostPerShare, totalCost, totalFees, profit};
-    }
-
-    /**
-     * Calculate potential profit for an opportunity.
-     *
-     * @param totalCostPerShare Combined cost for both outcomes
-     * @param feeRate Fee rate as decimal
-     * @param tradeSize Number of shares
-     * @return Potential profit
-     */
-    public static BigDecimal calculatePotentialProfit(
-            BigDecimal totalCostPerShare,
-            BigDecimal feeRate,
-            BigDecimal tradeSize) {
-
-        BigDecimal estFees = totalCostPerShare
-                .multiply(feeRate)
-                .multiply(new BigDecimal("2"))
-                .multiply(tradeSize);
-
-        return ONE.subtract(totalCostPerShare)
-                .multiply(tradeSize)
-                .subtract(estFees);
-    }
-
-    /**
-     * Calculate ROI percentage.
-     *
-     * @param profit Total profit
-     * @param investment Total investment
-     * @return ROI as percentage (e.g., 5.25 for 5.25%)
-     */
-    public static BigDecimal calculateROI(BigDecimal profit, BigDecimal investment) {
-        if (investment.compareTo(ZERO) == 0) {
-            return ZERO;
-        }
-        return profit.divide(investment, MATH_CONTEXT).multiply(ONE_HUNDRED);
     }
 
     /**
@@ -249,18 +158,6 @@ public class PriceUtils {
             return false;
         }
         return price.compareTo(ZERO) >= 0 && price.compareTo(ONE) <= 0;
-    }
-
-    /**
-     * Check if market is "done" (one-sided: >= 0.99 or <= 0.01).
-     */
-    public static boolean isMarketDone(BigDecimal price) {
-        if (price == null) {
-            return false;
-        }
-        BigDecimal doneHigh = new BigDecimal("0.99");
-        BigDecimal doneLow = new BigDecimal("0.01");
-        return price.compareTo(doneHigh) >= 0 || price.compareTo(doneLow) <= 0;
     }
 
     /**

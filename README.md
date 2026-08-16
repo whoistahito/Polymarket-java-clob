@@ -53,7 +53,7 @@ SignedOrder order = client.createOrder(
 client.postOrder(order, OrderType.GTC);
 ```
 
-Credentials can also be loaded from `config.properties` via `Config.load()`.
+Credentials are supplied by the caller — the SDK never reads them from property or secret files.
 See `AGENTS.md` for full architecture and conventions.
 
 ## Build

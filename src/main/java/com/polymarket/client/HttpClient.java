@@ -6,69 +6,24 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import okhttp3.Authenticator;
 import okhttp3.Call;
 import okhttp3.ConnectionPool;
-import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import okhttp3.Route;
 
 /**
- * Minimal HTTP client wrapper around OkHttp + Jackson with proxy support.
+ * Minimal HTTP client wrapper around OkHttp + Jackson.
  *
- * <p>Goals for MVP:
- * <ul>
- *   <li>Simple GET/POST/DELETE JSON requests</li>
- *   <li>Deterministic JSON serialization (minified) when needed for signing</li>
- *   <li>Return raw string or parsed JSON as Map</li>
- *   <li>Support for HTTP proxies with authentication (e.g., Bright Data)</li>
- * </ul>
- *
- * <p>Proxy Usage Example:
- * <pre>{@code
- * // Without proxy
- * HttpClient client = new HttpClient();
- *
- * // With proxy (no auth)
- * HttpClient client = new HttpClient.Builder()
- *     .proxy("proxy.example.com", 8080)
- *     .build();
- *
- * // With proxy and authentication (e.g., Bright Data)
- * HttpClient client = new HttpClient.Builder()
- *     .proxy("brd.superproxy.io", 33335)
- *     .proxyAuth("brd-customer-hl_xxxxx-zone-datacenter_proxy1", "your_password")
- *     .build();
- *
- * // Using ProxyConfig
- * ProxyConfig proxyConfig = new ProxyConfig("brd.superproxy.io", 33335, "username", "password");
- * HttpClient client = new HttpClient.Builder()
- *     .proxy(proxyConfig)
- *     .build();
- *
- * // From environment variables (PROXY_HOST, PROXY_PORT, PROXY_USERNAME, PROXY_PASSWORD)
- * ProxyConfig proxyConfig = ProxyConfig.fromEnvironment();
- * if (proxyConfig != null) {
- *     client = new HttpClient.Builder().proxy(proxyConfig).build();
- * }
- * }</pre>
- *
- * <p>Notes:
- * <ul>
- *   <li>For signed requests, you should serialize JSON once and send the exact bytes you signed.</li>
- *   <li>This client exposes {@link #toJsonMinified(Object)} to help with that workflow.</li>
- * </ul>
+ * <p>For signed requests, serialize JSON once via {@link #toJsonMinified(Object)} and send exactly
+ * the bytes you signed.
  */
 public final class HttpClient {
 
@@ -78,19 +33,13 @@ public final class HttpClient {
 
     private final OkHttpClient ok;
     private final ObjectMapper mapper;
-    private final ProxyConfig proxyConfig;
     private final int maxRetries;
 
     /**
-     * Creates an HttpClient with default settings and no proxy.
+     * Creates an HttpClient with default settings.
      */
     public HttpClient() {
-        this(
-            defaultOkHttpClient(null, null, null),
-            defaultObjectMapper(),
-            null,
-            0
-        );
+        this(defaultOkHttpClient(null, null), defaultObjectMapper(), 0);
     }
 
     /**
@@ -100,32 +49,16 @@ public final class HttpClient {
      * @param objectMapper the Jackson ObjectMapper to use
      */
     public HttpClient(OkHttpClient okHttpClient, ObjectMapper objectMapper) {
-        this(okHttpClient, objectMapper, null, 0);
-    }
-
-    /**
-     * Creates an HttpClient with proxy support.
-     *
-     * @param proxyConfig the proxy configuration (can be null for no proxy)
-     */
-    public HttpClient(ProxyConfig proxyConfig) {
-        this(
-            defaultOkHttpClient(proxyConfig, null, null),
-            defaultObjectMapper(),
-            proxyConfig,
-            0
-        );
+        this(okHttpClient, objectMapper, 0);
     }
 
     private HttpClient(
         OkHttpClient okHttpClient,
         ObjectMapper objectMapper,
-        ProxyConfig proxyConfig,
         int maxRetries
     ) {
         this.ok = Objects.requireNonNull(okHttpClient, "okHttpClient");
         this.mapper = Objects.requireNonNull(objectMapper, "objectMapper");
-        this.proxyConfig = proxyConfig;
         this.maxRetries = Math.max(0, maxRetries);
     }
 
@@ -144,21 +77,7 @@ public final class HttpClient {
     }
 
     /**
-     * @return the proxy configuration, or null if no proxy is configured
-     */
-    public ProxyConfig proxyConfig() {
-        return proxyConfig;
-    }
-
-    /**
-     * @return true if a proxy is configured
-     */
-    public boolean hasProxy() {
-        return proxyConfig != null;
-    }
-
-    /**
-     * Returns a derived client sharing this client's connection pool, proxy, and object mapper, but
+     * Returns a derived client sharing this client's connection pool and object mapper, but
      * with BOTH of this SDK's automatic-replay mechanisms turned off, unconditionally — not
      * inherited from this client (Ticket 035).
      *
@@ -194,7 +113,7 @@ public final class HttpClient {
         // maxRetries is hardcoded to 0, NOT inherited as `this.maxRetries`: see the class-level
         // mechanism #2 above. Order placement must never replay, no matter what a caller sets for
         // reads.
-        return new HttpClient(noReplayOk, mapper, proxyConfig, 0);
+        return new HttpClient(noReplayOk, mapper, 0);
     }
 
     // =========================================================================
@@ -428,7 +347,7 @@ public final class HttpClient {
         boolean forceJsonContentType
     ) {
         // Mimic py-clob-client "overloadHeaders" defaults.
-        b.header("User-Agent", "polymarket-arbitrage-bot-java");
+        b.header("User-Agent", "polymarket-java-clob");
         b.header("Accept", "*/*");
         b.header("Connection", "keep-alive");
 
@@ -453,14 +372,12 @@ public final class HttpClient {
     }
 
     private static OkHttpClient defaultOkHttpClient(
-        ProxyConfig proxyConfig,
         Duration connectTimeout,
         Duration readTimeout
     ) {
-        // Reasonable defaults for MVP; tune later based on Config.
         ConnectionPool pool = new ConnectionPool(20, 5, TimeUnit.MINUTES);
 
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+        return new OkHttpClient.Builder()
             .connectionPool(pool)
             .connectTimeout(
                 connectTimeout != null ? connectTimeout : Duration.ofSeconds(5)
@@ -470,31 +387,8 @@ public final class HttpClient {
             )
             .writeTimeout(Duration.ofSeconds(10))
             .callTimeout(Duration.ofSeconds(20))
-            .retryOnConnectionFailure(true);
-
-        // Configure proxy if provided
-        if (proxyConfig != null) {
-            Proxy proxy = new Proxy(
-                Proxy.Type.HTTP,
-                new InetSocketAddress(
-                    proxyConfig.getHost(),
-                    proxyConfig.getPort()
-                )
-            );
-            builder.proxy(proxy);
-
-            // Configure proxy authentication if credentials are provided
-            if (proxyConfig.hasAuthentication()) {
-                builder.proxyAuthenticator(
-                    new ProxyAuthenticator(
-                        proxyConfig.getUsername(),
-                        proxyConfig.getPassword()
-                    )
-                );
-            }
-        }
-
-        return builder.build();
+            .retryOnConnectionFailure(true)
+            .build();
     }
 
     private static ObjectMapper defaultObjectMapper() {
@@ -507,65 +401,14 @@ public final class HttpClient {
     }
 
     // =========================================================================
-    // Proxy Authenticator
-    // =========================================================================
-
-    /**
-     * OkHttp Authenticator for proxy authentication.
-     */
-    private static class ProxyAuthenticator implements Authenticator {
-
-        private final String credentials;
-
-        ProxyAuthenticator(String username, String password) {
-            this.credentials = Credentials.basic(username, password);
-        }
-
-        @Override
-        public Request authenticate(Route route, Response response)
-            throws IOException {
-            // If we've already attempted authentication, don't retry
-            if (response.request().header("Proxy-Authorization") != null) {
-                return null; // Give up, already tried
-            }
-            return response
-                .request()
-                .newBuilder()
-                .header("Proxy-Authorization", credentials)
-                .build();
-        }
-    }
-
-    // =========================================================================
     // Builder
     // =========================================================================
 
     /**
      * Builder for creating HttpClient instances with custom configuration.
-     *
-     * <p>Example usage:
-     * <pre>{@code
-     * // Simple proxy
-     * HttpClient client = new HttpClient.Builder()
-     *     .proxy("proxy.example.com", 8080)
-     *     .build();
-     *
-     * // Bright Data proxy with authentication
-     * HttpClient client = new HttpClient.Builder()
-     *     .proxy("brd.superproxy.io", 33335)
-     *     .proxyAuth("brd-customer-hl_xxxxx-zone-datacenter_proxy1", "password")
-     *     .build();
-     *
-     * // Using ProxyConfig
-     * ProxyConfig config = new ProxyConfig("host", 8080, "user", "pass");
-     * HttpClient client = new HttpClient.Builder()
-     *     .proxy(config)
-     *     .build();
-     * }</pre>
      */
     public static class Builder {
 
-        private ProxyConfig proxyConfig;
         private ObjectMapper objectMapper;
         private Duration connectTimeout;
         private Duration readTimeout;
@@ -576,72 +419,6 @@ public final class HttpClient {
         private int maxRetries = 0;
 
         public Builder() {}
-
-        /**
-         * Configure a proxy without authentication.
-         *
-         * @param host the proxy host (e.g., "proxy.example.com")
-         * @param port the proxy port (e.g., 8080)
-         * @return this builder
-         */
-        public Builder proxy(String host, int port) {
-            this.proxyConfig = new ProxyConfig(host, port);
-            return this;
-        }
-
-        /**
-         * Configure a proxy with authentication.
-         *
-         * @param host     the proxy host
-         * @param port     the proxy port
-         * @param username the proxy username
-         * @param password the proxy password
-         * @return this builder
-         */
-        public Builder proxy(
-            String host,
-            int port,
-            String username,
-            String password
-        ) {
-            this.proxyConfig = new ProxyConfig(host, port, username, password);
-            return this;
-        }
-
-        /**
-         * Configure a proxy using a ProxyConfig object.
-         *
-         * @param proxyConfig the proxy configuration
-         * @return this builder
-         */
-        public Builder proxy(ProxyConfig proxyConfig) {
-            this.proxyConfig = proxyConfig;
-            return this;
-        }
-
-        /**
-         * Set proxy authentication credentials.
-         * Must be called after {@link #proxy(String, int)}.
-         *
-         * @param username the proxy username
-         * @param password the proxy password
-         * @return this builder
-         * @throws IllegalStateException if no proxy has been configured
-         */
-        public Builder proxyAuth(String username, String password) {
-            if (this.proxyConfig == null) {
-                throw new IllegalStateException(
-                    "Must call proxy() before proxyAuth()"
-                );
-            }
-            this.proxyConfig = new ProxyConfig(
-                proxyConfig.getHost(),
-                proxyConfig.getPort(),
-                username,
-                password
-            );
-            return this;
-        }
 
         /**
          * Set a custom ObjectMapper.
@@ -762,32 +539,10 @@ public final class HttpClient {
                 )
                 .retryOnConnectionFailure(true);
 
-            // Configure proxy if provided
-            if (proxyConfig != null) {
-                Proxy proxy = new Proxy(
-                    Proxy.Type.HTTP,
-                    new InetSocketAddress(
-                        proxyConfig.getHost(),
-                        proxyConfig.getPort()
-                    )
-                );
-                okBuilder.proxy(proxy);
-
-                // Configure proxy authentication if credentials are provided
-                if (proxyConfig.hasAuthentication()) {
-                    okBuilder.proxyAuthenticator(
-                        new ProxyAuthenticator(
-                            proxyConfig.getUsername(),
-                            proxyConfig.getPassword()
-                        )
-                    );
-                }
-            }
-
             ObjectMapper mapper =
                 objectMapper != null ? objectMapper : defaultObjectMapper();
 
-            return new HttpClient(okBuilder.build(), mapper, proxyConfig, maxRetries);
+            return new HttpClient(okBuilder.build(), mapper, maxRetries);
         }
     }
 }

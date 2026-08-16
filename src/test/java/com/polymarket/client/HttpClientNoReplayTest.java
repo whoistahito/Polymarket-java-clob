@@ -68,14 +68,12 @@ class HttpClientNoReplayTest {
     }
 
     @Test
-    @DisplayName("TC-HCP-003 the derived client keeps the same connection pool, proxy, and mapper")
+    @DisplayName("TC-HCP-003 the derived client keeps the same connection pool and mapper")
     void derivedClientSharesConfiguration() {
-        ProxyConfig proxy = new ProxyConfig("proxy.example.com", 8080);
-        HttpClient client = new HttpClient.Builder().proxy(proxy).build();
+        HttpClient client = new HttpClient.Builder().build();
 
         HttpClient noReplay = client.withoutConnectionFailureRetry();
 
-        assertEquals(proxy, noReplay.proxyConfig());
         assertSame(
             client.okHttpClient().connectionPool(),
             noReplay.okHttpClient().connectionPool(),
