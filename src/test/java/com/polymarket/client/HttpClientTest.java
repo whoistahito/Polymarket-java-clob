@@ -1,11 +1,17 @@
 package com.polymarket.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polymarket.model.OrderResponse;
+import okhttp3.OkHttpClient;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -346,5 +352,68 @@ class HttpClientTest {
         Map<String, Object> level3 = (Map<String, Object>) level2.get("level3");
 
         assertEquals("deep", level3.get("value"));
+    }
+
+    @Test
+    @DisplayName("TC-HC-029: User-Agent identifies the SDK, not a bot")
+    void testUserAgentIsNotBotSpecific() throws IOException, InterruptedException {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            server.enqueue(new MockResponse().setBody("{}"));
+            client.get(server.url("/ping").toString(), Collections.emptyMap());
+
+            assertEquals("polymarket-java-clob", server.takeRequest().getHeader("User-Agent"));
+        } finally {
+            server.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("TC-HC-030: Builder applies custom timeouts")
+    void testBuilderCustomTimeouts() {
+        OkHttpClient ok = new HttpClient.Builder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(60))
+                .writeTimeout(Duration.ofSeconds(45))
+                .callTimeout(Duration.ofSeconds(120))
+                .build()
+                .okHttpClient();
+
+        assertEquals(30_000, ok.connectTimeoutMillis());
+        assertEquals(60_000, ok.readTimeoutMillis());
+        assertEquals(45_000, ok.writeTimeoutMillis());
+        assertEquals(120_000, ok.callTimeoutMillis());
+    }
+
+    @Test
+    @DisplayName("TC-HC-031: Builder falls back to default timeouts")
+    void testBuilderDefaultTimeouts() {
+        OkHttpClient ok = new HttpClient.Builder().build().okHttpClient();
+
+        assertEquals(5_000, ok.connectTimeoutMillis());
+        assertEquals(10_000, ok.readTimeoutMillis());
+        assertEquals(10_000, ok.writeTimeoutMillis());
+        assertEquals(20_000, ok.callTimeoutMillis());
+    }
+
+    @Test
+    @DisplayName("TC-HC-032: Builder configures the connection pool")
+    void testBuilderConnectionPool() {
+        HttpClient built = new HttpClient.Builder()
+                .connectionPoolSize(50)
+                .connectionPoolKeepAlive(10)
+                .build();
+
+        assertNotNull(built.okHttpClient().connectionPool());
+    }
+
+    @Test
+    @DisplayName("TC-HC-033: Builder honours a custom ObjectMapper")
+    void testBuilderObjectMapper() {
+        assertNotNull(new HttpClient.Builder().build().objectMapper());
+
+        ObjectMapper custom = new ObjectMapper();
+        assertSame(custom, new HttpClient.Builder().objectMapper(custom).build().objectMapper());
     }
 }

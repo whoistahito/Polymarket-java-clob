@@ -69,7 +69,7 @@ reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-
 **Package layout:**
 
 - `com.polymarket.client` — Core API classes (`PolymarketClient`, `AsyncPolymarketClient`, `OrderBuilder`, `HttpClient`,
-  `L1Eip712Signer`, `L2HmacSigner`, `ApiKeyCreds`, `ProxyConfig`, `PolymarketEndpoints`, `GammaClient`, `RfqClient`,
+  `L1Eip712Signer`, `L2HmacSigner`, `ApiKeyCreds`, `PolymarketEndpoints`, `GammaClient`, `RfqClient`,
   `DataClient`, `HeartbeatManager`)
 - `com.polymarket.model` — Immutable data models (`SignedOrder`, `PostOrderPayload`, `UserOrder`, `UserMarketOrder`, `OrderData`, `Side`, `OrderType`, `SignatureType`, `Chain`, `OrderStatusType`, `TradeStatusType`, `TraderSide`, `Token`, `ApiKeyRaw`, `HeartbeatResponse`, `OpenOrderParams`, `TradeParams`, `RfqRequestOrderCreationPayload`, and 40+ more)
 - `com.polymarket.model.data` — Data API request/response models (`DataTrade`, `DataTradesRequest`, `DataSide`,
@@ -79,7 +79,7 @@ reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-
   request/response models
 - `com.polymarket.ws` — WebSocket live-feed client (`WsClient`, `WsMessageListener`, `ChannelType`, `ConnectionState`)
 - `com.polymarket.ws.model` — WS message types (`WsMessage`, `BookUpdate`, `PriceChange`, `TradeMessage`, `OrderMessage`, `MidpointUpdate`, etc.)
-- `com.polymarket.util` — `Config` (properties loader), `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
+- `com.polymarket.util` — `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
 This repo is a pure SDK (library) — it has no application entry point. Trading strategies/bots live in
 separate projects that depend on this artifact.
 
@@ -148,9 +148,9 @@ imposes no monotonic semantics, because clamping would hide a real sell.
 
 **`WalletUtils`** derives CREATE2 proxy and safe wallet addresses from an EOA address, matching the Rust SDK's `derive_proxy_wallet` / `derive_safe_wallet` exactly. Returns `Optional.empty()` for unsupported chain IDs.
 
-**Configuration** is loaded from `src/main/resources/config.properties` via `Config.load()`. Credentials can be provided
-directly with `credentials.private-key` / `credentials.funder-wallet`, or via external files referenced by
-`secret.key.file` / `funder.wallet.file`.
+**Configuration is caller-supplied only (Ticket #8).** The SDK loads no property file, reads no secret file, prints no
+configuration, and ships no HTTP proxy support — credentials reach the client through `PolymarketClient.Builder` (1.0)
+or `PolymarketConfig` / `SigningAuthority` (2.0) and nowhere else.
 
 ## Key Conventions
 
@@ -195,6 +195,6 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **967 tests, 0 failures, 0 skipped**.
+- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **965 tests, 0 failures, 0 skipped**.
   `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
 

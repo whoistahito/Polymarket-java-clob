@@ -143,33 +143,6 @@ class PriceUtilsTest {
     }
 
     @Test
-    @DisplayName("TC-PU-006: Market done detection - done markets")
-    void testIsMarketDoneDoneMarkets() {
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("0.99")));
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("0.995")));
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("1.00")));
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("0.01")));
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("0.005")));
-        assertTrue(PriceUtils.isMarketDone(new BigDecimal("0.00")));
-    }
-
-    @Test
-    @DisplayName("TC-PU-006b: Market done detection - active markets")
-    void testIsMarketDoneActiveMarkets() {
-        assertFalse(PriceUtils.isMarketDone(new BigDecimal("0.50")));
-        assertFalse(PriceUtils.isMarketDone(new BigDecimal("0.98")));
-        assertFalse(PriceUtils.isMarketDone(new BigDecimal("0.02")));
-        assertFalse(PriceUtils.isMarketDone(new BigDecimal("0.30")));
-        assertFalse(PriceUtils.isMarketDone(new BigDecimal("0.70")));
-    }
-
-    @Test
-    @DisplayName("TC-PU-006c: Market done detection - null returns false")
-    void testIsMarketDoneNull() {
-        assertFalse(PriceUtils.isMarketDone(null));
-    }
-
-    @Test
     @DisplayName("TC-PU-007: Tick round with null price returns null")
     void testTickRoundNullPrice() {
         BigDecimal result = PriceUtils.tickRound(null, new BigDecimal("0.01"), "nearest");
@@ -405,46 +378,10 @@ class PriceUtilsTest {
     }
 
     @Test
-    @DisplayName("TC-PU-033: Calculate outcome costs")
-    void testCalculateOutcomeCosts() {
-        BigDecimal[] costsA = PriceUtils.calculateOutcomeCosts("A",
-                new BigDecimal("0.40"), new BigDecimal("0.60"));
-        assertEquals(new BigDecimal("0.40"), costsA[0]); // A cost
-        assertEquals(new BigDecimal("0.60"), costsA[1]); // B cost
-
-        BigDecimal[] costsB = PriceUtils.calculateOutcomeCosts("B",
-                new BigDecimal("0.40"), new BigDecimal("0.60"));
-        assertEquals(new BigDecimal("0.60"), costsB[0]); // A cost
-        assertEquals(new BigDecimal("0.40"), costsB[1]); // B cost
-    }
-
-    @Test
-    @DisplayName("TC-PU-034: Calculate ROI")
-    void testCalculateROI() {
-        // 10% profit on 100 investment = 10% ROI
-        BigDecimal roi = PriceUtils.calculateROI(
-                new BigDecimal("10"),
-                new BigDecimal("100")
-        );
-        assertEquals(0, new BigDecimal("10").compareTo(roi.setScale(0, RoundingMode.HALF_UP)));
-    }
-
-    @Test
-    @DisplayName("TC-PU-035: Calculate ROI with zero investment returns zero")
-    void testCalculateROIZeroInvestment() {
-        BigDecimal roi = PriceUtils.calculateROI(
-                new BigDecimal("10"),
-                BigDecimal.ZERO
-        );
-        assertEquals(BigDecimal.ZERO, roi);
-    }
-
-    @Test
     @DisplayName("TC-PU-036: Constants are correct")
     void testConstants() {
         assertEquals(BigDecimal.ZERO, PriceUtils.ZERO);
         assertEquals(BigDecimal.ONE, PriceUtils.ONE);
-        assertEquals(new BigDecimal("100"), PriceUtils.ONE_HUNDRED);
         assertEquals(new BigDecimal("10000"), PriceUtils.TEN_THOUSAND);
     }
 
