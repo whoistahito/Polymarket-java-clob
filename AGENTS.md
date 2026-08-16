@@ -60,6 +60,13 @@ domain-declared ports, never on an internal adapter type**. Only `Polymarket`, t
 wires the two sides together. Secrets redact in `toString`, and absent authority throws
 `AuthenticationRequiredException` before anything reaches the wire.
 
+`PublicBoundaryTest` enforces those rules with ArchUnit (issue #6), scoped to the 2.0 packages so
+legacy violations do not block migration. Two exemptions are deliberate: `Polymarket` (composition
+root) may import `internal`, and `PrivateKeySigner`/`Addresses` may use Web3j because the JDK has no
+secp256k1 or keccak — they stay bound by the public-signature rule. Each rule is proven to fail
+against a test-only fixture in `src/test/java/com/polymarket/operations/*Leak.java`. Add a new 2.0
+package to `PUBLIC_PACKAGES` when you create one.
+
 ## Architecture (1.0 facade)
 
 This Java SDK stays compatible with Polymarket signing behavior from the upstream TypeScript and Rust
