@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * orders on the account are never touched. No order ever crosses the book, so none can fill.
  */
 @DisplayName("Live CLOB smoke test (opt-in)")
+@Tag("live")
 @EnabledIfEnvironmentVariable(named = "POLYMARKET_LIVE", matches = "1")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class LiveSmokeTest {

@@ -33,9 +33,10 @@ How a future session should pick up and implement work here. Follow it top to bo
 - Never regress V1 order signing.
 
 ## 4. Verify
-- `mvn test` (full suite). Known pre-existing failure: `ExecutionEngineTest
-  .testBudgetCapBlocksOverspendForSingleBot` depends on unfinished bot WIP — not your regression
-  unless your diff touches it. Everything else must stay green.
+- `mvn clean verify` (Java 21, full deterministic suite). There are **no known failures and no
+  exclusions** — the suite must be entirely green. Baseline 2026-08-16: 967 tests, 0 skipped.
+- The suite cannot reach the network (see `AGENTS.md` → Build & Test). Live checks are `@Tag("live")`
+  and run only under `mvn -Plive test` with `POLYMARKET_LIVE=1`.
 - A ticket is Done only when **every** Gherkin scenario passes (and live-verified where stated).
 
 ## 5. Close out

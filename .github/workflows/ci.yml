@@ -6,15 +6,13 @@ on:
   pull_request:
 
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: temurin
           cache: maven
-      # ponytail: skip the known-failing bot WIP test (see docs/WORKFLOW.md §4).
-      # Drop the -Dtest exclusion once ExecutionEngine budget-cap work lands.
-      - run: mvn -B test '-Dtest=!ExecutionEngineTest#testBudgetCapBlocksOverspendForSingleBot'
+      - run: mvn -B clean verify

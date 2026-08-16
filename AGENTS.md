@@ -6,8 +6,11 @@
 # Compile
 mvn clean compile
 
-# Run all tests
-mvn test
+# Run all tests (deterministic, offline — this is what CI runs)
+mvn clean verify
+
+# Run the opt-in read-only live checks (needs POLYMARKET_LIVE=1 and a private key)
+mvn -Plive test
 
 # Run a single test class
 mvn test -Dtest=OrderBuilderTest
@@ -22,7 +25,14 @@ mvn clean package
 mvn clean install
 ```
 
-Test classes match `**/*Test.java` or `**/*Tests.java`.
+Test classes match `**/*Test.java` or `**/*Tests.java`. The build targets **Java 21** via the compiler
+`release` setting.
+
+**The deterministic suite is offline by design.** A test-scope DNS provider
+(`NoExternalNetworkResolverProvider`) resolves loopback names only, and `NoExternalNetworkExtension`
+forces direct connections so an ambient HTTP proxy cannot tunnel past it. Anything reaching a real
+host fails with `UnknownHostException`. Live checks carry `@Tag("live")`, are excluded from the normal
+run, and are selected only by `-Plive` (which sets `-Dpolymarket.live=true` to lift the guard).
 
 ## Architecture
 
@@ -159,5 +169,6 @@ matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Current test suite contains 66 `*Test.java` classes under `src/test/java` (956 tests, 14 skipped)
+- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **967 tests, 0 failures, 0 skipped**.
+  `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
 
