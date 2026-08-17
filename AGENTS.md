@@ -106,6 +106,27 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `parentEntityType` degrades to `Optional.empty()` rather than failing the read. `Markets.search()`
   keeps owning event/tag search results — `Social.search()` returns only the profile matches.
   Implemented by `com.polymarket.internal.social.SocialGateway`.
+- `com.polymarket.builders` (issue #19) — `Builders` capability: L2-authenticated builder
+  API-key create/list/revoke as typed outcomes (`BuilderCredentials` fully redacts every secret,
+  matching `ApiCredentials`), plus `BuilderCursor`/`BuilderTradePage` reads of builder-attributed
+  trades. Builder attribution itself needed no new plumbing — `SignedOrder.builder()` and
+  `SigningContext.withBuilder(...)` (issues #12-#14) already carry it through signing and
+  submission; `BuilderAttributionTest` proves that end to end. Implemented by
+  `com.polymarket.internal.builders.BuildersGateway`.
+- `com.polymarket.rfq` (issue #25) — the Builder Gateway **requester** flow: `Rfq.request`/
+  `status`/`waitForQuote` over the `RfqDirectory` **port**, reached at a caller-supplied gateway
+  host (issued per builder onboarding, so it is not one of `PolymarketConfig`'s fixed hosts).
+  `request` signs with two independent HMAC header sets — account (`L2Attestation`) and builder
+  (`POLY_BUILDER_*`, the same HMAC primitive, now `public` on `L2Attestation`). `RfqOutcome` is
+  sealed (`Quoted`/`Waiting`/`Failed`/`Expired`/`Canceled`/`Pending`/`Unknown`); a business
+  failure (no quote, maker decline, execution failure) is wire-indistinguishable as anything but
+  status `FAILED` with free-text nested error, so those three stay one `Failed(reason)` case
+  rather than an invented error-code schema. `waitForQuote` mirrors `Trading.reconcile`'s
+  injected-`Clock` poll loop exactly; a local timeout is `Pending`, never a reported failure.
+  Combo market/PositionId discovery is the caller supplying `PositionId` values it already
+  holds — no CTF computation, and no unverified Gamma "list combo markets" endpoint invented
+  without a pinned fixture. Accepting a quote is issue #26. Implemented by
+  `com.polymarket.internal.rfq.RfqGateway`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on

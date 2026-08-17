@@ -25,7 +25,9 @@ public final class L2Attestation {
         return headers;
     }
 
-    static String sign(String urlSafeBase64Secret, long timestampSeconds, String method,
+    /** The shared HMAC primitive; public so other gateways signing extra header sets (e.g. the
+     * Builder Gateway's builder-auth headers) reuse the exact same algorithm. */
+    public static String sign(String urlSafeBase64Secret, long timestampSeconds, String method,
             String path, String body) {
         String message = timestampSeconds + method + path + (body != null ? body : "");
         try {
