@@ -134,6 +134,15 @@ deleted. Domain packages are public, transport lives behind `internal`:
   market/PositionId discovery is the caller supplying `PositionId` values it already holds — no
   CTF computation, and no unverified Gamma "list combo markets" endpoint invented without a
   pinned fixture. Implemented by `com.polymarket.internal.rfq.RfqGateway`.
+- `AsyncTrading`/`AsyncRfq` (issue #27) — thin `CompletableFuture` decorators, one per method,
+  living in `com.polymarket.trading`/`com.polymarket.rfq` alongside the capabilities they wrap.
+  Only these two get an async form. Each future completes on the caller-supplied `Executor`
+  (default `ForkJoinPool.commonPool()`); a checked `IOException` surfaces as
+  `UncheckedIOException` inside the future's `ExecutionException`, matching every typed
+  disposition (`SubmissionOutcome`/`BatchSubmissionOutcome`/`CancellationOutcome`/
+  `ReconciliationOutcome`/`RfqOutcome`) unchanged from the synchronous call. Neither wrapper
+  exposes the underlying sync capability or its `Executor` — no escape hatch back to a
+  synchronous call or a place to hang extra retries.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on
