@@ -86,6 +86,13 @@ public final class HttpRuntime implements AutoCloseable {
         return execute(request(base, path, headers).delete().build());
     }
 
+    /** As {@link #delete(URI, String, Map)}, carrying a body — the CLOB cancel endpoints require one. */
+    public HttpOutcome delete(URI base, String path, Map<String, String> headers, String body)
+            throws IOException {
+        return execute(request(base, path, headers)
+                .delete(RequestBody.create(body, JSON)).build());
+    }
+
     public JsonNode parse(String body) throws IOException {
         return json.readTree(body);
     }

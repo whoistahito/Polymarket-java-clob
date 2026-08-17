@@ -8,6 +8,10 @@ import com.polymarket.internal.authentication.L2Attestation;
 import com.polymarket.internal.http.HttpOutcome;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.PositionId;
+import com.polymarket.trading.BatchItem;
+import com.polymarket.trading.BatchSubmissionOutcome;
+import com.polymarket.trading.CancellationOutcome;
+import com.polymarket.trading.OrderBatch;
 import com.polymarket.trading.OrderPlacement;
 import com.polymarket.trading.OrderSubmitter;
 import com.polymarket.trading.SignedOrder;
@@ -16,19 +20,23 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Transport and protocol for {@code POST /order}. Ground truth for the classification below:
- * {@code api-reference/trade/post-a-new-order.md} and {@code resources/error-codes.md} — the same
- * rules the proven 1.0 {@code OrderSubmission} enforced, carried over verbatim for the V2 shape.
+ * Transport and protocol for {@code POST /order}, {@code POST /orders} and {@code DELETE /orders}.
+ * Ground truth for the classification below: {@code api-reference/trade/post-a-new-order.md} and
+ * {@code resources/error-codes.md} — the same rules the proven 1.0 {@code OrderSubmission} enforced,
+ * carried over verbatim for the V2 shape.
  */
-public final class TradingGateway implements OrderSubmitter {
+public final class TradingGateway implements OrderSubmitter, OrderBatch {
 
     private static final String ORDER_PATH = "/order";
+    private static final String ORDERS_PATH = "/orders";
 
     /** Documented "not placed, try again" errors (Ticket 022/035 ground truth). */
     private static final List<String> RETRYABLE_ERRORS = List.of(
@@ -62,7 +70,7 @@ public final class TradingGateway implements OrderSubmitter {
         HttpOutcome outcome;
         try {
             outcome = runtime.post(config.clobHost(), ORDER_PATH,
-                    l2Headers(placement.credentials(), order.signer(), body), body);
+                    l2Headers(placement.credentials(), order.signer(), "POST", ORDER_PATH, body), body);
         } catch (IOException e) {
             return new SubmissionOutcome.Unknown(
                     Optional.empty(), transportMessage(e), Optional.of(e));
@@ -97,31 +105,33 @@ public final class TradingGateway implements OrderSubmitter {
                     Optional.of(outcome.status()), "empty or unreadable order response body",
                     Optional.empty());
         }
+        return classifyOrderNode(node, outcome.status());
+    }
 
+    /** Classifies one order-response object; reused for both a single body and each batch element. */
+    private static SubmissionOutcome classifyOrderNode(JsonNode node, int httpStatus) {
         String errorMsg = blankToNull(node.path("errorMsg").asText(null));
         boolean success = node.path("success").asBoolean(false);
 
         if (!success) {
             if (isDuplicateOrderError(errorMsg)) {
-                return new SubmissionOutcome.Unknown(
-                        Optional.of(outcome.status()), errorMsg, Optional.empty());
+                return new SubmissionOutcome.Unknown(Optional.of(httpStatus), errorMsg, Optional.empty());
             }
             return new SubmissionOutcome.Rejected(
-                    outcome.status(), errorMsg != null ? errorMsg : "success=false",
-                    isRetryableError(errorMsg));
+                    httpStatus, errorMsg != null ? errorMsg : "success=false", isRetryableError(errorMsg));
         }
         if (errorMsg != null) {
-            return new SubmissionOutcome.Unknown(Optional.of(outcome.status()), errorMsg, Optional.empty());
+            return new SubmissionOutcome.Unknown(Optional.of(httpStatus), errorMsg, Optional.empty());
         }
         String orderId = blankToNull(node.path("orderID").asText(null));
         if (orderId == null) {
             return new SubmissionOutcome.Unknown(
-                    Optional.of(outcome.status()), "success without an order id", Optional.empty());
+                    Optional.of(httpStatus), "success without an order id", Optional.empty());
         }
         String status = blankToNull(node.path("status").asText(null));
         if (status == null) {
             return new SubmissionOutcome.Unknown(
-                    Optional.of(outcome.status()), "success without an order status", Optional.empty());
+                    Optional.of(httpStatus), "success without an order status", Optional.empty());
         }
 
         List<String> tradeIds = new ArrayList<>();
@@ -130,7 +140,94 @@ public final class TradingGateway implements OrderSubmitter {
                 textField(node, "makingAmount"), textField(node, "takingAmount"));
     }
 
+    @Override
+    public BatchSubmissionOutcome submitBatch(List<BatchItem> items) {
+        for (BatchItem item : items) {
+            if (item.order().asset() instanceof PositionId) {
+                throw new IllegalArgumentException(
+                        "V3 Combo orders route through the RFQ Builder Gateway, not POST /orders");
+            }
+        }
+        String body = batchWireBody(items);
+        ApiCredentials credentials = items.get(0).placement().credentials();
+        String address = items.get(0).order().signer();
+        HttpOutcome outcome;
+        try {
+            outcome = runtime.post(config.clobHost(), ORDERS_PATH,
+                    l2Headers(credentials, address, "POST", ORDERS_PATH, body), body);
+        } catch (IOException e) {
+            return new BatchSubmissionOutcome.Indeterminate(transportMessage(e), Optional.of(e));
+        }
+        if (!outcome.successful()) {
+            return new BatchSubmissionOutcome.Indeterminate(
+                    "HTTP " + outcome.status() + ": " + errorMessage(outcome.body()), Optional.empty());
+        }
+        JsonNode array = tryParse(outcome.body());
+        if (array == null || !array.isArray() || array.size() != items.size()) {
+            return new BatchSubmissionOutcome.Indeterminate(
+                    "batch response did not carry one result per submitted order", Optional.empty());
+        }
+        List<SubmissionOutcome> perItem = new ArrayList<>();
+        array.forEach(node -> perItem.add(classifyOrderNode(node, outcome.status())));
+        return new BatchSubmissionOutcome.Completed(perItem);
+    }
+
+    @Override
+    public CancellationOutcome cancel(ApiCredentials credentials, String address, List<String> orderIds)
+            throws IOException {
+        String body;
+        try {
+            body = json.writeValueAsString(orderIds);
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize order ids", e);
+        }
+        HttpOutcome outcome = runtime.delete(config.clobHost(), ORDERS_PATH,
+                l2Headers(credentials, address, "DELETE", ORDERS_PATH, body), body);
+        if (!outcome.successful()) {
+            throw new IOException("could not cancel orders: HTTP " + outcome.status()
+                    + " " + errorMessage(outcome.body()));
+        }
+        JsonNode node = tryParse(outcome.body());
+        List<String> canceled = new ArrayList<>();
+        if (node != null) {
+            node.path("canceled").forEach(c -> canceled.add(c.asText()));
+        }
+        Map<String, String> notCanceled = new LinkedHashMap<>();
+        if (node != null && node.has("not_canceled")) {
+            node.path("not_canceled").fields()
+                    .forEachRemaining(e -> notCanceled.put(e.getKey(), e.getValue().asText()));
+        }
+        // Any requested ID the server did not confirm is not-canceled, even without a server reason.
+        Set<String> confirmed = new LinkedHashSet<>(canceled);
+        for (String id : orderIds) {
+            if (!confirmed.contains(id)) {
+                notCanceled.putIfAbsent(id, "not confirmed canceled");
+            }
+        }
+        return new CancellationOutcome(canceled, notCanceled);
+    }
+
+    private String batchWireBody(List<BatchItem> items) {
+        List<Map<String, Object>> payloads = new ArrayList<>();
+        for (BatchItem item : items) {
+            payloads.add(orderPayload(item.order(), item.placement()));
+        }
+        try {
+            return json.writeValueAsString(payloads);
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize the batch payload", e);
+        }
+    }
+
     private String wireBody(SignedOrder order, OrderPlacement placement) {
+        try {
+            return json.writeValueAsString(orderPayload(order, placement));
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize the order payload", e);
+        }
+    }
+
+    private static Map<String, Object> orderPayload(SignedOrder order, OrderPlacement placement) {
         Map<String, Object> wire = new LinkedHashMap<>();
         wire.put("salt", order.salt());
         wire.put("maker", order.maker());
@@ -155,16 +252,13 @@ public final class TradingGateway implements OrderSubmitter {
                 || placement.orderType() == com.polymarket.trading.OrderType.GTD) {
             payload.put("postOnly", placement.postOnly());
         }
-        try {
-            return json.writeValueAsString(payload);
-        } catch (IOException e) {
-            throw new IllegalStateException("could not serialize the order payload", e);
-        }
+        return payload;
     }
 
-    private Map<String, String> l2Headers(ApiCredentials credentials, String address, String body) {
-        return L2Attestation.headers(
-                credentials, address, clock.instant().getEpochSecond(), "POST", ORDER_PATH, body);
+    private Map<String, String> l2Headers(ApiCredentials credentials, String address, String method,
+            String path, String body) {
+        return L2Attestation.headers(credentials, address, clock.instant().getEpochSecond(), method,
+                path, body);
     }
 
     private JsonNode tryParse(String body) {

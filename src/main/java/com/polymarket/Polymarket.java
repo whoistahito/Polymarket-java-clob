@@ -54,7 +54,8 @@ public final class Polymarket implements AutoCloseable {
         this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
         this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
         this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
-        this.trading = new Trading(new Eip712OrderSigner(), new TradingGateway(config, runtime, clock),
+        TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
+        this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
     }
 

@@ -81,6 +81,14 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `raw()` text and treated as non-terminal. A local deadline yields `ReconciliationOutcome.Pending`
   (order and trade IDs preserved) rather than a reported failure. Implemented by
   `com.polymarket.internal.trading.TradeReaderGateway`.
+  `Trading.submitBatch`/`cancel` (issue #17) add the `OrderBatch` **port**: official limits
+  (15 orders, 1000 cancel IDs) and blank/duplicate cancel IDs are rejected before any request, one
+  logical batch is exactly one `POST /orders`/`DELETE /orders`, and a batch is never silently
+  chunked. Per-item outcomes are attached **positionally** — the wire array carries no per-item
+  ID — and only when the response is a same-length array; any mismatch, unparseable body, or
+  transport failure is `BatchSubmissionOutcome.Indeterminate` rather than inventing which item
+  succeeded. A cancel ID the server does not confirm is `notCanceled`, even without a server
+  reason. Also implemented by `com.polymarket.internal.trading.TradingGateway`.
 - `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
   `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
   `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
