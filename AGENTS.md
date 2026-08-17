@@ -99,6 +99,13 @@ deleted. Domain packages are public, transport lives behind `internal`:
   absolute position snapshots, and CLOB notifications. A zero size survives untouched and every
   non-identity field is `Optional`, so clamping or fabrication can never hide a real change.
   Implemented by `com.polymarket.internal.portfolio.PortfolioGateway`; user reads are L2.
+- `com.polymarket.social` (issue #20) — the read-only `Social` capability over Gamma profiles,
+  comments (general, by entity, by user, and single-comment/thread lookup) and profile search,
+  reached through the `SocialDirectory` **port**. Every read is credential-free and bounded (a
+  `limit` is required so no comment read can become an unbounded walk); an unrecognised
+  `parentEntityType` degrades to `Optional.empty()` rather than failing the read. `Markets.search()`
+  keeps owning event/tag search results — `Social.search()` returns only the profile matches.
+  Implemented by `com.polymarket.internal.social.SocialGateway`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on

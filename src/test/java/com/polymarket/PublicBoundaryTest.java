@@ -29,7 +29,8 @@ class PublicBoundaryTest {
     private static final String[] PUBLIC_PACKAGES =
             {"com.polymarket", "com.polymarket.operations..", "com.polymarket.authentication..",
                     "com.polymarket.markets..", "com.polymarket.trading..",
-                    "com.polymarket.portfolio..", "com.polymarket.rewards.."};
+                    "com.polymarket.portfolio..", "com.polymarket.rewards..",
+                    "com.polymarket.social.."};
 
     private static final JavaClasses SHIPPED = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
