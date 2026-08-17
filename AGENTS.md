@@ -74,6 +74,13 @@ deleted. Domain packages are public, transport lives behind `internal`:
   (`HttpRuntime.post` executes exactly once). A `PositionId` order is rejected before any request:
   V3 Combo orders route through the RFQ Builder Gateway (issues #25/#26), not `POST /order`.
   Implemented by `com.polymarket.internal.trading.TradingGateway`.
+  `Trading.reconcile` (issue #16) polls `GET /data/trades?id=` (one request per trade ID — the
+  filter has no batch form) via the `TradeReader` **port** until every ID reaches the terminal
+  `TradeStatus.Known.CONFIRMED`/`FAILED`, so a delayed transaction hash just shows up on a later
+  poll. A missing or non-terminal record keeps polling; an unrecognised status is kept as its
+  `raw()` text and treated as non-terminal. A local deadline yields `ReconciliationOutcome.Pending`
+  (order and trade IDs preserved) rather than a reported failure. Implemented by
+  `com.polymarket.internal.trading.TradeReaderGateway`.
 - `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
   `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
   `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a

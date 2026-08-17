@@ -10,6 +10,7 @@ import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
+import com.polymarket.internal.trading.TradeReaderGateway;
 import com.polymarket.internal.trading.TradingGateway;
 import com.polymarket.markets.Markets;
 import com.polymarket.markets.OrderBooks;
@@ -53,7 +54,8 @@ public final class Polymarket implements AutoCloseable {
         this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
         this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
         this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
-        this.trading = new Trading(new Eip712OrderSigner(), new TradingGateway(config, runtime, clock));
+        this.trading = new Trading(new Eip712OrderSigner(), new TradingGateway(config, runtime, clock),
+                new TradeReaderGateway(config, runtime, clock), clock);
     }
 
     public static Polymarket withDefaults() {
