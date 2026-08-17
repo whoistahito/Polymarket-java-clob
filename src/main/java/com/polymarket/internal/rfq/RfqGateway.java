@@ -13,6 +13,7 @@ import com.polymarket.rfq.RfqDirectory;
 import com.polymarket.rfq.RfqOutcome;
 import com.polymarket.rfq.RfqRequest;
 import com.polymarket.rfq.RfqStatus;
+import com.polymarket.trading.SignedOrder;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Clock;
@@ -31,6 +32,7 @@ import java.util.Map;
 public final class RfqGateway implements RfqDirectory {
 
     private static final String REQUESTS_PATH = "/v1/builder/rfq/requests";
+    private static final String ACCEPT_SUFFIX = "/accept";
 
     private final URI gatewayHost;
     private final HttpRuntime runtime;
@@ -67,6 +69,53 @@ public final class RfqGateway implements RfqDirectory {
 
         HttpOutcome outcome = runtime.get(gatewayHost, path, headers);
         return classify(outcome, rfqId);
+    }
+
+    @Override
+    public RfqOutcome accept(String rfqId, String quoteId, SignedOrder signedOrder,
+            ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
+        String path = REQUESTS_PATH + "/" + rfqId + ACCEPT_SUFFIX;
+        String body = acceptBody(quoteId, signedOrder);
+        long timestamp = clock.instant().getEpochSecond();
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.putAll(L2Attestation.headers(
+                accountCredentials, signedOrder.signer(), timestamp, "POST", path, body));
+        headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", path, body));
+
+        try {
+            HttpOutcome outcome = runtime.post(gatewayHost, path, headers, body);
+            return classify(outcome, rfqId);
+        } catch (IOException transportFailure) {
+            // Never replayed and never thrown: the acceptance may or may not have landed, so
+            // the caller polls status() with the same durable rfqId instead of re-accepting.
+            return new RfqOutcome.Unknown(rfqId,
+                    "transport failure: " + transportFailure.getMessage());
+        }
+    }
+
+    private String acceptBody(String quoteId, SignedOrder signedOrder) {
+        Map<String, Object> order = new LinkedHashMap<>();
+        order.put("salt", signedOrder.salt());
+        order.put("maker", signedOrder.maker());
+        order.put("signer", signedOrder.signer());
+        order.put("tokenId", signedOrder.asset().value());
+        order.put("makerAmount", String.valueOf(signedOrder.makerAmount()));
+        order.put("takerAmount", String.valueOf(signedOrder.takerAmount()));
+        order.put("side", signedOrder.side().wireValue());
+        order.put("signatureType", signedOrder.signatureType());
+        order.put("timestamp", String.valueOf(signedOrder.timestamp()));
+        order.put("metadata", signedOrder.metadata());
+        order.put("builder", signedOrder.builder());
+        order.put("signature", signedOrder.signature());
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("quote_id", quoteId);
+        body.put("signed_order", order);
+        try {
+            return json.writeValueAsString(body);
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize the RFQ acceptance", e);
+        }
     }
 
     private String requestBody(RfqRequest request, SigningIdentity identity) {
@@ -138,27 +187,38 @@ public final class RfqGateway implements RfqDirectory {
         if (status.is(RfqStatus.Known.AWAITING_REQUESTER_ACCEPTANCE)) {
             return quoted(node, rfqId);
         }
+        if (status.is(RfqStatus.Known.CONFIRMED) || status.is(RfqStatus.Known.FILLED)) {
+            return new RfqOutcome.Confirmed(rfqId, status.raw());
+        }
         if (status.isNonTerminal()) {
             return new RfqOutcome.Waiting(rfqId, status);
         }
-        // CONFIRMED/FILLED only happen after acceptance (issue #26); reaching them here is
-        // outside this flow's vocabulary, so the raw value is kept rather than guessed at.
         return new RfqOutcome.Unknown(rfqId, status.raw());
     }
 
     private RfqOutcome quoted(JsonNode node, String rfqId) {
         JsonNode quote = node.has("quote") ? node.path("quote") : node;
         String quoteId = textOrNull(quote, "quote_id");
-        if (quoteId == null) {
+        String comboPositionId = firstText(quote, "combo_position_id", "comboPositionId",
+                "position_id", "tokenId");
+        if (quoteId == null || comboPositionId == null) {
             return new RfqOutcome.Waiting(rfqId, new RfqStatus("AWAITING_REQUESTER_ACCEPTANCE"));
         }
         List<PositionId> legs = new ArrayList<>();
         node.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
-        return new RfqOutcome.Quoted(rfqId, quoteId, legs,
+        return new RfqOutcome.Quoted(rfqId, quoteId, new PositionId(comboPositionId), legs,
                 Long.parseLong(quote.path("maker_amount_e6").asText("0")),
                 Long.parseLong(quote.path("taker_amount_e6").asText("0")),
                 Instant.ofEpochMilli(quote.path("expires_at").asLong(0)),
                 quote.path("builder_code").asText(""));
+    }
+
+    private static String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            String value = textOrNull(node, field);
+            if (value != null) return value;
+        }
+        return null;
     }
 
     private static String errorReason(JsonNode node) {

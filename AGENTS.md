@@ -113,20 +113,27 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `SigningContext.withBuilder(...)` (issues #12-#14) already carry it through signing and
   submission; `BuilderAttributionTest` proves that end to end. Implemented by
   `com.polymarket.internal.builders.BuildersGateway`.
-- `com.polymarket.rfq` (issue #25) — the Builder Gateway **requester** flow: `Rfq.request`/
-  `status`/`waitForQuote` over the `RfqDirectory` **port**, reached at a caller-supplied gateway
-  host (issued per builder onboarding, so it is not one of `PolymarketConfig`'s fixed hosts).
-  `request` signs with two independent HMAC header sets — account (`L2Attestation`) and builder
-  (`POLY_BUILDER_*`, the same HMAC primitive, now `public` on `L2Attestation`). `RfqOutcome` is
-  sealed (`Quoted`/`Waiting`/`Failed`/`Expired`/`Canceled`/`Pending`/`Unknown`); a business
-  failure (no quote, maker decline, execution failure) is wire-indistinguishable as anything but
-  status `FAILED` with free-text nested error, so those three stay one `Failed(reason)` case
-  rather than an invented error-code schema. `waitForQuote` mirrors `Trading.reconcile`'s
+- `com.polymarket.rfq` (issues #25, #26) — the Builder Gateway requester flow: `Rfq.request`/
+  `status`/`waitForQuote`/`accept` over the `RfqDirectory` **port**, reached at a caller-supplied
+  gateway host (issued per builder onboarding, so it is not one of `PolymarketConfig`'s fixed
+  hosts). `request` and `accept` each sign with two independent HMAC header sets — account
+  (`L2Attestation`) and builder (`POLY_BUILDER_*`, the same HMAC primitive, now `public` on
+  `L2Attestation`). `RfqOutcome` is sealed (`Quoted`/`Confirmed`/`Waiting`/`Failed`/`Expired`/
+  `Canceled`/`Pending`/`Unknown`); a business failure (no quote, maker decline, execution
+  failure) is wire-indistinguishable as anything but status `FAILED` with a free-text nested
+  error, so those three stay one `Failed(reason)` case rather than an invented error-code
+  schema, and `CONFIRMED`/`FILLED` collapse into one `Confirmed` case matching how the official
+  fixture itself groups them as `"success"`. `waitForQuote` mirrors `Trading.reconcile`'s
   injected-`Clock` poll loop exactly; a local timeout is `Pending`, never a reported failure.
-  Combo market/PositionId discovery is the caller supplying `PositionId` values it already
-  holds — no CTF computation, and no unverified Gamma "list combo markets" endpoint invented
-  without a pinned fixture. Accepting a quote is issue #26. Implemented by
-  `com.polymarket.internal.rfq.RfqGateway`.
+  `accept` rejects an expired quote before sending, signs `quote.comboPositionId()` through the
+  V3 path with `context.withBuilder(quote.builderCode())` (the official rule: "order.builder
+  must equal the returned builder_code"), and never throws or replays on transport failure — a
+  connection loss becomes `Unknown(rfqId, ...)`, the durable handle for a later status poll.
+  `comboPositionId` itself is read from the first field name the gateway recognises: the fixture
+  names the concept ("the returned Combo YES position ID") without pinning its wire key. Combo
+  market/PositionId discovery is the caller supplying `PositionId` values it already holds — no
+  CTF computation, and no unverified Gamma "list combo markets" endpoint invented without a
+  pinned fixture. Implemented by `com.polymarket.internal.rfq.RfqGateway`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on

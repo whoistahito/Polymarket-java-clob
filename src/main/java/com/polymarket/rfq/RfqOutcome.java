@@ -13,15 +13,30 @@ public sealed interface RfqOutcome {
 
     String rfqId();
 
-    /** A quote is ready to accept before {@code expiresAt} (AWAITING_REQUESTER_ACCEPTANCE). */
-    record Quoted(String rfqId, String quoteId, List<PositionId> legs, long makerAmountBaseUnits,
-            long takerAmountBaseUnits, Instant expiresAt, String builderCode) implements RfqOutcome {
+    /**
+     * A quote is ready to accept before {@code expiresAt} (AWAITING_REQUESTER_ACCEPTANCE).
+     * {@code comboPositionId} is the single position ID the accept order signs against — the
+     * fixture names this concept ("the returned Combo YES position ID") without pinning its
+     * wire key, so the gateway reads it from the first field name it recognises.
+     */
+    record Quoted(String rfqId, String quoteId, PositionId comboPositionId, List<PositionId> legs,
+            long makerAmountBaseUnits, long takerAmountBaseUnits, Instant expiresAt, String builderCode)
+            implements RfqOutcome {
         public Quoted {
             Objects.requireNonNull(rfqId, "rfqId");
             Objects.requireNonNull(quoteId, "quoteId");
+            Objects.requireNonNull(comboPositionId, "comboPositionId");
             legs = List.copyOf(legs);
             Objects.requireNonNull(expiresAt, "expiresAt");
             Objects.requireNonNull(builderCode, "builderCode");
+        }
+    }
+
+    /** Routed execution succeeded (status CONFIRMED or FILLED — the fixture groups both as success). */
+    record Confirmed(String rfqId, String status) implements RfqOutcome {
+        public Confirmed {
+            Objects.requireNonNull(rfqId, "rfqId");
+            Objects.requireNonNull(status, "status");
         }
     }
 

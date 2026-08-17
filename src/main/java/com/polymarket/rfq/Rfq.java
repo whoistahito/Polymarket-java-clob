@@ -3,7 +3,16 @@ package com.polymarket.rfq;
 import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
+import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.ShareQuantity;
+import com.polymarket.markets.TickSize;
+import com.polymarket.trading.OrderSigner;
+import com.polymarket.trading.Side;
+import com.polymarket.trading.SignedOrder;
+import com.polymarket.trading.SigningContext;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -68,5 +77,45 @@ public final class Rfq {
                 throw new IOException("interrupted while waiting for an RFQ quote", e);
             }
         }
+    }
+
+    /** V3 has no neg-risk variant, so the rules passed to {@code signer} only ever supply a grid. */
+    private static final MarketRules V3_RULES =
+            new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false);
+
+    /**
+     * Signs the quote's combo position through the V3 path and accepts it. Rejects an expired
+     * quote before sending — {@code side} must match the direction the original request used.
+     */
+    public RfqOutcome accept(RfqOutcome.Quoted quote, Side side, OrderSigner signer,
+            SigningContext context, ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
+        Objects.requireNonNull(quote, "quote");
+        Objects.requireNonNull(side, "side");
+        if (!clock.instant().isBefore(quote.expiresAt())) {
+            throw new IllegalArgumentException(
+                    "quote " + quote.quoteId() + " expired at " + quote.expiresAt());
+        }
+        PusdAmount pusdLeg;
+        ShareQuantity shareLeg;
+        if (side == Side.BUY) {
+            pusdLeg = baseUnitsToPusd(quote.makerAmountBaseUnits());
+            shareLeg = baseUnitsToShares(quote.takerAmountBaseUnits());
+        } else {
+            shareLeg = baseUnitsToShares(quote.makerAmountBaseUnits());
+            pusdLeg = baseUnitsToPusd(quote.takerAmountBaseUnits());
+        }
+        // Official: "order.builder must equal the returned builder_code."
+        SignedOrder signedOrder = signer.sign(quote.comboPositionId(), side, pusdLeg, shareLeg,
+                V3_RULES, context.withBuilder(quote.builderCode()));
+        return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder,
+                accountCredentials, builderCredentials);
+    }
+
+    private static PusdAmount baseUnitsToPusd(long baseUnits) {
+        return PusdAmount.of(BigDecimal.valueOf(baseUnits).movePointLeft(6));
+    }
+
+    private static ShareQuantity baseUnitsToShares(long baseUnits) {
+        return ShareQuantity.of(BigDecimal.valueOf(baseUnits).movePointLeft(6));
     }
 }

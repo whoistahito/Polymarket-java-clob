@@ -128,13 +128,15 @@ class RfqTest {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_REQUESTER_ACCEPTANCE",
                  "leg_position_ids":["111","222"],
-                 "quote":{"quote_id":"quote-1","maker_amount_e6":"966191","taker_amount_e6":"1932381",
+                 "quote":{"quote_id":"quote-1","combo_position_id":"333",
+                          "maker_amount_e6":"966191","taker_amount_e6":"1932381",
                           "expires_at":1773890818000,"builder_code":"0xbuilder"}}""");
 
         RfqOutcome outcome = rfq(FIXED).status("rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address());
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class, outcome);
         assertEquals("quote-1", quoted.quoteId());
+        assertEquals(new PositionId("333"), quoted.comboPositionId());
         assertEquals(966191L, quoted.makerAmountBaseUnits());
         assertEquals(1932381L, quoted.takerAmountBaseUnits());
         assertEquals("0xbuilder", quoted.builderCode());
@@ -219,8 +221,8 @@ class RfqTest {
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_REQUESTER_ACCEPTANCE","leg_position_ids":["111"],
-                 "quote":{"quote_id":"quote-1","maker_amount_e6":"1","taker_amount_e6":"1",
-                          "expires_at":1773890818000,"builder_code":"0xbuilder"}}""");
+                 "quote":{"quote_id":"quote-1","combo_position_id":"333","maker_amount_e6":"1",
+                          "taker_amount_e6":"1","expires_at":1773890818000,"builder_code":"0xbuilder"}}""");
 
         RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
                 Duration.ofSeconds(1))).waitForQuote(
@@ -258,6 +260,85 @@ class RfqTest {
         withRetries.request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
+        assertEquals(1, server.getRequestCount());
+    }
+
+    private static final String BUILDER_CODE = "0x" + "b".repeat(64);
+
+    private RfqOutcome.Quoted quotedFixture(Instant expiresAt) {
+        return new RfqOutcome.Quoted("rfq-1", "quote-1", new PositionId("333"),
+                List.of(new PositionId("111"), new PositionId("222")),
+                966191L, 1932381L, expiresAt, BUILDER_CODE);
+    }
+
+    private com.polymarket.trading.SigningContext acceptContext() {
+        return com.polymarket.trading.SigningContext.of(
+                SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-011: an expired quote is rejected before anything is sent")
+    void expiredQuoteRejectedBeforeSending() {
+        RfqOutcome.Quoted expired = quotedFixture(FIXED.instant().minusSeconds(1));
+
+        assertThrows(IllegalArgumentException.class, () -> rfq(FIXED).accept(expired,
+                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-012: acceptance signs through V3 and sends both HMAC header sets")
+    void acceptanceSignsThroughV3AndSendsBothHeaderSets() throws Exception {
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"EXECUTING"}""");
+        RfqOutcome.Quoted quote = quotedFixture(FIXED.instant().plusSeconds(60));
+
+        RfqOutcome outcome = rfq(FIXED).accept(quote, com.polymarket.trading.Side.BUY,
+                new com.polymarket.internal.trading.Eip712OrderSigner(), acceptContext(),
+                ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        assertInstanceOf(RfqOutcome.Waiting.class, outcome);
+        RecordedRequest request = server.takeRequest();
+        assertEquals("POST", request.getMethod());
+        assertEquals("/v1/builder/rfq/requests/rfq-1/accept", request.getPath());
+        assertEquals(ACCOUNT_CREDENTIALS.key(), request.getHeader("POLY_API_KEY"));
+        assertEquals(BUILDER_CREDENTIALS.key(), request.getHeader("POLY_BUILDER_API_KEY"));
+        String body = request.getBody().readUtf8();
+        assertTrue(body.contains("\"quote_id\":\"quote-1\""), body);
+        assertTrue(body.contains("\"tokenId\":\"333\""), body);
+        assertTrue(body.contains("\"makerAmount\":\"966191\""), body);
+        assertTrue(body.contains("\"takerAmount\":\"1932381\""), body);
+        assertTrue(body.contains("\"side\":0"), body);
+        assertTrue(body.contains("\"builder\":\"" + BUILDER_CODE + "\""), body);
+    }
+
+    @Test
+    @DisplayName("TC-RQ-013: a CONFIRMED or FILLED response after acceptance is Confirmed")
+    void confirmedResponseIsConfirmed() throws Exception {
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"FILLED"}""");
+
+        RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
+                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RfqOutcome.Confirmed confirmed = assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
+        assertEquals("FILLED", confirmed.status());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-014: connection loss during acceptance is Unknown, never thrown or replayed")
+    void connectionLossDuringAcceptanceIsUnknownNotReplayed() throws Exception {
+        server.enqueue(new MockResponse().setSocketPolicy(
+                okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
+
+        RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
+                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);
+        assertEquals("rfq-1", unknown.rfqId());
         assertEquals(1, server.getRequestCount());
     }
 }
