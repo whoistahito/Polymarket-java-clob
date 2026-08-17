@@ -67,6 +67,13 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `Eip712OrderSignerVectorTest`. A Deposit Wallet (signature type 3) signs the ERC-7739
   `TypedDataSign` wrapper under the exchange's own domain, not the wallet's. Implemented by
   `com.polymarket.internal.trading.Eip712OrderSigner`; signing is offline and takes no port.
+  `Trading` (issue #14) adds `submit`/`place` over the `OrderSubmitter` **port**, classifying
+  every `POST /order` outcome as `SubmissionOutcome.Accepted`/`Rejected`/`Unknown` — a documented
+  4xx/duplicate/5xx-"order timed out" is a definitive `Rejected`, transport loss and a
+  contradictory or malformed success are `Unknown`, and nothing is ever silently replayed
+  (`HttpRuntime.post` executes exactly once). A `PositionId` order is rejected before any request:
+  V3 Combo orders route through the RFQ Builder Gateway (issues #25/#26), not `POST /order`.
+  Implemented by `com.polymarket.internal.trading.TradingGateway`.
 - `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
   `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
   `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
