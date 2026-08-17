@@ -59,6 +59,14 @@ deleted. Domain packages are public, transport lives behind `internal`:
   supplies every signing rule** — tick, minimum shares and neg-risk — so the 2.0 path caches no rule
   and never substitutes a Gamma value (issue #10). Batches go through `GET /books?token_ids=`, not
   the documented POST form, because reads must keep their retry budget.
+- `com.polymarket.trading` (issues #11, #12, #13) — the closed `OrderIntent` hierarchy
+  (`LimitOrder`/`MakerOnlyLimitOrder`/`GoodTilDateOrder`/`ImmediateBuy`/`ImmediateSell`),
+  `ImmediatePlanner` (pure depth-walking, no network), and `OrderSigner`/`SigningContext`/
+  `SignedOrder`. Routing is the asset's sealed type alone — a `TokenId` signs against Exchange V2,
+  a `PositionId` against V3 — proven byte-for-byte against the official vectors in
+  `Eip712OrderSignerVectorTest`. A Deposit Wallet (signature type 3) signs the ERC-7739
+  `TypedDataSign` wrapper under the exchange's own domain, not the wallet's. Implemented by
+  `com.polymarket.internal.trading.Eip712OrderSigner`; signing is offline and takes no port.
 - `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
   `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
   `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
