@@ -1,11 +1,13 @@
 package com.polymarket;
 
+import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.Authentication;
 import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.internal.authentication.AuthenticationGateway;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.markets.MarketsGateway;
 import com.polymarket.internal.markets.OrderBookGateway;
+import com.polymarket.internal.operations.HeartbeatGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
@@ -24,6 +26,7 @@ import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,6 +39,7 @@ public final class Polymarket implements AutoCloseable {
 
     private final PolymarketConfig config;
     private final HttpRuntime runtime;
+    private final SigningAuthority authority;
     private final OperationsGateway operations;
     private final Authentication authentication;
     private final Markets markets;
@@ -45,12 +49,14 @@ public final class Polymarket implements AutoCloseable {
     private final Trading trading;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
+    private final HeartbeatGateway heartbeat;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
             Clock clock) {
         this.config = config;
         this.runtime = runtime;
+        this.authority = authority;
         this.operations = new OperationsGateway(config, runtime);
         this.authentication = new Authentication(authority,
                 new AuthenticationGateway(config, runtime, clock));
@@ -63,6 +69,7 @@ public final class Polymarket implements AutoCloseable {
                 new TradeReaderGateway(config, runtime, clock), clock);
         this.streamingGateway = new StreamingGateway();
         this.streaming = new Streaming(streamingGateway, authority);
+        this.heartbeat = new HeartbeatGateway(config, runtime, clock);
     }
 
     public static Polymarket withDefaults() {
@@ -149,6 +156,29 @@ public final class Polymarket implements AutoCloseable {
         return open().geoblock();
     }
 
+    /** Starts the CLOB dead-man-switch heartbeat at the documented 5 s interval. Idle until called. */
+    public void startHeartbeat() {
+        startHeartbeat(HeartbeatGateway.DEFAULT_INTERVAL);
+    }
+
+    /** Starts the heartbeat at a custom interval; needs L2 credentials. */
+    public void startHeartbeat(Duration interval) {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        ApiCredentials credentials = authority.requireApiCredentials("heartbeat");
+        String address = authority.requireSigningAddress("heartbeat");
+        heartbeat.start(interval, credentials, address);
+    }
+
+    /** Cancels the scheduled heartbeat tick. Does nothing if not currently active. */
+    public void stopHeartbeat() {
+        heartbeat.stop();
+    }
+
+    /** True while the heartbeat tick is scheduled. */
+    public boolean isHeartbeatActive() {
+        return heartbeat.isActive();
+    }
+
     private OperationsGateway open() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return operations;
@@ -157,6 +187,7 @@ public final class Polymarket implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            heartbeat.close();
             streaming.close();
             streamingGateway.close();
             runtime.close();
