@@ -197,6 +197,12 @@ transaction: no RPC, CTF client or ID computation, gas/receipt models, split/mer
 Web3j is a signing-only dependency (`org.web3j:crypto`, no `core`); reintroducing `org.web3j.protocol` or
 `org.web3j.tx` fails `DirectChainSurfaceTest`.
 
+**Dependency contract (issue #29).** 2.0.0 ships only OkHttp, Jackson, `org.web3j:crypto` and `slf4j-api` at compile
+scope and imposes no logging backend — logback is `test` scope, and `commons-lang3` plus the dead direct
+`bcprov-jdk15on` are gone (web3j already brings `bcprov-jdk18on`). `maven-enforcer-plugin` gates `verify` with
+`dependencyConvergence`/`banDuplicatePomDependencyVersions`; conflicts are fixed by `<dependencyManagement>` pins,
+never exclusions.
+
 ## Configuration
 
 **Configuration is caller-supplied only (issue #8).** The SDK loads no property file, reads no secret
@@ -269,7 +275,7 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after issue #28: `mvn clean verify` → **325 tests, 0 failures,
+- Verified baseline on Java 21 after issues #28/#29: `mvn clean verify` → **325 tests, 0 failures,
   0 errors, 0 skipped**. The drop from 1179 is the deleted 1.0 facade suite, not lost coverage of
   2.0 behavior; the deletion also uncovered a dropped capability (CREATE2 wallet derivation),
   restored with its own golden-vector tests. `mvn -Plive test` selects nothing until issue #30

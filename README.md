@@ -4,13 +4,13 @@ An unofficial Java SDK for the [Polymarket](https://polymarket.com) CLOB. It's a
 library — no bots or entry points — that stays compatible with Polymarket's
 official TypeScript and Rust signing behavior.
 
-Requires Java 17+.
+Requires Java 21+.
 
 ```xml
 <dependency>
     <groupId>com.polymarket</groupId>
     <artifactId>polymarket-api</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
