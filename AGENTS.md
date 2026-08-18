@@ -154,6 +154,15 @@ deleted. Domain packages are public, transport lives behind `internal`:
   user frame carries the nested `auth` object once — a dynamic update on an already-authenticated
   socket never repeats it. Implemented by `com.polymarket.internal.streaming.StreamingGateway`/
   `ChannelConnection`.
+- `Rtds` (issue #23) — a second capability in `com.polymarket.streaming`, over the separate,
+  unauthenticated RTDS host (`wss://ws-live-data.polymarket.com`, 5 s text `PING` — distinct
+  from CLOB's 10 s): Binance/Chainlink price events and comment-created/removed/reaction-
+  created/removed events with the documented `parentEntityID`/`parentEntityType` filters. Kept
+  as a sibling of `Streaming` rather than folded into its types — genuinely different wire
+  envelope and no auth — but mirrors its lifecycle contract exactly (register-before-subscribe,
+  closeable `Registration`, per-connection generation, callback isolation) via a parallel
+  `RtdsChannelConnection` porting the same proven reconnect/backoff/heartbeat algorithm.
+  Implemented by `com.polymarket.internal.streaming.RtdsGateway`.
 - Heartbeat (issue #24) — `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
   `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch `POST /v1/heartbeats`
   tick; nothing ticks on construction. The first tick sends `{"heartbeat_id":""}` (the 1.0
