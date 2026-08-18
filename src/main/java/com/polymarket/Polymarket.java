@@ -9,6 +9,7 @@ import com.polymarket.internal.markets.OrderBookGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
+import com.polymarket.internal.streaming.StreamingGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.internal.trading.TradeReaderGateway;
 import com.polymarket.internal.trading.TradingGateway;
@@ -19,6 +20,7 @@ import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
 import com.polymarket.rewards.Rewards;
+import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
 import java.io.IOException;
 import java.time.Clock;
@@ -41,6 +43,8 @@ public final class Polymarket implements AutoCloseable {
     private final Portfolio portfolio;
     private final Rewards rewards;
     private final Trading trading;
+    private final StreamingGateway streamingGateway;
+    private final Streaming streaming;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -57,6 +61,8 @@ public final class Polymarket implements AutoCloseable {
         TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
         this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
+        this.streamingGateway = new StreamingGateway();
+        this.streaming = new Streaming(streamingGateway, authority);
     }
 
     public static Polymarket withDefaults() {
@@ -124,6 +130,12 @@ public final class Polymarket implements AutoCloseable {
         return trading;
     }
 
+    /** Live CLOB market and user event streams. The user channel needs L2 credentials. */
+    public Streaming streaming() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return streaming;
+    }
+
     public ServerTime serverTime() throws IOException {
         return open().serverTime();
     }
@@ -145,6 +157,8 @@ public final class Polymarket implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            streaming.close();
+            streamingGateway.close();
             runtime.close();
         }
     }

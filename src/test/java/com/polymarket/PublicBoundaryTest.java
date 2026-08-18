@@ -30,7 +30,8 @@ class PublicBoundaryTest {
             {"com.polymarket", "com.polymarket.operations..", "com.polymarket.authentication..",
                     "com.polymarket.markets..", "com.polymarket.trading..",
                     "com.polymarket.portfolio..", "com.polymarket.rewards..",
-                    "com.polymarket.social..", "com.polymarket.builders..", "com.polymarket.rfq.."};
+                    "com.polymarket.social..", "com.polymarket.builders..", "com.polymarket.rfq..",
+                    "com.polymarket.streaming.."};
 
     private static final JavaClasses SHIPPED = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
