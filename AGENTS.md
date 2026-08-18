@@ -9,8 +9,9 @@ mvn clean compile
 # Run all tests (deterministic, offline — this is what CI runs)
 mvn clean verify
 
-# Run the opt-in read-only live checks (see the note below — none exist yet, issue #30 adds them)
+# Run the opt-in read-only live checks against the real production API (see the note below)
 mvn -Plive test
+mvn -Plive test -Dtest=LiveReadOnlyTest
 
 # Run a single test class
 mvn test -Dtest=TradingTest
@@ -33,9 +34,13 @@ Test classes match `**/*Test.java` or `**/*Tests.java`. The build targets **Java
 forces direct connections so an ambient HTTP proxy cannot tunnel past it. Anything reaching a real
 host fails with `UnknownHostException`. Live checks carry `@Tag("live")`, are excluded from the normal
 run, and are selected only by `-Plive` (which sets `-Dpolymarket.live=true` to lift the guard).
-The gating machinery is in place but **no live check exists right now** — the 1.0 ones went with the
-facade in issue #28, and issue #30 adds the credential-free 2.0 replacements, so `-Plive` currently
-selects nothing.
+
+The 2.0 live checks are `com.polymarket.live.LiveReadOnlyTest` (issue #30): server time, service
+health, geoblock, Gamma discovery, one `GET /book`, and one market-stream connect-and-receive. They
+take **no credentials** and perform only documented public GET/subscribe operations — never an order,
+an RFQ acceptance, a cancellation, or a derived private key. `LiveCheckGatingTest` (deterministic) is
+the guard: it fails the build if a live check loses its `@Tag("live")` or if a live tag appears outside
+`com.polymarket.live`.
 
 ## Architecture (2.0)
 
@@ -275,9 +280,17 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after issues #28/#29: `mvn clean verify` → **325 tests, 0 failures,
-  0 errors, 0 skipped**. The drop from 1179 is the deleted 1.0 facade suite, not lost coverage of
-  2.0 behavior; the deletion also uncovered a dropped capability (CREATE2 wallet derivation),
-  restored with its own golden-vector tests. `mvn -Plive test` selects nothing until issue #30
-  adds the 2.0 live checks.
+- Verified baseline on Java 21 after issue #30: `mvn clean verify` → **328 tests, 0 failures,
+  0 errors, 0 skipped** (325 after issues #28/#29, plus `LiveCheckGatingTest`). The drop from 1179 is
+  the deleted 1.0 facade suite, not lost coverage of 2.0 behavior; the deletion also uncovered a
+  dropped capability (CREATE2 wallet derivation), restored with its own golden-vector tests.
+  `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else.
+
+## Companion documents (issue #30)
+
+- `docs/API_COVERAGE.md` — supported / not supported / out of scope per endpoint, by capability, with
+  official doc URLs and a last-reviewed date. Update it in the same change that moves a line.
+- `docs/MIGRATION.md` — the 1.0 → 2.0 map. No compatibility adapters exist, so this is the only bridge.
+- `docs/WORKFLOW.md` — contributor workflow (GitHub issues + this file + the TDD conventions above).
+- `README.md` — 2.0 only; its examples are compiled against the packaged artifact before release.
 
