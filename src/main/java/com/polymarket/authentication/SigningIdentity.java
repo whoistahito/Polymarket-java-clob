@@ -31,6 +31,16 @@ public sealed interface SigningIdentity {
         return new DepositWallet(wallet, signer);
     }
 
+    /** Derives the Polymarket Proxy wallet CREATE2 address for this EOA; pure local computation, no RPC. */
+    static ProxyWallet deriveProxyWallet(String eoaSigner) {
+        return new ProxyWallet(Addresses.deriveProxyWallet(eoaSigner), eoaSigner);
+    }
+
+    /** Derives the Polymarket Safe wallet CREATE2 address for this EOA; pure local computation, no RPC. */
+    static SafeWallet deriveSafeWallet(String eoaSigner) {
+        return new SafeWallet(Addresses.deriveSafeWallet(eoaSigner), eoaSigner);
+    }
+
     record Eoa(String address) implements SigningIdentity {
         public Eoa {
             address = Addresses.require(address, "address");
