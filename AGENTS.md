@@ -55,7 +55,8 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   `PrivateKeySigner` (holds the key, exposes only `address()` and `sign(digest)`), `ApiCredentials`,
   `SigningIdentity` (sealed: `Eoa`/`ProxyWallet`/`SafeWallet`/`DepositWallet`, valid by
   construction, each carrying its official signature type), typed outcomes, and the
-  `ApiKeyDirectory` **port**.
+  `ApiKeyDirectory` **port**. `SigningIdentity.deriveProxyWallet`/`.deriveSafeWallet` compute the
+  CREATE2 Proxy/Safe address for an EOA locally (no RPC), matching the documented factories.
 - `com.polymarket.internal.operations` / `.authentication` — `OperationsGateway`,
   `AuthenticationGateway` (implements `ApiKeyDirectory`), `L1Attestation`, `L2Attestation`.
 - `com.polymarket.markets` — the exact value kernel (`Price`, `TickSize`, `ShareQuantity`,
@@ -268,7 +269,9 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after issue #28: `mvn clean verify` → **323 tests, 0 failures,
+- Verified baseline on Java 21 after issue #28: `mvn clean verify` → **325 tests, 0 failures,
   0 errors, 0 skipped**. The drop from 1179 is the deleted 1.0 facade suite, not lost coverage of
-  2.0 behavior. `mvn -Plive test` selects nothing until issue #30 adds the 2.0 live checks.
+  2.0 behavior; the deletion also uncovered a dropped capability (CREATE2 wallet derivation),
+  restored with its own golden-vector tests. `mvn -Plive test` selects nothing until issue #30
+  adds the 2.0 live checks.
 
