@@ -154,6 +154,14 @@ deleted. Domain packages are public, transport lives behind `internal`:
   user frame carries the nested `auth` object once — a dynamic update on an already-authenticated
   socket never repeats it. Implemented by `com.polymarket.internal.streaming.StreamingGateway`/
   `ChannelConnection`.
+- Heartbeat (issue #24) — `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
+  `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch `POST /v1/heartbeats`
+  tick; nothing ticks on construction. The first tick sends `{"heartbeat_id":""}` (the 1.0
+  facade string-concatenates a `null` id into the literal text `"null"` on its first call — a
+  real bug, not the documented contract); every later tick chains the `heartbeat_id` the
+  previous response returned. A failed tick is logged and stays scheduled — only
+  `stopHeartbeat()`/`close()` cancels it, and both are idempotent. Implemented by
+  `com.polymarket.internal.operations.HeartbeatGateway`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on
