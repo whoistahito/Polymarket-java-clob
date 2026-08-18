@@ -143,6 +143,17 @@ deleted. Domain packages are public, transport lives behind `internal`:
   `ReconciliationOutcome`/`RfqOutcome`) unchanged from the synchronous call. Neither wrapper
   exposes the underlying sync capability or its `Executor` — no escape hatch back to a
   synchronous call or a place to hang extra retries.
+- `com.polymarket.streaming` (issues #21, #22) — both CLOB WebSocket channels behind one shared
+  `StreamTransport` **port** (one OkHttp client, one scheduler): market (book/price-change/
+  last-trade-price/tick-size-change, credential-free) and user (order/trade, L2). Ported from
+  the proven 1.0 `WsClient` reconnect/backoff/heartbeat algorithm, replacing its public OkHttp
+  `WebSocket`/Jackson `JsonNode` surface with immutable records and `Registration` handles.
+  Handlers register locally before any subscribe frame; `subscribeUser` fails fast on missing L2
+  credentials before a socket opens; each channel keeps its own connection generation, so a user
+  reconnect bumps only `userGeneration()` and leaves the market channel untouched. The initial
+  user frame carries the nested `auth` object once — a dynamic update on an already-authenticated
+  socket never repeats it. Implemented by `com.polymarket.internal.streaming.StreamingGateway`/
+  `ChannelConnection`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
 import inside a public domain package (the gateway does the mapping), and **capabilities depend on
