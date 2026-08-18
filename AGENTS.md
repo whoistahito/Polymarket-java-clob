@@ -9,14 +9,14 @@ mvn clean compile
 # Run all tests (deterministic, offline — this is what CI runs)
 mvn clean verify
 
-# Run the opt-in read-only live checks (needs POLYMARKET_LIVE=1 and a private key)
+# Run the opt-in read-only live checks (see the note below — none exist yet, issue #30 adds them)
 mvn -Plive test
 
 # Run a single test class
-mvn test -Dtest=OrderBuilderTest
+mvn test -Dtest=TradingTest
 
 # Run a single test method
-mvn test -Dtest=OrderBuilderTest#testCreateOrder
+mvn test -Dtest=TradingTest#coherentSuccessIsAccepted
 
 # Build the library JAR (this repo is a dependency, not an app — no main class)
 mvn clean package
@@ -33,11 +33,16 @@ Test classes match `**/*Test.java` or `**/*Tests.java`. The build targets **Java
 forces direct connections so an ambient HTTP proxy cannot tunnel past it. Anything reaching a real
 host fails with `UnknownHostException`. Live checks carry `@Tag("live")`, are excluded from the normal
 run, and are selected only by `-Plive` (which sets `-Dpolymarket.live=true` to lift the guard).
+The gating machinery is in place but **no live check exists right now** — the 1.0 ones went with the
+facade in issue #28, and issue #30 adds the credential-free 2.0 replacements, so `-Plive` currently
+selects nothing.
 
-## Architecture (2.0, in progress)
+## Architecture (2.0)
 
-The 2.0 redesign (issue #1) grows **beside** the 1.0 facade; both compile until the facade is
-deleted. Domain packages are public, transport lives behind `internal`:
+The 2.0 redesign (issue #1) is now the only architecture — issue #28 deleted the superseded 1.0
+facade (`com.polymarket.client`/`model`/`util`/`ws`/`rtds`) with no forwarding adapter. This repo is
+a pure SDK (library) with no application entry point; trading strategies live in separate projects
+that depend on the artifact. Domain packages are public, transport lives behind `internal`:
 
 - `com.polymarket` — `Polymarket` (entry point, thread-safe, `AutoCloseable`), `PolymarketConfig`
   (JDK `URI`/`Duration` only), `ReadRetryPolicy`.
@@ -165,8 +170,8 @@ deleted. Domain packages are public, transport lives behind `internal`:
   Implemented by `com.polymarket.internal.streaming.RtdsGateway`.
 - Heartbeat (issue #24) — `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
   `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch `POST /v1/heartbeats`
-  tick; nothing ticks on construction. The first tick sends `{"heartbeat_id":""}` (the 1.0
-  facade string-concatenates a `null` id into the literal text `"null"` on its first call — a
+  tick; nothing ticks on construction. The first tick sends `{"heartbeat_id":""}` (the deleted 1.0
+  facade string-concatenated a `null` id into the literal text `"null"` on its first call — a
   real bug, not the documented contract); every later tick chains the `heartbeat_id` the
   previous response returned. A failed tick is logged and stays scheduled — only
   `stopHeartbeat()`/`close()` cancels it, and both are idempotent. Implemented by
@@ -178,151 +183,92 @@ domain-declared ports, never on an internal adapter type**. Only `Polymarket`, t
 wires the two sides together. Secrets redact in `toString`, and absent authority throws
 `AuthenticationRequiredException` before anything reaches the wire.
 
-`PublicBoundaryTest` enforces those rules with ArchUnit (issue #6), scoped to the 2.0 packages so
-legacy violations do not block migration. Two exemptions are deliberate: `Polymarket` (composition
-root) may import `internal`, and `PrivateKeySigner`/`Addresses` may use Web3j because the JDK has no
-secp256k1 or keccak — they stay bound by the public-signature rule. Each rule is proven to fail
-against a test-only fixture in `src/test/java/com/polymarket/operations/*Leak.java`. Add a new 2.0
-package to `PUBLIC_PACKAGES` when you create one.
+`PublicBoundaryTest` enforces those rules with ArchUnit (issue #6). With the 1.0 facade gone there is
+nothing left to exempt, so the rules cover **everything outside `com.polymarket.internal..`** rather
+than a hand-maintained package list — a new bounded context is guarded the day you create it. Two
+exemptions are deliberate: `Polymarket` (composition root) may import `internal`, and
+`PrivateKeySigner`/`Addresses` may use Web3j because the JDK has no secp256k1 or keccak — they stay
+bound by the public-signature rule. Each rule is proven to fail against a test-only fixture in
+`src/test/java/com/polymarket/operations/*Leak.java`.
 
 **No direct-chain behavior (issue #7).** The SDK authorizes routed API requests and never broadcasts a Polygon
 transaction: no RPC, CTF client or ID computation, gas/receipt models, split/merge/redeem, or collateral return.
 Web3j is a signing-only dependency (`org.web3j:crypto`, no `core`); reintroducing `org.web3j.protocol` or
 `org.web3j.tx` fails `DirectChainSurfaceTest`.
 
-## Architecture (1.0 facade)
+## Configuration
 
-This Java SDK stays compatible with Polymarket signing behavior from the upstream TypeScript and Rust
-reference SDKs — `Polymarket/clob-client` (TS) and `Polymarket/rs-clob-client-v2` (Rust) on GitHub.
-(These are external references; they are not vendored into this repo.)
+**Configuration is caller-supplied only (issue #8).** The SDK loads no property file, reads no secret
+file, prints no configuration, and ships no HTTP proxy support — hosts and timeouts reach the SDK
+through `PolymarketConfig` and credentials through `SigningAuthority`/`ApiCredentials`, and nowhere
+else. Construction performs no network call and derives no credential.
 
-**Package layout:**
+**Two-level CLOB authentication.** Both header sets are built in
+`com.polymarket.internal.authentication` and are never public:
+1. **L1 (EIP-712)** — `L1Attestation` — API-key derivation/creation. Signs the fixed message
+   `"This message attests that I control the given wallet"` under domain `ClobAuthDomain v1`.
+   Headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_NONCE`.
+2. **L2 (HMAC-SHA256)** — `L2Attestation` — every authenticated read and write. Headers:
+   `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_API_KEY`, `POLY_PASSPHRASE`. The same
+   HMAC primitive signs the Builder Gateway's `POLY_BUILDER_*` set.
 
-- `com.polymarket.client` — Core API classes (`PolymarketClient`, `AsyncPolymarketClient`, `OrderBuilder`, `HttpClient`,
-  `L1Eip712Signer`, `L2HmacSigner`, `ApiKeyCreds`, `PolymarketEndpoints`, `GammaClient`, `RfqClient`,
-  `DataClient`, `HeartbeatManager`)
-- `com.polymarket.model` — Immutable data models (`SignedOrder`, `PostOrderPayload`, `UserOrder`, `UserMarketOrder`, `OrderData`, `Side`, `OrderType`, `SignatureType`, `Chain`, `OrderStatusType`, `TradeStatusType`, `TraderSide`, `Token`, `ApiKeyRaw`, `HeartbeatResponse`, `OpenOrderParams`, `TradeParams`, `RfqRequestOrderCreationPayload`, and 40+ more)
-- `com.polymarket.model.data` — Data API request/response models (`DataTrade`, `DataTradesRequest`, `DataSide`,
-  `FilterType`)
-- `com.polymarket.model.gamma` — GammaClient request + response models (45 classes)
-- `com.polymarket.ws` — WebSocket live-feed client (`WsClient`, `WsMessageListener`, `ChannelType`, `ConnectionState`)
-- `com.polymarket.ws.model` — WS message types (`WsMessage`, `BookUpdate`, `PriceChange`, `TradeMessage`, `OrderMessage`, `MidpointUpdate`, etc.)
-- `com.polymarket.util` — `PriceUtils` (tick rounding, decimal math, order-book hash, `decimalPlaces`, `orderToJson`), `WalletUtils` (CREATE2 proxy/safe wallet derivation), `OrderUtils` (standalone EIP-712 order builder)
-This repo is a pure SDK (library) — it has no application entry point. Trading strategies/bots live in
-separate projects that depend on this artifact.
-
-**Two-level authentication flow:**
-1. **L1 (EIP-712)** — `L1Eip712Signer` — used for API key derivation/creation. Signs a fixed message (`"This message attests that I control the given wallet"`) via EIP-712 with domain `ClobAuthDomain v1`. Produces headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_NONCE`.
-2. **L2 (HMAC-SHA256)** — `L2HmacSigner` — used for all trading operations. Produces headers: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_API_KEY`, `POLY_PASSPHRASE`.
-
-**`PolymarketClient`** is built via `PolymarketClient.Builder`. It holds `ConcurrentHashMap` caches for tick sizes, fee
-rates, and neg-risk status to avoid redundant API calls. It delegates signing to `L1Eip712Signer`/`L2HmacSigner` and
-order construction to `OrderBuilder`. Typed-params overloads (`getOpenOrders(OpenOrderParams)`,
-`getTrades(TradeParams)`) and `postOnly`/`deferExec` convenience overloads are provided. Access `RfqClient` via
-`client.rfq()`, `GammaClient` via `client.gamma()`, and `DataClient` via `client.data()`. Heartbeat lifecycle helpers
-are exposed via `startHeartbeats()` / `startHeartbeats(intervalMs)` / `stopHeartbeats()` / `isHeartbeatsActive()`.
-
-**`AsyncPolymarketClient`** wraps `PolymarketClient` via `AsyncPolymarketClient.wrap(client)`. Every method returns
-`CompletableFuture<T>`. Accepts a custom `Executor`; defaults to `ForkJoinPool.commonPool()`. `AsyncRfqClient` is
-accessible via `async.rfq()`, `DataClient` via `async.data()`, and heartbeat lifecycle helpers are mirrored on the async
-wrapper.
-
-**Order submission disposition (Ticket 022).** `PolymarketClient.submitOrder(...)` (and the async mirror) returns a
-typed `OrderSubmission` instead of throwing: `ACCEPTED` only for a coherent success carrying a nonblank order ID and
-status, `REJECTED` only when the exchange definitively refused the order (any 4xx, the documented 500
-`order timed out`, a documented 503 service block, or an explicit `success=false`), and `UNKNOWN` for transport loss,
-a generic 5xx, a null/unreadable body, or a contradictory success. `isSafeToRetry()` flags the documented
-"not placed, try again" errors. `postOrder` keeps its throwing behaviour for existing callers.
-
-**Typed market rules (Ticket 024).** `MarketRules` carries `orderPriceMinTickSize` and `orderMinSize` as exact
-`BigDecimal`s (both nullable so callers can fail closed) and converts straight to `CreateOrderOptions` with no
-`double` round trip. Read it with `PolymarketClient.getMarketRules(conditionId)`; `GammaMarket` and
-`GammaMarketDetail` expose the same fields plus a `marketRules()` accessor.
-
-**Reconciliation reads (Ticket 025).** `getOpenOrders(...)` follows the pagination cursor to the end;
-`getOpenOrdersPaginated(params, cursor)` is the explicit single-page API. `DataClient.positions(DataPositionsRequest)`
-returns typed `DataPosition` records with `BigDecimal` sizes. Positions are ABSOLUTE snapshots — the SDK deliberately
-imposes no monotonic semantics, because clamping would hide a real sell.
-
-**`GammaClient`** is a standalone client for `https://gamma-api.polymarket.com` covering 26 endpoints (events, markets, tags, series, comments, sports, profiles, search). Built via `new GammaClient.Builder().build()` or accessed via `PolymarketClient.gamma()`.
-
-**`WsClient`** is built via `WsClient.builder()`. It wraps OkHttp's WebSocket API and supports:
-- **Market channel** (`wss://ws-subscriptions-clob.polymarket.com/ws/market`) — unauthenticated; subscribe with a list of asset (token) IDs.
-- **User channel** (`wss://ws-subscriptions-clob.polymarket.com/ws/user`) — L2-authenticated; auth fields embedded in subscription JSON.
-- Optional `emitMidpointUpdates(true)` to synthesise `MidpointUpdate` messages from `BookUpdate` events.
-- Incoming messages are dispatched as strongly-typed `WsMessage` subtypes to the registered `WsMessageListener`.
-- Auto-reconnect with exponential backoff (`maxReconnectAttempts`, `reconnectDelayMs`, `maxReconnectDelayMs`); re-subscribes on reconnect.
-- Per-channel health-check: `isMarketConnected()`, `isUserConnected()`, `getConnectionState(ChannelType)`, `getSubscriptionCount()`.
-- **Registration is separate from subscription (Ticket 026).** `register*` methods (`registerBookUpdates`,
-  `registerPriceChanges`, `registerLastTradePrices`, `registerTickSizeChanges`, `registerOrders`, `registerTrades`, …)
-  attach a filtered callback and perform NO network action, returning a `WsClient.Registration` removal handle.
-  Register every handler first, then call `subscribeMarket`/`subscribeUser` once — that ordering is what stops the
-  initial snapshot arriving before a handler exists. The older `onBookUpdate`-style methods still work but are
-  deprecated because each one sends its own subscribe frame.
-- The subscribed token/market sets are authoritative: subscribe ADDS, unsubscribe REMOVES, and reconnect restores
-  exactly what remains. Read them with `getSubscribedAssetIds()` / `getSubscribedMarkets()`.
-- **Channel-identified lifecycle (Ticket 027).** `WsMessageListener` gained `onOpen(ChannelType, generation)`,
-  `onError(ChannelType, generation, Exception)`, `onClose(ChannelType, generation, code, reason)`, and
-  `onResubscribe(ChannelType, generation)` — the last fires before any frame of a new generation, so consumers can
-  invalidate only the channel that dropped. `getConnectionGeneration(ChannelType)` exposes the counter.
-  Reconnect is scheduled in a `finally` block and application-callback exceptions are isolated.
-- The documented text `PING` heartbeat is sent every 10 s per open channel (`pingIntervalMs`), cancelled on close and
-  restarted on reconnect. The reconnect budget resets only after a connection stays up for `stableConnectionMs`
-  (default 30 s), so a handshake-then-close loop cannot spin forever.
-
-**`OrderBuilder`** constructs EIP-712 signed order payloads. Contract addresses are hardcoded by chain ID (137 / 80002). Rounding precision is determined by a `RoundConfig` keyed on tick size string (`"0.1"`, `"0.01"`, `"0.001"`, `"0.0001"`). Salt is masked to the IEEE 754 safe integer range (`& ((1L << 53) - 1)`).
-
-**`OrderUtils`** is a standalone, client-independent EIP-712 order builder (`util/OrderUtils.java`). Accepts raw `OrderData` with pre-scaled `BigInteger` amounts — no `PolymarketClient` required. Use when you have pre-calculated maker/taker amounts.
-
-**`WalletUtils`** derives CREATE2 proxy and safe wallet addresses from an EOA address, matching the Rust SDK's `derive_proxy_wallet` / `derive_safe_wallet` exactly. Returns `Optional.empty()` for unsupported chain IDs. Pure local computation — no RPC.
-
-**Configuration is caller-supplied only (Ticket #8).** The SDK loads no property file, reads no secret file, prints no
-configuration, and ships no HTTP proxy support — credentials reach the client through `PolymarketClient.Builder` (1.0)
-or `PolymarketConfig` / `SigningAuthority` (2.0) and nowhere else.
+Both are held to digests and HMACs computed independently in `AttestationVectorTest`.
 
 ## Key Conventions
 
 ### Decimal arithmetic
 - All prices and amounts use `BigDecimal`. Never use `double`/`float` for financial values.
-- Token amounts use **6 decimal places** (USDC standard); multiply by `10^6` before sending to contracts.
-- **Tick sizes (Ticket 023):** the supported grid is `0.1`, `0.01`, `0.005`, `0.0025`, `0.001`, `0.0001`, matched by
+- Collateral and share amounts use **6 decimal places** (pUSD standard); `BaseUnits.toBaseUnits`
+  multiplies by `10^6` and uses `longValueExact()`, so a value that does not fit cannot be sent.
+- **2.0 rejects rather than rounds.** A silently moved price or size is a different order, so there is
+  no rounding helper on the public surface:
+  - `BaseUnits.require` throws when a `PusdAmount`/`ShareQuantity` needs more than 6 decimals.
+  - `MarketRules.requireOnGrid` throws for an off-grid price instead of snapping it to a tick.
+  - `MarketRules.requireAtLeastMinimum` throws below the live CLOB minimum.
+- **Tick sizes:** the supported grid is `0.1`, `0.01`, `0.005`, `0.0025`, `0.001`, `0.0001`, matched by
   numeric value so `"0.010"` resolves like `"0.01"`. There is NO fallback profile — an unrecognised tick throws
   before any amount is calculated, because signing against the wrong grid mis-prices every order on a
   `0.005`/`0.0025` market.
-- **Minimum order size (Ticket 023)** is compared against the NORMALIZED share quantity read back out of the computed
-  maker/taker amounts (taker for a BUY, maker for a SELL), not the caller's raw size — `10.009` shares truncate to
-  `10.00` and must be rejected against a `10.005` minimum. Enforced on the limit and market BUY/SELL paths alike.
-- Rounding is per-field, matching the TS/Rust reference clients — do **not** use `HALF_UP` for amounts:
-  - **Price → tick**: nearest tick (`HALF_UP`) via `roundToTickSize`.
-  - **Order size**: `DOWN` (truncate) to `RoundConfig.size` decimals.
-  - **Maker/taker amounts**: `DOWN` (truncate) — the Rust ref uses `trunc_with_scale`, the TS ref
-    uses roundUp→roundDown. `RoundConfig.amount == price + size` decimals, so with a tick-rounded
-    price the product already fits exactly (e.g. `1.9996` stays `1.9996`, never rounds up to `2.0`).
-  - **Market-buy precision**: quantized `DOWN` to fixed unit steps (`normalizeMarketBuyPrecision`).
+- **Minimum order size** comes from live CLOB `/book.min_order_size` in NORMALIZED SHARES and is
+  compared against the normalized share quantity, never the caller's raw size. Gamma's documented
+  minimum order **notional** is discovery metadata only and must never be substituted for it — the
+  official sources still disagree on units.
 
 ### Model classes
-- Use Lombok (`@Data`, `@Builder`, `@Value`, etc.) to reduce boilerplate.
-- Classes in the `client` package are `final`.
-- Prefer Java records for purely immutable data carriers where Lombok is not needed.
+- Prefer Java records for immutable data carriers; use `Optional` for a semantically absent singular
+  value so missing stays distinct from zero, `false`, and empty text.
+- Collections returned from public types are immutable.
+- Public capability classes are `final`; public packages expose only SDK and JDK types.
 
 ### Chain IDs
 | Network | ID |
 |---|---|
 | Polygon Mainnet | 137 |
-| Polygon Amoy (Testnet) | 80002 |
+
+Mainnet only. Amoy and any other undocumented signing network are out of scope for 2.0 (issue #1).
 
 ### Order types
 `GTC` (resting), `GTD` (expires by date), `FOK` (all-or-nothing immediate), `FAK` (fill what's available).
 
 ### Signing compatibility
 
-EIP-712 signing: when modifying `L1Eip712Signer`, `OrderBuilder`, or `OrderUtils`, verify salt masking
-matches the upstream Rust `order_builder.rs` (`to_ieee_754_int`) in `Polymarket/rs-clob-client-v2`.
+2.0 signs Exchange **V2** token orders and Exchange **V3** Combo position orders only; V1 signing and
+dynamic version resolution are removed. Routing is the sealed `AssetId` type alone — never a string
+heuristic. When touching `Eip712OrderSigner`, `L1Attestation`, or `L2Attestation`, verify against the
+pinned official fixtures in `src/test/resources/protocol/` (`signing-vectors.json`,
+`constraints.json`, `builder-gateway.json`) via `Eip712OrderSignerVectorTest`,
+`ProtocolContractsTest`, and `AttestationVectorTest`. Those fixtures come from Polymarket's published
+documentation and an independent signer — never from this SDK's own code.
 
 ### Testing conventions
 - Framework: JUnit 5 + Mockito
 - Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-- Verified baseline on Java 21 (2026-08-16): `mvn clean verify` → **1024 tests, 0 failures, 0 skipped**.
-  `mvn -Plive test` selects the 14 live checks, all skipped without `POLYMARKET_LIVE=1`.
+  — the same key the pinned protocol vectors are generated against.
+- Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
+  outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
+  only where no network seam can exercise the invariant.
+- Verified baseline on Java 21 after issue #28: `mvn clean verify` → **323 tests, 0 failures,
+  0 errors, 0 skipped**. The drop from 1179 is the deleted 1.0 facade suite, not lost coverage of
+  2.0 behavior. `mvn -Plive test` selects nothing until issue #30 adds the 2.0 live checks.
 

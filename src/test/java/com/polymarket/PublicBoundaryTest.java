@@ -25,26 +25,24 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Public 2.0 boundaries")
 class PublicBoundaryTest {
 
-    /** The 2.0 bounded contexts only; the legacy 1.0 packages stay unguarded until #28 deletes them. */
-    private static final String[] PUBLIC_PACKAGES =
-            {"com.polymarket", "com.polymarket.operations..", "com.polymarket.authentication..",
-                    "com.polymarket.markets..", "com.polymarket.trading..",
-                    "com.polymarket.portfolio..", "com.polymarket.rewards..",
-                    "com.polymarket.social..", "com.polymarket.builders..", "com.polymarket.rfq..",
-                    "com.polymarket.streaming.."};
+    /**
+     * With the 1.0 facade gone, everything shipped outside {@code internal} is public 2.0 surface,
+     * so the rules cover it by exclusion — a new bounded context is guarded the day it appears.
+     */
+    private static final String INTERNAL = "com.polymarket.internal..";
 
     private static final JavaClasses SHIPPED = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages("com.polymarket");
 
     private static final ArchRule PUBLIC_PACKAGES_DO_NOT_DEPEND_ON_INTERNAL =
-            noClasses().that().resideInAnyPackage(PUBLIC_PACKAGES)
+            noClasses().that().resideOutsideOfPackage(INTERNAL)
                     // Polymarket is the composition root: wiring internal adapters is its whole job.
                     .and().doNotBelongToAnyOf(Polymarket.class)
-                    .should().dependOnClassesThat().resideInAPackage("com.polymarket.internal..");
+                    .should().dependOnClassesThat().resideInAPackage(INTERNAL);
 
     private static final ArchRule DOMAIN_MODELS_DO_NOT_USE_TRANSPORT_LIBRARIES =
-            noClasses().that().resideInAnyPackage(PUBLIC_PACKAGES)
+            noClasses().that().resideOutsideOfPackage(INTERNAL)
                     // Narrow crypto exemption: PrivateKeySigner and its package-private Addresses helper are the
                     // local key-custody adapter, not domain models — the JDK has no secp256k1 or keccak.
                     .and().doNotBelongToAnyOf(PrivateKeySigner.class)
@@ -55,7 +53,7 @@ class PublicBoundaryTest {
     private static final ArchRule PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES =
             codeUnits().that().arePublic()
                     .and().areDeclaredInClassesThat().arePublic()
-                    .and().areDeclaredInClassesThat().resideInAnyPackage(PUBLIC_PACKAGES)
+                    .and().areDeclaredInClassesThat().resideOutsideOfPackage(INTERNAL)
                     .should(useOnlySdkAndJdkTypes());
 
     @Test
