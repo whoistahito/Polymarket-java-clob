@@ -7,7 +7,7 @@
 
     <groupId>com.polymarket</groupId>
     <artifactId>polymarket-api</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <packaging>jar</packaging>
 
     <name>Polymarket API Client</name>
@@ -19,13 +19,56 @@
         <okhttp.version>4.12.0</okhttp.version>
         <jackson.version>2.16.1</jackson.version>
         <web3j.version>4.10.3</web3j.version>
-        <slf4j.version>2.0.9</slf4j.version>
+        <slf4j.version>2.0.12</slf4j.version>
         <logback.version>1.4.14</logback.version>
-        <junit.version>5.10.1</junit.version>
+        <junit.version>5.11.2</junit.version>
         <mockito.version>5.14.2</mockito.version>
         <lombok.version>1.18.36</lombok.version>
         <archunit.version>1.3.0</archunit.version>
+        <kotlin.version>1.9.10</kotlin.version>
+        <enforcer.version>3.5.0</enforcer.version>
     </properties>
+
+    <!--
+      Convergence pins only: every entry resolves a version conflict the enforcer's dependencyConvergence
+      rule reports. Pinning keeps the transitive dependency present, unlike an exclusion.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- okio wants kotlin 1.9.10, okhttp wants 1.8.21; take the newer, which is binary compatible. -->
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-jdk7</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-jdk8</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-common</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <!-- web3j:crypto drags an older Jackson and slf4j; the SDK's own versions win. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- HTTP Client -->
@@ -54,7 +97,7 @@
             <version>${web3j.version}</version>
         </dependency>
 
-        <!-- Logging -->
+        <!-- Logging: a library binds no backend. logback is test-only, for readable suite output. -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -64,38 +107,13 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
+            <scope>test</scope>
         </dependency>
 
-        <!-- Apache Commons -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.14.0</version>
-        </dependency>
-
-        <!-- Bouncy Castle (for cryptography) -->
-        <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bcprov-jdk15on</artifactId>
-            <version>1.70</version>
-        </dependency>
-
-        <!-- Testing -->
+        <!-- Testing: the junit-jupiter aggregator already brings api, engine and params. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-params</artifactId>
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
@@ -135,6 +153,37 @@
 
     <build>
         <plugins>
+            <!--
+              Dependency gate: consumers inherit this tree, so a silent version conflict is our bug, not theirs.
+              Convergence conflicts are fixed by a dependencyManagement pin above, never by an exclusion.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-dependency-hygiene</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <dependencyConvergence/>
+                                <banDuplicatePomDependencyVersions/>
+                                <requireMavenVersion>
+                                    <version>[3.6.3,)</version>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
