@@ -78,6 +78,8 @@ public final class StreamingGateway implements StreamTransport, AutoCloseable {
     @Override
     public void close() {
         scheduler.shutdownNow();
+        // Cancel first: an open socket holds its connection, so evicting before it releases leaks one.
+        okHttp.dispatcher().cancelAll();
         okHttp.dispatcher().executorService().shutdown();
         okHttp.connectionPool().evictAll();
     }

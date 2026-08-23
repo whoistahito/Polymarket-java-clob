@@ -14,7 +14,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -40,7 +39,7 @@ final class RtdsChannelConnection implements RtdsConnection {
     private final ObjectMapper mapper;
     private final RtdsEventMapper eventMapper;
     private final String url;
-    private final Supplier<RtdsSubscriptions> stateSupplier;
+
     private final RtdsEventSink sink;
 
     private final long pingIntervalMs;
@@ -49,7 +48,14 @@ final class RtdsChannelConnection implements RtdsConnection {
     private final long stableConnectionMs;
     private final int maxReconnectAttempts;
 
-    private volatile WebSocket socket;
+    /**
+     * The subjects, the socket and the "initial frame already sent" flag move together under this
+     * monitor: that single rule is what stops an update overtaking or duplicating the initial frame.
+     */
+    private RtdsSubscriptions subjects;
+    private WebSocket socket;
+    private boolean initialSent;
+
     private volatile boolean closed;
     private final AtomicLong generation = new AtomicLong(0);
     private final AtomicInteger attempt = new AtomicInteger(0);
@@ -57,14 +63,14 @@ final class RtdsChannelConnection implements RtdsConnection {
     private volatile ScheduledFuture<?> heartbeat;
 
     RtdsChannelConnection(OkHttpClient okHttp, ScheduledExecutorService scheduler, ObjectMapper mapper, String url,
-            Supplier<RtdsSubscriptions> stateSupplier, RtdsEventSink sink, long pingIntervalMs,
+            RtdsSubscriptions subjects, RtdsEventSink sink, long pingIntervalMs,
             long reconnectDelayMs, long maxReconnectDelayMs, long stableConnectionMs, int maxReconnectAttempts) {
         this.okHttp = okHttp;
         this.scheduler = scheduler;
         this.mapper = mapper;
         this.eventMapper = new RtdsEventMapper(mapper);
         this.url = url;
-        this.stateSupplier = stateSupplier;
+        this.subjects = subjects;
         this.sink = sink;
         this.pingIntervalMs = pingIntervalMs;
         this.reconnectDelayMs = reconnectDelayMs;
@@ -74,51 +80,49 @@ final class RtdsChannelConnection implements RtdsConnection {
         open();
     }
 
-    private void open() {
+    private synchronized void open() {
         Request request = new Request.Builder().url(url).build();
+        initialSent = false;
         socket = okHttp.newWebSocket(request, new Listener());
     }
 
     @Override
-    public synchronized void subscribeBinance(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) return;
-        sendOne("subscribe", binanceEntry(symbols));
+    public synchronized void subscription(RtdsSubscriptions current) {
+        RtdsSubscriptions previous = subjects;
+        subjects = current;
+        if (!initialSent || socket == null) {
+            return; // the initial frame has not gone out yet - it will carry the whole set
+        }
+        send("subscribe", entriesFor(delta(current, previous)));
+        send("unsubscribe", entriesFor(delta(previous, current)));
     }
 
-    @Override
-    public synchronized void unsubscribeBinance(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) return;
-        sendOne("unsubscribe", binanceEntry(symbols));
+    /** Everything in {@code left} that {@code right} does not already carry. */
+    private static RtdsSubscriptions delta(RtdsSubscriptions left, RtdsSubscriptions right) {
+        List<String> binance = new java.util.ArrayList<>(left.binanceSymbols());
+        binance.removeAll(right.binanceSymbols());
+        List<String> chainlink = new java.util.ArrayList<>(left.chainlinkSymbols());
+        chainlink.removeAll(right.chainlinkSymbols());
+        List<CommentSubscription> comments = new java.util.ArrayList<>(left.comments());
+        comments.removeAll(right.comments());
+        return new RtdsSubscriptions(binance, chainlink, comments);
     }
 
-    @Override
-    public synchronized void subscribeChainlink(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) return;
-        send("subscribe", chainlinkEntries(symbols));
-    }
-
-    @Override
-    public synchronized void unsubscribeChainlink(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) return;
-        send("unsubscribe", chainlinkEntries(symbols));
-    }
-
-    @Override
-    public synchronized void subscribeComments(List<CommentSubscription> subscriptions) {
-        if (subscriptions == null || subscriptions.isEmpty()) return;
-        send("subscribe", commentEntries(subscriptions));
-    }
-
-    @Override
-    public synchronized void unsubscribeComments(List<CommentSubscription> subscriptions) {
-        if (subscriptions == null || subscriptions.isEmpty()) return;
-        send("unsubscribe", commentEntries(subscriptions));
+    private List<ObjectNode> entriesFor(RtdsSubscriptions state) {
+        List<ObjectNode> entries = new java.util.ArrayList<>();
+        if (!state.binanceSymbols().isEmpty()) {
+            entries.add(binanceEntry(state.binanceSymbols()));
+        }
+        entries.addAll(chainlinkEntries(state.chainlinkSymbols()));
+        entries.addAll(commentEntries(state.comments()));
+        return entries;
     }
 
     @Override
     public synchronized void close() {
         closed = true;
         cancelHeartbeat();
+        initialSent = false;
         if (socket != null) {
             socket.close(1000, "Client closed");
             socket = null;
@@ -168,13 +172,9 @@ final class RtdsChannelConnection implements RtdsConnection {
         return entries;
     }
 
-    private void sendOne(String action, ObjectNode entry) {
-        send(action, List.of(entry));
-    }
-
     private void send(String action, List<ObjectNode> entries) {
         WebSocket ws = socket;
-        if (ws == null || entries.isEmpty()) return;
+        if (ws == null || !initialSent || entries.isEmpty()) return;
         try {
             ObjectNode msg = mapper.createObjectNode();
             msg.put("action", action);
@@ -188,13 +188,7 @@ final class RtdsChannelConnection implements RtdsConnection {
 
     /** The full authoritative state, sent as one frame right after each (re)connect. */
     private void sendInitialState(WebSocket ws) {
-        RtdsSubscriptions state = stateSupplier.get();
-        List<ObjectNode> entries = new java.util.ArrayList<>();
-        if (!state.binanceSymbols().isEmpty()) {
-            entries.add(binanceEntry(state.binanceSymbols()));
-        }
-        entries.addAll(chainlinkEntries(state.chainlinkSymbols()));
-        entries.addAll(commentEntries(state.comments()));
+        List<ObjectNode> entries = entriesFor(subjects);
         if (entries.isEmpty()) return;
         try {
             ObjectNode msg = mapper.createObjectNode();
@@ -271,6 +265,11 @@ final class RtdsChannelConnection implements RtdsConnection {
         }
     }
 
+    private synchronized void loseSocket() {
+        socket = null;
+        initialSent = false;
+    }
+
     private synchronized void doReconnect() {
         if (closed || socket != null) return;
         open();
@@ -295,13 +294,22 @@ final class RtdsChannelConnection implements RtdsConnection {
             openedAtMs.set(System.currentTimeMillis());
             // Signalled BEFORE the subscription frame: everything after belongs to this generation.
             safely("onResubscribe", () -> sink.onResubscribe(gen));
-            sendInitialState(ws);
+            synchronized (RtdsChannelConnection.this) {
+                if (closed || ws != socket) {
+                    return;
+                }
+                sendInitialState(ws);
+                initialSent = true;
+            }
             startHeartbeat();
             safely("onOpen", () -> sink.onOpen(gen));
         }
 
         @Override
         public void onMessage(WebSocket ws, String text) {
+            if (closed) {
+                return; // a frame in flight when close() landed reaches no application callback
+            }
             eventMapper.dispatch(text, sink);
         }
 
@@ -312,9 +320,7 @@ final class RtdsChannelConnection implements RtdsConnection {
             try {
                 log.error("RTDS channel failure", t);
                 cancelHeartbeat();
-                synchronized (RtdsChannelConnection.this) {
-                    socket = null;
-                }
+                loseSocket();
                 Exception error = t instanceof Exception ex ? ex : new RuntimeException(t);
                 safely("onError", () -> sink.onError(gen, error));
             } finally {
@@ -333,9 +339,7 @@ final class RtdsChannelConnection implements RtdsConnection {
             long gen = generation.get();
             try {
                 cancelHeartbeat();
-                synchronized (RtdsChannelConnection.this) {
-                    socket = null;
-                }
+                loseSocket();
                 safely("onClose", () -> sink.onClose(gen, code, reason));
             } finally {
                 scheduleReconnect();

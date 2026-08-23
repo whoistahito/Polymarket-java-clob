@@ -5,12 +5,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import lombok.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +29,7 @@ public final class Rtds implements AutoCloseable {
     private final Set<String> chainlinkSymbols = new LinkedHashSet<>();
     private final Set<CommentSubscription> commentSubscriptions = new LinkedHashSet<>();
     private RtdsConnection connection;
-    private boolean closed;
+    private volatile boolean closed;
 
     private final AtomicLong generation = new AtomicLong(0);
 
@@ -45,8 +45,8 @@ public final class Rtds implements AutoCloseable {
             new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<RtdsLifecycleListener> lifecycleListeners = new CopyOnWriteArrayList<>();
 
-    public Rtds(RtdsTransport transport) {
-        this.transport = Objects.requireNonNull(transport, "transport");
+    public Rtds(@NonNull RtdsTransport transport) {
+        this.transport = transport;
     }
 
     /** Handle to a registered callback or lifecycle listener. Removal is local and idempotent. */
@@ -87,14 +87,12 @@ public final class Rtds implements AutoCloseable {
         return register(reactionRemovedCallbacks, handler);
     }
 
-    public Registration addLifecycleListener(RtdsLifecycleListener listener) {
-        Objects.requireNonNull(listener, "listener");
+    public Registration addLifecycleListener(@NonNull RtdsLifecycleListener listener) {
         lifecycleListeners.add(listener);
         return () -> lifecycleListeners.remove(listener);
     }
 
-    private static <T> Registration register(CopyOnWriteArrayList<Consumer<T>> list, Consumer<T> handler) {
-        Objects.requireNonNull(handler, "handler");
+    private static <T> Registration register(CopyOnWriteArrayList<Consumer<T>> list, @NonNull Consumer<T> handler) {
         list.add(handler);
         return () -> list.remove(handler);
     }
@@ -104,87 +102,85 @@ public final class Rtds implements AutoCloseable {
     // ------------------------------------------------------------------ //
 
     public synchronized void subscribeBinancePrices(List<String> symbols) {
+        requireOpen();
         if (symbols == null || symbols.isEmpty()) {
             throw new IllegalArgumentException("symbols must not be empty");
         }
-        List<String> added = addAll(binanceSymbols, symbols);
-        if (connection == null) {
-            connection = transport.connect(this::currentState, sink); // sends the full state itself
-            return;
-        }
-        if (!added.isEmpty()) {
-            connection.subscribeBinance(added);
-        }
+        addAll(binanceSymbols, symbols);
+        publish();
     }
 
     public synchronized void unsubscribeBinancePrices(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) {
+        if (closed || symbols == null || symbols.isEmpty()) {
             return;
         }
-        List<String> removed = removeAll(binanceSymbols, symbols);
-        if (connection != null && !removed.isEmpty()) {
-            connection.unsubscribeBinance(removed);
+        if (!removeAll(binanceSymbols, symbols).isEmpty() && connection != null) {
+            publish();
         }
     }
 
     public synchronized void subscribeChainlinkPrices(List<String> symbols) {
+        requireOpen();
         if (symbols == null || symbols.isEmpty()) {
             throw new IllegalArgumentException("symbols must not be empty");
         }
-        List<String> added = addAll(chainlinkSymbols, symbols);
-        if (connection == null) {
-            connection = transport.connect(this::currentState, sink); // sends the full state itself
-            return;
-        }
-        if (!added.isEmpty()) {
-            connection.subscribeChainlink(added);
-        }
+        addAll(chainlinkSymbols, symbols);
+        publish();
     }
 
     public synchronized void unsubscribeChainlinkPrices(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) {
+        if (closed || symbols == null || symbols.isEmpty()) {
             return;
         }
-        List<String> removed = removeAll(chainlinkSymbols, symbols);
-        if (connection != null && !removed.isEmpty()) {
-            connection.unsubscribeChainlink(removed);
+        if (!removeAll(chainlinkSymbols, symbols).isEmpty() && connection != null) {
+            publish();
         }
     }
 
     /** Unfiltered: every comment event of this type, regardless of entity. */
-    public void subscribeComments(CommentEventType type) {
-        subscribeComments(CommentSubscription.all(Objects.requireNonNull(type, "type")));
+    public void subscribeComments(@NonNull CommentEventType type) {
+        subscribeComments(CommentSubscription.all(type));
     }
 
     /** Scoped to one official entity filter ({@code parentEntityType}/{@code parentEntityID}). */
-    public void subscribeComments(CommentEventType type, RtdsEntityType entityType, long entityId) {
-        subscribeComments(CommentSubscription.forEntity(
-                Objects.requireNonNull(type, "type"), Objects.requireNonNull(entityType, "entityType"), entityId));
+    public void subscribeComments(
+            @NonNull CommentEventType type, @NonNull RtdsEntityType entityType, long entityId) {
+        subscribeComments(CommentSubscription.forEntity(type, entityType, entityId));
     }
 
-    public void unsubscribeComments(CommentEventType type) {
-        unsubscribeComments(CommentSubscription.all(Objects.requireNonNull(type, "type")));
+    public void unsubscribeComments(@NonNull CommentEventType type) {
+        unsubscribeComments(CommentSubscription.all(type));
     }
 
-    public void unsubscribeComments(CommentEventType type, RtdsEntityType entityType, long entityId) {
-        unsubscribeComments(CommentSubscription.forEntity(
-                Objects.requireNonNull(type, "type"), Objects.requireNonNull(entityType, "entityType"), entityId));
+    public void unsubscribeComments(
+            @NonNull CommentEventType type, @NonNull RtdsEntityType entityType, long entityId) {
+        unsubscribeComments(CommentSubscription.forEntity(type, entityType, entityId));
     }
 
     private synchronized void subscribeComments(CommentSubscription subscription) {
-        boolean added = commentSubscriptions.add(subscription);
-        if (connection == null) {
-            connection = transport.connect(this::currentState, sink); // sends the full state itself
-            return;
-        }
-        if (added) {
-            connection.subscribeComments(List.of(subscription));
-        }
+        requireOpen();
+        commentSubscriptions.add(subscription);
+        publish();
     }
 
     private synchronized void unsubscribeComments(CommentSubscription subscription) {
-        if (connection != null && commentSubscriptions.remove(subscription)) {
-            connection.unsubscribeComments(List.of(subscription));
+        if (closed) {
+            return;
+        }
+        if (commentSubscriptions.remove(subscription) && connection != null) {
+            publish();
+        }
+    }
+
+    /**
+     * Hands the connection the whole Authoritative Subscription; the connection decides whether it
+     * belongs in the initial frame or travels as a delta.
+     */
+    private void publish() {
+        if (connection == null) {
+            connection = transport.connect(currentState(), sink);
+        } else {
+            connection.subscription(currentState());
         }
     }
 
@@ -204,7 +200,12 @@ public final class Rtds implements AutoCloseable {
         return generation.get();
     }
 
-    /** Terminates the socket, reconnect, and heartbeat. Idempotent. */
+    /** True once {@link #close()} has run; a closed capability never reopens. */
+    public boolean isClosed() {
+        return closed;
+    }
+
+    /** Terminal: stops the socket, reconnect work, text keepalive and callback delivery. */
     @Override
     public synchronized void close() {
         if (closed) {
@@ -217,19 +218,23 @@ public final class Rtds implements AutoCloseable {
         }
     }
 
-    private synchronized RtdsSubscriptions currentState() {
+    private void requireOpen() {
+        if (closed) {
+            throw new IllegalStateException("Rtds is closed");
+        }
+    }
+
+    private RtdsSubscriptions currentState() {
         return new RtdsSubscriptions(List.copyOf(binanceSymbols), List.copyOf(chainlinkSymbols),
                 List.copyOf(commentSubscriptions));
     }
 
-    private static List<String> addAll(Set<String> authoritative, List<String> ids) {
-        List<String> added = new ArrayList<>();
+    private static void addAll(Set<String> authoritative, List<String> ids) {
         for (String id : ids) {
-            if (id != null && authoritative.add(id)) {
-                added.add(id);
+            if (id != null) {
+                authoritative.add(id);
             }
         }
-        return added;
     }
 
     private static List<String> removeAll(Set<String> authoritative, List<String> ids) {
@@ -334,8 +339,7 @@ public final class Rtds implements AutoCloseable {
 
         private final CopyOnWriteArrayList<Entry<T>> entries = new CopyOnWriteArrayList<>();
 
-        Registration register(Collection<String> filter, Consumer<T> callback) {
-            Objects.requireNonNull(callback, "callback");
+        Registration register(Collection<String> filter, @NonNull Consumer<T> callback) {
             Set<String> copy = filter == null || filter.isEmpty() ? Collections.emptySet() : Set.copyOf(filter);
             Entry<T> entry = new Entry<>(copy, callback);
             entries.add(entry);

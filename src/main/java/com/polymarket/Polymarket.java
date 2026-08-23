@@ -11,6 +11,7 @@ import com.polymarket.internal.operations.HeartbeatGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
+import com.polymarket.internal.streaming.RtdsGateway;
 import com.polymarket.internal.streaming.StreamingGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.internal.trading.TradeReaderGateway;
@@ -22,6 +23,7 @@ import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
 import com.polymarket.rewards.Rewards;
+import com.polymarket.streaming.Rtds;
 import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
 import java.io.IOException;
@@ -49,6 +51,8 @@ public final class Polymarket implements AutoCloseable {
     private final Trading trading;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
+    private final RtdsGateway rtdsGateway;
+    private final Rtds rtds;
     private final HeartbeatGateway heartbeat;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -69,6 +73,8 @@ public final class Polymarket implements AutoCloseable {
                 new TradeReaderGateway(config, runtime, clock), clock);
         this.streamingGateway = new StreamingGateway();
         this.streaming = new Streaming(streamingGateway, authority);
+        this.rtdsGateway = new RtdsGateway();
+        this.rtds = new Rtds(rtdsGateway);
         this.heartbeat = new HeartbeatGateway(config, runtime, clock);
     }
 
@@ -143,6 +149,12 @@ public final class Polymarket implements AutoCloseable {
         return streaming;
     }
 
+    /** Real-Time Data Service prices and comments. Unauthenticated; owned and closed by this root. */
+    public Rtds rtds() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return rtds;
+    }
+
     public ServerTime serverTime() throws IOException {
         return open().serverTime();
     }
@@ -190,6 +202,8 @@ public final class Polymarket implements AutoCloseable {
             heartbeat.close();
             streaming.close();
             streamingGateway.close();
+            rtds.close();
+            rtdsGateway.close();
             runtime.close();
         }
     }

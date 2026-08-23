@@ -1,6 +1,8 @@
 package com.polymarket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -154,6 +156,20 @@ class PolymarketRootTest {
         sdk.close();
         assertThrows(IllegalStateException.class, sdk::serverTime);
         assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-PR-010: RTDS is reached and closed through the root, never constructed by hand")
+    void rtdsIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.streaming.Rtds rtds = sdk.rtds();
+        assertSame(rtds, sdk.rtds(), "the root must own one RTDS capability, not hand out new ones");
+        assertFalse(rtds.isClosed());
+
+        sdk.close();
+
+        assertTrue(rtds.isClosed(), "closing the root must close the RTDS capability");
+        assertThrows(IllegalStateException.class, sdk::rtds);
     }
 
     private PolymarketConfig config() {
