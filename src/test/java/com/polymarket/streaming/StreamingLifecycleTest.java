@@ -245,7 +245,7 @@ class StreamingLifecycleTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(new ApiCredentials("k", "cw==", "p")));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(new ApiCredentials("k", "cw==", "p"), "0x" + "a".repeat(40)));
         streaming.subscribeMarket(List.of("tokA"));
         for (int i = 0; i < 100 && server.getRequestCount() < 1; i++) Thread.sleep(50);
         streaming.close();

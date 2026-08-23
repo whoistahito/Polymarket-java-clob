@@ -279,7 +279,7 @@ class StreamingUserChannelTest {
         int threads = 8;
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(threads);
@@ -317,7 +317,7 @@ class StreamingUserChannelTest {
     void dynamicUpdateCarriesOnlyDocumentedFields() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         streaming.subscribeUser(List.of("0xm1"));
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
@@ -353,7 +353,7 @@ class StreamingUserChannelTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
         CopyOnWriteArrayList<TradeEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch got = new CountDownLatch(1);
         streaming.onTrade(List.of(), t -> { events.add(t); got.countDown(); });
