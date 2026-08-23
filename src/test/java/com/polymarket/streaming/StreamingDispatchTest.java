@@ -183,7 +183,7 @@ class StreamingDispatchTest {
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway,
-                SigningAuthority.apiOnly(new ApiCredentials("key", "secret", "pass")));
+                SigningAuthority.apiCredentials(new ApiCredentials("key", "secret", "pass"), "0x" + "a".repeat(40)));
         List<OrderEvent> forMarket1 = new ArrayList<>();
         List<OrderEvent> forMarket2 = new ArrayList<>();
         CountDownLatch got = new CountDownLatch(1);

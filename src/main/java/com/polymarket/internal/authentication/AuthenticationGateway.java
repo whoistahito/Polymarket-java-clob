@@ -95,8 +95,19 @@ public final class AuthenticationGateway implements ApiKeyDirectory {
         }
         JsonNode node = runtime.parse(outcome.body());
         return new ApiCredentials(
-                node.path("apiKey").asText(),
-                node.path("secret").asText(),
-                node.path("passphrase").asText());
+                required(node, "apiKey", operation),
+                required(node, "secret", operation),
+                required(node, "passphrase", operation));
+    }
+
+    /** A 200 missing a credential part is a failed operation, never half-built credentials. */
+    private static String required(JsonNode body, String field, String operation)
+            throws IOException {
+        JsonNode value = body.path(field);
+        if (value.isMissingNode() || value.isNull() || value.asText().isBlank()) {
+            throw new IOException(
+                    "the " + operation + " response carries no " + field + "; no API key was read");
+        }
+        return value.asText();
     }
 }

@@ -52,7 +52,7 @@ public final class RfqGateway implements RfqDirectory {
         Map<String, String> headers = new LinkedHashMap<>();
         long timestamp = clock.instant().getEpochSecond();
         headers.putAll(L2Attestation.headers(
-                accountCredentials, identity.signer(), timestamp, "POST", REQUESTS_PATH, body));
+                accountCredentials, identity.accountSigner(), timestamp, "POST", REQUESTS_PATH, body));
         headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", REQUESTS_PATH, body));
 
         HttpOutcome outcome = runtime.post(gatewayHost, REQUESTS_PATH, headers, body);
@@ -121,8 +121,8 @@ public final class RfqGateway implements RfqDirectory {
     private String requestBody(RfqRequest request, SigningIdentity identity) {
         Map<String, Object> size = new LinkedHashMap<>();
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("signer_address", identity.signer());
-        body.put("maker_address", identity.maker());
+        body.put("signer_address", identity.accountSigner());
+        body.put("maker_address", identity.tradingWallet());
         body.put("signature_type", identity.signatureType());
         List<String> legs = new ArrayList<>();
         request.legs().forEach(leg -> legs.add(leg.value()));

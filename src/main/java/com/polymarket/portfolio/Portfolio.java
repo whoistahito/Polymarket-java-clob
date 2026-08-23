@@ -1,7 +1,6 @@
 package com.polymarket.portfolio;
 
 import com.polymarket.authentication.AuthenticationRequiredException;
-import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import java.io.IOException;
@@ -57,15 +56,7 @@ public final class Portfolio {
         return ledger.notifications(
                 authority.apiCredentials().orElseThrow(() -> new AuthenticationRequiredException(
                         "notifications needs L2 API credentials; supply them with withApiCredentials(...)")),
-                signingAddress(),
-                authority.identity().map(SigningIdentity::signatureType).orElse(0));
-    }
-
-    /** L2 headers carry the signer's address, which only a local key or an identity supplies. */
-    private String signingAddress() {
-        return authority.localSigner().map(PrivateKeySigner::address)
-                .or(() -> authority.identity().map(SigningIdentity::signer))
-                .orElseThrow(() -> new AuthenticationRequiredException(
-                        "notifications needs the signing address; supply a local key or identity"));
+                authority.requireAccountSigner("notifications"),
+                authority.signingIdentity().map(SigningIdentity::signatureType).orElse(0));
     }
 }

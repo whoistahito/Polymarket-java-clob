@@ -21,8 +21,8 @@ class WalletDerivationTest {
     void proxyWalletMatchesVector() {
         SigningIdentity.ProxyWallet identity = SigningIdentity.deriveProxyWallet(EOA);
 
-        assertEquals(EXPECTED_PROXY, identity.maker());
-        assertEquals(EOA.toLowerCase(java.util.Locale.ROOT), identity.signer());
+        assertEquals(EXPECTED_PROXY, identity.tradingWallet());
+        assertEquals(EOA.toLowerCase(java.util.Locale.ROOT), identity.accountSigner());
         assertEquals(1, identity.signatureType());
     }
 
@@ -31,8 +31,8 @@ class WalletDerivationTest {
     void safeWalletMatchesVector() {
         SigningIdentity.SafeWallet identity = SigningIdentity.deriveSafeWallet(EOA);
 
-        assertEquals(EXPECTED_SAFE, identity.maker());
-        assertEquals(EOA.toLowerCase(java.util.Locale.ROOT), identity.signer());
+        assertEquals(EXPECTED_SAFE, identity.tradingWallet());
+        assertEquals(EOA.toLowerCase(java.util.Locale.ROOT), identity.accountSigner());
         assertEquals(2, identity.signatureType());
     }
 }

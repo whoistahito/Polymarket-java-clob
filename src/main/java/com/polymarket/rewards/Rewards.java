@@ -112,7 +112,7 @@ public final class Rewards {
     }
 
     private String address(String operation) {
-        return authority.requireSigningAddress(operation);
+        return authority.requireAccountSigner(operation);
     }
 
     private static String requireConditionId(String conditionId) {
