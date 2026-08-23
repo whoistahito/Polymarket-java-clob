@@ -1,0 +1,94 @@
+{
+  "reviewedOn": "2026-08-23",
+  "note": "Trade reads. Every value was read from the source URL recorded beside it; nothing here is derived from this SDK's Java code.",
+
+  "clobTradeRead": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (GET /data/trades, info.version 1.0.0)",
+    "host": "https://clob.polymarket.com",
+    "method": "GET",
+    "path": "/data/trades",
+    "operationId": "getTrades",
+    "requiredQuery": ["maker_address"],
+    "optionalQuery": ["id", "market", "asset_id", "before", "after", "next_cursor"],
+    "authLevel": "L2",
+    "authHeaders": ["POLY_API_KEY", "POLY_ADDRESS", "POLY_SIGNATURE", "POLY_PASSPHRASE", "POLY_TIMESTAMP"],
+    "authNote": "The spec also accepts a readonly API key. maker_address is required:true, so a read filtered only by id is rejected with 400 'Invalid trade params payload'.",
+    "documentedErrors": {"400": "Invalid trade params payload", "401": "Invalid API key", "500": "Internal server error"}
+  },
+
+  "clobTradePage": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (TradesResponse)",
+    "schema": "TradesResponse",
+    "envelopeFields": ["limit", "next_cursor", "count", "data"],
+    "requiredEnvelopeFields": ["limit", "next_cursor", "count", "data"],
+    "rowsField": "data",
+    "responseIsBareArray": false,
+    "cursorParameter": "next_cursor",
+    "cursorPlacement": "query",
+    "cursorEncoding": "base64-encoded offset",
+    "openingCursor": "MA==",
+    "endOfPagesCursor": "LTE=",
+    "exampleLimit": 100,
+    "exampleNextCursor": "MTAw"
+  },
+
+  "tradeStatus": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (Trade.status enum)",
+    "wirePrefix": "TRADE_STATUS_",
+    "wireValues": [
+      "TRADE_STATUS_CONFIRMED",
+      "TRADE_STATUS_FAILED",
+      "TRADE_STATUS_RETRYING",
+      "TRADE_STATUS_MATCHED",
+      "TRADE_STATUS_MINED"
+    ],
+    "terminal": ["CONFIRMED", "FAILED"],
+    "nonTerminal": ["MATCHED", "MINED", "RETRYING"],
+    "terminalRule": "source: https://docs.polymarket.com/changelog/predictions.md (Jul 17, 2026) - poll trades by tradeID until each has a hash or returns FAILED. MINED is not terminal; a mined trade can still be reorganised into RETRYING.",
+    "builderTradeStatusHasNoEnum": "BuilderTrade.status is a free string in the spec with the same TRADE_STATUS_CONFIRMED example, so treat an unknown value as unknown rather than rejecting it."
+  },
+
+  "clobTrade": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (Trade)",
+    "requiredFields": [
+      "id", "taker_order_id", "market", "asset_id", "side", "size", "price", "status",
+      "match_time", "last_update", "outcome", "bucket_index", "owner", "maker_address", "trader_side"
+    ],
+    "optionalFields": ["fee_rate_bps", "match_time_nano", "transaction_hash", "err_msg", "maker_orders"],
+    "side": ["BUY", "SELL"],
+    "traderSide": ["TAKER", "MAKER"],
+    "timestampUnits": {
+      "match_time": "unix-seconds, as a decimal string",
+      "match_time_nano": "unix-nanoseconds, as a decimal string",
+      "last_update": "unix-seconds, as a decimal string"
+    },
+    "makerOrderFields": [
+      "order_id", "owner", "maker_address", "matched_amount", "price", "fee_rate_bps",
+      "asset_id", "outcome", "side"
+    ]
+  },
+
+  "dataApiTradeFeed": {
+    "source": "https://docs.polymarket.com/api-spec/data-openapi.yaml (GET /trades, info.version 1.0.0)",
+    "host": "https://data-api.polymarket.com",
+    "method": "GET",
+    "path": "/trades",
+    "responseIsBareArray": true,
+    "paginationStyle": "offset",
+    "maxLimit": 10000,
+    "defaultLimit": 100,
+    "maxOffset": 10000,
+    "offsetOverCapIsClamped": false,
+    "limitOverCapIsClamped": true,
+    "offsetRule": "Requests past offset 10000 are rejected with 400. Page inside start/end windows to read deeper; each window has its own offset budget.",
+    "query": ["limit", "offset", "takerOnly", "filterType", "filterAmount", "market", "eventId", "user", "side", "start", "end"],
+    "takerOnlyDefault": true,
+    "mutuallyExclusive": [["market", "eventId"]],
+    "pairedParameters": [["filterType", "filterAmount"]],
+    "filterType": ["CASH", "TOKENS"],
+    "side": ["BUY", "SELL"],
+    "windowUnit": "unix-seconds",
+    "windowRule": "start omitted or 0 gives the default ~3-year window. A positive start reaches full history on user-scoped reads only; market- and event-scoped reads keep the ~3-year floor.",
+    "supersededChangelogEntry": "The 2025-08-26 changelog capping /trades at limit 500 / offset 1000 is STALE against this spec revision. Enforce the spec values above."
+  }
+}

@@ -1,17 +1,41 @@
 {
-  "reviewedOn": "2026-08-16",
-  "source": "https://docs.polymarket.com/trading/combos/builders (Direct API tab)",
+  "reviewedOn": "2026-08-23",
+  "source": "https://docs.polymarket.com/trading/combos/builders.md (Direct API tab)",
   "basePath": "/v1/builder/rfq",
   "hostNote": "The gateway host is issued during builder onboarding; it is not published.",
+  "specNote": "The requester flow is prose-only. combos-rfq-openapi.yaml covers the quoter/maker side and does not describe these endpoints.",
 
   "auth": {
     "accountHeaders": ["POLY_ADDRESS", "POLY_API_KEY", "POLY_PASSPHRASE", "POLY_TIMESTAMP", "POLY_SIGNATURE"],
     "builderHeaders": ["POLY_BUILDER_API_KEY", "POLY_BUILDER_PASSPHRASE", "POLY_BUILDER_TIMESTAMP", "POLY_BUILDER_SIGNATURE"],
     "hmac": "HMAC-SHA256(base64Decode(secret), timestamp + HTTP_METHOD + FULL_REQUEST_PATH + REQUEST_BODY)",
+    "methodIsUppercase": true,
     "digestEncoding": "base64url with padding preserved",
     "timestampUnit": "unix-seconds",
     "pathExcludesHostAndQuery": true,
-    "bodyOmittedForGet": true
+    "bodyOmittedForGet": true,
+    "bodySignedVerbatim": "Sign the exact serialized body sent on the wire; never reserialize a parsed body."
+  },
+
+  "addressRoles": {
+    "accountSigner": ["POLY_ADDRESS"],
+    "tradingWallet": [
+      "createRequest.signer_address",
+      "createRequest.maker_address",
+      "acceptRequest.signed_order.maker",
+      "acceptRequest.signed_order.signer"
+    ],
+    "signerAddressIsNotTheAccountSigner": true,
+    "quote": "POLY_ADDRESS is the EOA that owns the omnibus account credentials. Both signer_address and maker_address are the builder-controlled Deposit Wallet address.",
+    "note": "The wire name signer_address is misleading in the documented Deposit Wallet flow: it carries the Trading Wallet, not the Account Signer. Only the POLY_ADDRESS header carries the Account Signer.",
+    "signerAddressByWalletType": {
+      "source": "https://docs.polymarket.com/trading/combos/market-makers.md (Resolve Quoter Identity)",
+      "0": {"walletType": "EOA", "signer_address": "account-signer", "maker_address": "account-signer"},
+      "1": {"walletType": "Proxy Wallet", "signer_address": "account-signer", "maker_address": "trading-wallet"},
+      "2": {"walletType": "Safe Wallet", "signer_address": "account-signer", "maker_address": "trading-wallet"},
+      "3": {"walletType": "Deposit Wallet", "signer_address": "trading-wallet", "maker_address": "trading-wallet"},
+      "note": "Only signature type 3 collapses signer_address onto the Trading Wallet. The builders page documents signature_type 3, so its example shows the Deposit Wallet in both fields. POLY_ADDRESS stays the Account Signer for every type."
+    }
   },
 
   "endpoints": [
@@ -19,6 +43,7 @@
     { "method": "POST", "path": "/v1/builder/rfq/requests/{rfq_id}/accept", "accountAuth": true, "builderAuth": true },
     { "method": "GET", "path": "/v1/builder/rfq/requests/{rfq_id}", "accountAuth": true, "builderAuth": false }
   ],
+  "builderHeadersOnStatus": "Do not send",
 
   "createRequestBody": {
     "signer_address": "<deposit-wallet-address>",
@@ -30,13 +55,42 @@
     "requested_size": { "unit": "notional", "value_e6": "1000000" }
   },
 
-  "legs": { "min": 2, "max": 50, "mustBeUnique": true, "mustBeCompatible": true },
+  "legs": {
+    "min": 2,
+    "max": 50,
+    "mustBeUnique": true,
+    "mustBeCompatible": true,
+    "idKind": "underlying market outcome position IDs from Combo-enabled markets - not CLOB token IDs and not the derived Combo position IDs"
+  },
   "sizeUnits": { "BUY": "notional", "SELL": "shares" },
   "sideAlwaysYes": true,
+  "directions": ["BUY", "SELL"],
   "amountEncoding": "6-decimal base units as strings (*_e6)",
-  "timestampsInMilliseconds": ["expires_at", "created_at", "submission_deadline"],
+  "timestampsInMilliseconds": ["expires_at", "request.created_at"],
+  "comboPositionIdField": "request.yes_position_id",
 
-  "acceptBody": {
+  "createResponse": {
+    "topLevelFields": ["rfq_id", "status", "expires_at", "builder_code", "request", "quote"],
+    "requestFields": [
+      "rfq_id", "maker_address", "requestor_public_id", "leg_position_ids", "condition_id",
+      "yes_position_id", "no_position_id", "direction", "side", "requested_size", "created_at"
+    ],
+    "quoteFields": [
+      "quote_id", "blended_price_e6", "maker_amount_e6", "taker_amount_e6", "total_required_e6",
+      "net_receive_e6"
+    ],
+    "expiresAtExample": 1773890765500,
+    "createdAtExample": 1773890758000,
+    "note": "expires_at and builder_code are TOP LEVEL, beside rfq_id and status. They are not inside quote. leg_position_ids and the Combo position IDs are inside request, not top level.",
+    "failureShape": "A terminal result such as no quotes returns HTTP 200 with status FAILED and a nested error object."
+  },
+
+  "quoteFieldMeanings": {
+    "total_required_e6": "exact requester balance required: collateral including fees for BUY, Combo shares for SELL",
+    "net_receive_e6": "Combo shares received for BUY; exact collateral proceeds after fees for SELL - use it rather than deriving from blended_price_e6"
+  },
+
+  "acceptRequestBody": {
     "quote_id": "<quote-id>",
     "signed_order": {
       "salt": "<salt>",
@@ -55,10 +109,28 @@
   },
   "acceptRules": [
     "makerAmount comes from quote.maker_amount_e6 and takerAmount from quote.taker_amount_e6, for both directions.",
-    "tokenId is the returned Combo YES position ID.",
-    "order.builder must equal the returned builder_code.",
-    "Sign before quote.expires_at; the acceptance window is not a fixed duration."
+    "tokenId is the returned Combo YES position ID (request.yes_position_id).",
+    "side is 0 for BUY and 1 for SELL.",
+    "order.builder must equal the top-level builder_code.",
+    "Sign under Polygon chain 137 and Exchange V3 0xe3333700cA9d93003F00f0F71f8515005F6c00Aa.",
+    "Deposit Wallets use signatureType 3 and an ERC-7739-wrapped signature.",
+    "Sign before expires_at; the acceptance window is not a fixed duration."
   ],
+
+  "acceptResponse": {
+    "fields": ["rfq_id", "status", "taker_order_hash"],
+    "takerOrderHash": "the EIP-712 hash of the requester order",
+    "lastLookWait": "If last look is pending the gateway waits up to one second before returning; a returned AWAITING_MAKER_CONFIRMATION means keep fetching status.",
+    "retrySafety": "Retrying the same authenticated acceptance does not execute twice; the retry response may omit taker_order_hash."
+  },
+
+  "statusResponse": {
+    "fields": ["rfq_id", "status", "tx_hash", "error"],
+    "requiredFields": ["rfq_id", "status"],
+    "repeatsRequestOrQuote": false,
+    "beforeAcceptanceHttpStatus": 409,
+    "note": "One top-level status plus an optional tx_hash or error. Account headers only."
+  },
 
   "statuses": {
     "nonTerminal": ["AWAITING_REQUESTER_ACCEPTANCE", "AWAITING_MAKER_CONFIRMATION", "EXECUTING", "MINED", "RETRYING"],
@@ -66,16 +138,22 @@
     "terminalWithoutFill": ["FAILED", "EXPIRED", "CANCELED"]
   },
 
+  "httpStatusMeanings": {
+    "400": "Invalid JSON, RFQ body, acceptance, or signed order",
+    "401": "Missing or invalid account or builder authentication",
+    "403": "Account authorization failed, or the builder key has no enabled builder code",
+    "404": "Unknown RFQ",
+    "409": "RFQ state conflict, expired acceptance window, quote mismatch, or status read before acceptance",
+    "429": "RFQ request rate limit",
+    "503": "A required RFQ dependency is unavailable"
+  },
+  "errorEnvelope": "A non-2xx response carries a stable code and a human-readable top-level error; a transport failure has no response at all.",
+
   "outcomeRules": [
     "A business failure (no quote, maker decline, execution failure) returns HTTP 200 with status FAILED and a nested error.",
-    "HTTP 409 means RFQ state conflict, expired acceptance window, quote mismatch, or a status read before acceptance.",
-    "Retrying the same authenticated acceptance does not execute twice; the retry response may omit taker_order_hash.",
+    "Do not use the HTTP status alone to decide whether the trade filled.",
     "rfq_id is the stable recovery identifier after a local timeout.",
-    "A local timeout is not a failed trade."
-  ],
-
-  "quoteFields": {
-    "total_required_e6": "exact requester balance required: collateral including fees for BUY, Combo shares for SELL",
-    "net_receive_e6": "Combo shares received for BUY; exact collateral proceeds after fees for SELL — use it rather than deriving from blended_price_e6"
-  }
+    "A local timeout is not a failed trade.",
+    "An interrupted create request is not proof that an RFQ was created; an interrupted acceptance is safe to retry before the quote expires."
+  ]
 }
