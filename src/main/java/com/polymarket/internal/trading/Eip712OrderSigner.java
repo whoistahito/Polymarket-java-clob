@@ -87,18 +87,18 @@ public final class Eip712OrderSigner implements OrderSigner {
         SigningIdentity identity = context.identity();
 
         byte[] domainHash = domainHash(version, verifyingContract);
-        byte[] structHash = orderStructHash(context.salt(), identity.maker(), identity.signer(),
+        byte[] structHash = orderStructHash(context.salt(), identity.tradingWallet(), identity.accountSigner(),
                 asset.value(), makerAmount, takerAmount, side, identity.signatureType(),
                 timestamp, metadata, builder);
 
         byte[] digest = identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE
-                ? depositWalletDigest(domainHash, structHash, identity.maker())
+                ? depositWalletDigest(domainHash, structHash, identity.tradingWallet())
                 : eip712Digest(domainHash, structHash);
 
         String signature = context.localSigner().sign(digest);
 
-        return new SignedOrder(context.salt(), identity.maker(),
-                identity.signer(), asset, side, identity.signatureType(), makerAmount, takerAmount,
+        return new SignedOrder(context.salt(), identity.tradingWallet(),
+                identity.accountSigner(), asset, side, identity.signatureType(), makerAmount, takerAmount,
                 timestamp, metadata, builder, signature);
     }
 

@@ -54,6 +54,6 @@ public final class Builders {
     }
 
     private String address(String operation) {
-        return authority.requireSigningAddress(operation);
+        return authority.requireAccountSigner(operation);
     }
 }

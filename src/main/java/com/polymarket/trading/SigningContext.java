@@ -8,7 +8,7 @@ import java.util.Optional;
 
 /**
  * Everything about who signs and when, explicit and immutable so identical inputs always
- * produce identical signed output. {@code localSigner} must be the key behind {@code identity.signer()}.
+ * produce identical signed output. {@code localSigner} must be the key behind {@code identity.accountSigner()}.
  */
 public record SigningContext(
         SigningIdentity identity,
@@ -24,9 +24,9 @@ public record SigningContext(
         Objects.requireNonNull(timestamp, "timestamp");
         Objects.requireNonNull(metadata, "metadata");
         Objects.requireNonNull(builder, "builder");
-        if (!localSigner.address().equalsIgnoreCase(identity.signer())) {
+        if (!localSigner.address().equalsIgnoreCase(identity.accountSigner())) {
             throw new IllegalArgumentException("localSigner address " + localSigner.address()
-                    + " is not identity.signer() " + identity.signer());
+                    + " is not identity.accountSigner() " + identity.accountSigner());
         }
     }
 

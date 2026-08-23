@@ -28,6 +28,7 @@ class StreamingUserChannelTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ApiCredentials CREDS = new ApiCredentials("key", "c2VjcmV0", "pass");
+    private static final String ACCOUNT_SIGNER = "0x" + "a".repeat(40);
 
     private MockWebServer server;
     private StreamingGateway gateway;
@@ -66,7 +67,7 @@ class StreamingUserChannelTest {
     void initialFrameCarriesNestedAuth() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         streaming.subscribeUser(List.of("0xm1"));
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
@@ -90,7 +91,7 @@ class StreamingUserChannelTest {
     void dynamicUpdateDoesNotRepeatCredentials() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         streaming.subscribeUser(List.of("0xm1"));
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
@@ -111,7 +112,7 @@ class StreamingUserChannelTest {
     void emptyFilterStillAuthenticates() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         // subscribeUser with an empty list still opens the channel (empty filter == "every market").
         streaming.subscribeUser(List.of());
@@ -155,7 +156,7 @@ class StreamingUserChannelTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
         CopyOnWriteArrayList<OrderEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch got = new CountDownLatch(1);
         streaming.onOrder(List.of(), o -> { events.add(o); got.countDown(); });
@@ -220,7 +221,7 @@ class StreamingUserChannelTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
         CopyOnWriteArrayList<TradeEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch got = new CountDownLatch(1);
         streaming.onTrade(List.of(), t -> { events.add(t); got.countDown(); });

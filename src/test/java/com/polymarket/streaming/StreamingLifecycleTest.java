@@ -154,7 +154,7 @@ class StreamingLifecycleTest {
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).reconnectDelayMs(50).build();
         streaming = new Streaming(gateway,
-                SigningAuthority.apiOnly(new ApiCredentials("key", "secret", "pass")));
+                SigningAuthority.apiCredentials(new ApiCredentials("key", "secret", "pass"), "0x" + "a".repeat(40)));
         streaming.subscribeMarket(List.of("tokA"));
         streaming.subscribeUser(List.of("0xm1"));
 

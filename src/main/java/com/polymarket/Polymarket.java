@@ -165,7 +165,7 @@ public final class Polymarket implements AutoCloseable {
     public void startHeartbeat(Duration interval) {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         ApiCredentials credentials = authority.requireApiCredentials("heartbeat");
-        String address = authority.requireSigningAddress("heartbeat");
+        String address = authority.requireAccountSigner("heartbeat");
         heartbeat.start(interval, credentials, address);
     }
 
