@@ -197,4 +197,45 @@ class StreamingDispatchTest {
         assertEquals(1, forMarket1.size());
         assertTrue(forMarket2.isEmpty());
     }
+
+    @Test
+    @DisplayName("TC-SD-007 the pinned custom market events reach their own typed handlers")
+    void customMarketEventsReachTypedHandlers() throws Exception {
+        String bestBidAsk = StreamProtocol.at("marketChannel", "events", "best_bid_ask").toString();
+        String newMarket = StreamProtocol.at("marketChannel", "events", "new_market").toString();
+        String resolved = StreamProtocol.at("marketChannel", "events", "market_resolved").toString();
+        String assetId = StreamProtocol.at("marketChannel", "events", "best_bid_ask").get("asset_id").asText();
+        serveOnFirstFrame(bestBidAsk, newMarket, resolved);
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+        CountDownLatch got = new CountDownLatch(3);
+        List<BestBidAskEvent> tops = new CopyOnWriteArrayList<>();
+        List<NewMarketEvent> created = new CopyOnWriteArrayList<>();
+        List<MarketResolvedEvent> settled = new CopyOnWriteArrayList<>();
+        streaming.onBestBidAsk(List.of(assetId), e -> { tops.add(e); got.countDown(); });
+        streaming.onNewMarket(List.of(assetId), e -> { created.add(e); got.countDown(); });
+        streaming.onMarketResolved(List.of(assetId), e -> { settled.add(e); got.countDown(); });
+        streaming.enableCustomMarketEvents();
+        streaming.subscribeMarket(List.of(assetId));
+
+        assertTrue(got.await(10, TimeUnit.SECONDS), "all three custom events must be dispatched");
+        assertEquals(new java.math.BigDecimal("0.01"), tops.get(0).spread());
+        assertEquals("Will the US confirm that aliens exist before 2027?", created.get(0).question());
+        assertEquals(List.of("Yes", "No"), created.get(0).outcomes());
+        assertEquals("Yes", settled.get(0).winningOutcome());
+        assertEquals(assetId, settled.get(0).winningAssetId());
+    }
+
+    @Test
+    @DisplayName("TC-SD-008 custom market events are not delivered to a channel that did not request them")
+    void customMarketEventsNeedTheDocumentedFlag() {
+        gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+        streaming.subscribeMarket(List.of("tokA"));
+
+        assertEquals(false, streaming.customMarketEventsEnabled());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                streaming::enableCustomMarketEvents, "the flag rides the initial frame, so it cannot arrive later");
+    }
 }

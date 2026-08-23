@@ -2,11 +2,15 @@ package com.polymarket.internal.streaming;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.polymarket.streaming.BestBidAskEvent;
 import com.polymarket.streaming.BookEvent;
 import com.polymarket.streaming.BookLevel;
 import com.polymarket.streaming.LastTradePriceEvent;
 import com.polymarket.streaming.MakerOrder;
+import com.polymarket.streaming.MarketResolvedEvent;
+import com.polymarket.streaming.NewMarketEvent;
 import com.polymarket.streaming.OrderEvent;
+import com.polymarket.streaming.ParentEventInfo;
 import com.polymarket.streaming.PriceChangeEntry;
 import com.polymarket.streaming.PriceChangeEvent;
 import com.polymarket.streaming.StreamEventSink;
@@ -33,7 +37,6 @@ final class StreamEventMapper {
         this.mapper = mapper;
     }
 
-    /** Custom-feature event types ({@code best_bid_ask}, {@code new_market}, ...) are out of scope. */
     void dispatch(String text, StreamEventSink sink) {
         if (text == null) {
             return;
@@ -60,6 +63,9 @@ final class StreamEventMapper {
             case "price_change" -> sink.onPriceChange(toPriceChangeEvent(node));
             case "last_trade_price" -> sink.onLastTradePrice(toLastTradePriceEvent(node));
             case "tick_size_change" -> sink.onTickSizeChange(toTickSizeChangeEvent(node));
+            case "best_bid_ask" -> sink.onBestBidAsk(toBestBidAskEvent(node));
+            case "new_market" -> sink.onNewMarket(toNewMarketEvent(node));
+            case "market_resolved" -> sink.onMarketResolved(toMarketResolvedEvent(node));
             case "order" -> sink.onOrder(toOrderEvent(node));
             case "trade" -> sink.onTrade(toTradeEvent(node));
             default -> log.debug("Ignoring undocumented or unrecognised event_type: {}", node);
@@ -102,6 +108,34 @@ final class StreamEventMapper {
                 decimal(n, "old_tick_size"), decimal(n, "new_tick_size"), text(n, "timestamp"));
     }
 
+    private static BestBidAskEvent toBestBidAskEvent(JsonNode n) {
+        return new BestBidAskEvent(text(n, "asset_id"), text(n, "market"), decimal(n, "best_bid"),
+                decimal(n, "best_ask"), decimal(n, "spread"), text(n, "timestamp"));
+    }
+
+    private static NewMarketEvent toNewMarketEvent(JsonNode n) {
+        return new NewMarketEvent(text(n, "id"), text(n, "question"), text(n, "market"), text(n, "slug"),
+                optText(n, "description"), strings(n.get("assets_ids")), strings(n.get("outcomes")),
+                parentEvent(n.get("event_message")), text(n, "timestamp"), strings(n.get("tags")),
+                optText(n, "condition_id"), optBoolean(n, "active"), strings(n.get("clob_token_ids")),
+                optText(n, "sports_market_type"), optText(n, "line"), optText(n, "game_start_time"),
+                optDecimal(n, "order_price_min_tick_size"), optText(n, "group_item_title"));
+    }
+
+    private static MarketResolvedEvent toMarketResolvedEvent(JsonNode n) {
+        return new MarketResolvedEvent(text(n, "id"), text(n, "market"), strings(n.get("assets_ids")),
+                text(n, "winning_asset_id"), text(n, "winning_outcome"), parentEvent(n.get("event_message")),
+                text(n, "timestamp"), strings(n.get("tags")));
+    }
+
+    private static Optional<ParentEventInfo> parentEvent(JsonNode n) {
+        if (n == null || n.isNull()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ParentEventInfo(optText(n, "id"), optText(n, "ticker"), optText(n, "slug"),
+                optText(n, "title"), optText(n, "description")));
+    }
+
     private static OrderEvent toOrderEvent(JsonNode n) {
         return new OrderEvent(text(n, "id"), text(n, "market"), text(n, "asset_id"), text(n, "side"),
                 decimal(n, "price"), text(n, "type"), optText(n, "outcome"), optText(n, "owner"),
@@ -116,8 +150,9 @@ final class StreamEventMapper {
                 decimal(n, "size"), decimal(n, "price"), text(n, "status"), text(n, "type"),
                 optText(n, "last_update"), matchTime(n), optText(n, "timestamp"),
                 optText(n, "outcome"), optText(n, "owner"), optText(n, "trade_owner"),
-                optText(n, "taker_order_id"), makerOrders(n.get("maker_orders")),
-                optText(n, "fee_rate_bps"), optText(n, "transaction_hash"), optText(n, "trader_side"));
+                optText(n, "maker_address"), optText(n, "taker_order_id"), makerOrders(n.get("maker_orders")),
+                optText(n, "fee_rate_bps"), optText(n, "transaction_hash"), optInt(n, "bucket_index"),
+                optText(n, "trader_side"));
     }
 
     private static List<MakerOrder> makerOrders(JsonNode array) {
@@ -126,8 +161,9 @@ final class StreamEventMapper {
         }
         List<MakerOrder> makers = new ArrayList<>();
         array.forEach(m -> makers.add(new MakerOrder(text(m, "asset_id"), optDecimal(m, "matched_amount"),
-                text(m, "order_id"), optText(m, "outcome"), text(m, "side"), optText(m, "owner"),
-                optText(m, "maker_address"), decimal(m, "price"), optText(m, "fee_rate_bps"))));
+                text(m, "order_id"), optText(m, "outcome"), optInt(m, "outcome_index"), text(m, "side"),
+                optText(m, "owner"), optText(m, "maker_address"), decimal(m, "price"),
+                optText(m, "fee_rate_bps"))));
         return makers;
     }
 
@@ -158,6 +194,16 @@ final class StreamEventMapper {
     private static BigDecimal decimal(JsonNode node, String field) {
         String value = text(node, field);
         return value == null || value.isBlank() ? null : new BigDecimal(value);
+    }
+
+    private static Optional<Integer> optInt(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? Optional.empty() : Optional.of(value.asInt());
+    }
+
+    private static Optional<Boolean> optBoolean(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? Optional.empty() : Optional.of(value.asBoolean());
     }
 
     private static Optional<BigDecimal> optDecimal(JsonNode node, String field) {
