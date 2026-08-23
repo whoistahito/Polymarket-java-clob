@@ -1,5 +1,5 @@
 {
-  "reviewedOn": "2026-08-16",
+  "reviewedOn": "2026-08-23",
   "note": "Official Polymarket constraints. Every value carries the source it was read from. Nothing here is derived from this SDK's Java code.",
   "contracts": {
     "source": "https://docs.polymarket.com/resources/contracts",
@@ -128,9 +128,20 @@
     ],
     "matchedBy": "numeric value, so \"0.010\" resolves like \"0.01\"",
     "fallback": "none - an unrecognised tick must throw before any amount is calculated",
-    "provenance": "MIXED. 0.0025 is confirmed by the 2026-07-02 changelog entry (World Cup markets). The CLOB OpenAPI spec documents tick_size as a free string with no enum, so the full six-value grid comes from this repo's own live verification (1.0 Ticket 023), not from a single official list. Re-confirm against a live /book sweep before relying on it.",
+    "officiallyPublished": true,
+    "precisionColumns": ["priceDecimals", "sizeDecimals", "amountDecimals"],
+    "precision": {
+      "0.1": {"priceDecimals": 1, "sizeDecimals": 2, "amountDecimals": 3},
+      "0.01": {"priceDecimals": 2, "sizeDecimals": 2, "amountDecimals": 4},
+      "0.005": {"priceDecimals": 3, "sizeDecimals": 2, "amountDecimals": 5},
+      "0.0025": {"priceDecimals": 4, "sizeDecimals": 2, "amountDecimals": 6},
+      "0.001": {"priceDecimals": 3, "sizeDecimals": 2, "amountDecimals": 5},
+      "0.0001": {"priceDecimals": 4, "sizeDecimals": 2, "amountDecimals": 6}
+    },
+    "provenance": "OFFICIAL as of 2026-08-23. The 'Choose a Price and Size' table on place-orders publishes all six ticks with their price/size/amount decimals. This supersedes the earlier MIXED note that attributed the grid to this repo's own live verification. The CLOB OpenAPI still types tick_size as a free string with no enum, so treat the published table as the grid and an unlisted tick as an error.",
     "sources": [
-      "https://docs.polymarket.com/changelog/predictions (Jul 2, 2026)",
+      "https://docs.polymarket.com/trading/place-orders.md (Choose a Price and Size)",
+      "https://docs.polymarket.com/changelog/predictions.md (Jul 2, 2026)",
       "https://docs.polymarket.com/api-spec/clob-openapi.yaml (OrderBookSummary.tick_size)"
     ]
   }

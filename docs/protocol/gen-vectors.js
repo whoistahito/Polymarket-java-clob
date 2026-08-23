@@ -128,7 +128,7 @@ async function vector(id, note, dom, types, primaryType, message) {
 
   console.log(JSON.stringify({
     generatedBy: "ethers v" + ethers.version + " (independent reference implementation)",
-    reviewedOn: "2026-08-16",
+    reviewedOn: "2026-08-23",
     privateKey: KEY,
     sources: [
       "https://docs.polymarket.com/trading/place-orders (Exchange V2 typed data)",
