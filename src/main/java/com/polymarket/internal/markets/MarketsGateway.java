@@ -49,13 +49,16 @@ public final class MarketsGateway implements MarketCatalog {
         query.closed().ifPresent(v -> params.add("closed", v.toString()));
         query.tagSlug().ifPresent(v -> params.add("tag_slug", v));
         List<DiscoveredEvent> events = new ArrayList<>();
-        read("/events" + params).forEach(node -> events.add(event(node)));
+        for (JsonNode node : read("/events" + params)) {
+            events.add(event(node));
+        }
         return List.copyOf(events);
     }
 
     @Override
     public Optional<DiscoveredEvent> eventBySlug(String slug) throws IOException {
-        return readOptional("/events/slug/" + encode(slug)).map(this::event);
+        Optional<JsonNode> node = readOptional("/events/slug/" + encode(slug));
+        return node.isPresent() ? Optional.of(event(node.get())) : Optional.empty();
     }
 
     @Override
@@ -64,13 +67,16 @@ public final class MarketsGateway implements MarketCatalog {
         query.limit().ifPresent(v -> params.add("limit", v.toString()));
         query.closed().ifPresent(v -> params.add("closed", v.toString()));
         List<DiscoveredMarket> markets = new ArrayList<>();
-        read("/markets" + params).forEach(node -> markets.add(market(node)));
+        for (JsonNode node : read("/markets" + params)) {
+            markets.add(market(node));
+        }
         return List.copyOf(markets);
     }
 
     @Override
     public Optional<DiscoveredMarket> market(String id) throws IOException {
-        return readOptional("/markets/" + encode(id)).map(this::market);
+        Optional<JsonNode> node = readOptional("/markets/" + encode(id));
+        return node.isPresent() ? Optional.of(market(node.get())) : Optional.empty();
     }
 
     @Override
@@ -81,18 +87,21 @@ public final class MarketsGateway implements MarketCatalog {
     @Override
     public List<MarketSeries> series(int limit) throws IOException {
         List<MarketSeries> series = new ArrayList<>();
-        read("/series?limit=" + limit).forEach(node -> series.add(new MarketSeries(
-                node.path("id").asText(), text(node, "ticker"), text(node, "slug"),
-                text(node, "title"), text(node, "recurrence"))));
+        for (JsonNode node : read("/series?limit=" + limit)) {
+            series.add(new MarketSeries(required(node, "id", "series id"),
+                    text(node, "ticker"), text(node, "slug"),
+                    text(node, "title"), text(node, "recurrence")));
+        }
         return List.copyOf(series);
     }
 
     @Override
     public List<Sport> sports() throws IOException {
         List<Sport> sports = new ArrayList<>();
-        read("/sports").forEach(node -> sports.add(new Sport(
-                node.path("sport").asText(), text(node, "image"),
-                text(node, "resolution"), text(node, "ordering"))));
+        for (JsonNode node : read("/sports")) {
+            sports.add(new Sport(required(node, "sport", "sport id"), text(node, "image"),
+                    text(node, "resolution"), text(node, "ordering")));
+        }
         return List.copyOf(sports);
     }
 
@@ -100,7 +109,9 @@ public final class MarketsGateway implements MarketCatalog {
     public SearchResults search(String query) throws IOException {
         JsonNode node = read("/public-search?q=" + encode(query));
         List<DiscoveredEvent> events = new ArrayList<>();
-        node.path("events").forEach(child -> events.add(event(child)));
+        for (JsonNode child : node.path("events")) {
+            events.add(event(child));
+        }
         return new SearchResults(events, tags(node.path("tags")));
     }
 
@@ -123,12 +134,16 @@ public final class MarketsGateway implements MarketCatalog {
         return java.net.URLEncoder.encode(segment, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private DiscoveredEvent event(JsonNode node) {
+    private DiscoveredEvent event(JsonNode node) throws IOException {
         List<DiscoveredMarket> markets = new ArrayList<>();
         JsonNode nested = node.get("markets");
-        if (nested != null) nested.forEach(child -> markets.add(market(child)));
+        if (nested != null) {
+            for (JsonNode child : nested) {
+                markets.add(market(child));
+            }
+        }
         return new DiscoveredEvent(
-                node.path("id").asText(),
+                required(node, "id", "event id"),
                 text(node, "ticker"),
                 text(node, "slug"),
                 text(node, "title"),
@@ -138,9 +153,9 @@ public final class MarketsGateway implements MarketCatalog {
                 markets);
     }
 
-    private DiscoveredMarket market(JsonNode node) {
+    private DiscoveredMarket market(JsonNode node) throws IOException {
         return new DiscoveredMarket(
-                node.path("id").asText(),
+                required(node, "id", "market id"),
                 text(node, "conditionId"),
                 text(node, "slug"),
                 text(node, "question"),
@@ -156,11 +171,13 @@ public final class MarketsGateway implements MarketCatalog {
                         decimal(node, "orderMinSize"), tags(node.get("tags"))));
     }
 
-    private static List<MarketTag> tags(JsonNode array) {
+    private static List<MarketTag> tags(JsonNode array) throws IOException {
         if (array == null || !array.isArray()) return List.of();
         List<MarketTag> tags = new ArrayList<>();
-        array.forEach(node -> tags.add(new MarketTag(
-                node.path("id").asText(), text(node, "label"), text(node, "slug"))));
+        for (JsonNode node : array) {
+            tags.add(new MarketTag(required(node, "id", "tag id"),
+                    text(node, "label"), text(node, "slug")));
+        }
         return List.copyOf(tags);
     }
 
@@ -189,8 +206,10 @@ public final class MarketsGateway implements MarketCatalog {
         return items;
     }
 
+    /** A blank parallel entry is a value Gamma did not publish, not an empty one. */
     private static Optional<String> at(List<String> values, int index) {
-        return index < values.size() ? Optional.of(values.get(index)) : Optional.empty();
+        return index < values.size() ? Optional.of(values.get(index)).filter(v -> !v.isBlank())
+                : Optional.empty();
     }
 
     private static Optional<Boolean> flag(JsonNode node, String field) {
@@ -205,6 +224,13 @@ public final class MarketsGateway implements MarketCatalog {
 
     private static Optional<Instant> instant(JsonNode node, String field) {
         return text(node, field).map(Instant::parse);
+    }
+
+    /** Identity is not optional: a blank or missing id would publish a market nobody can name. */
+    private static String required(JsonNode node, String field, String described)
+            throws IOException {
+        return text(node, field).orElseThrow(
+                () -> new IOException("discovery payload carried no " + described));
     }
 
     private static Optional<String> text(JsonNode node, String field) {

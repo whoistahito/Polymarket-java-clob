@@ -2,6 +2,8 @@ package com.polymarket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polymarket.internal.http.HttpRuntime;
@@ -12,8 +14,10 @@ import com.polymarket.markets.MarketMetadata;
 import com.polymarket.markets.MarketOutcome;
 import com.polymarket.markets.MarketQuery;
 import com.polymarket.markets.MarketSeries;
+import com.polymarket.markets.MarketTag;
 import com.polymarket.markets.SearchResults;
 import com.polymarket.markets.Sport;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -301,6 +305,132 @@ class MarketsTest {
                 .stream().map(m -> m.slug().orElseThrow()).toList());
 
         assertEquals("/public-search?q=bitcoin+above", server.takeRequest().getPath());
+    }
+
+    @Test
+    @DisplayName("TC-MK-011: a discovery market with no id fails mapping instead of losing identity")
+    void marketWithoutIdFailsMapping() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"question\":\"Will it?\",\"slug\":\"will-it\"}]"));
+
+        try (Polymarket sdk = sdk()) {
+            IOException failure = assertThrows(IOException.class,
+                    () -> sdk.markets().markets(MarketQuery.create()));
+            assertTrue(failure.getMessage().contains("market id"), failure.getMessage());
+        }
+    }
+
+    @Test
+    @DisplayName("TC-MK-012: an event with a blank id fails mapping instead of losing identity")
+    void eventWithBlankIdFailsMapping() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"\",\"slug\":\"kraken-ipo-in-2025\",\"markets\":[]}]"));
+
+        try (Polymarket sdk = sdk()) {
+            IOException failure = assertThrows(IOException.class,
+                    () -> sdk.markets().events(EventQuery.create()));
+            assertTrue(failure.getMessage().contains("event id"), failure.getMessage());
+        }
+    }
+
+    @Test
+    @DisplayName("TC-MK-013: a tag with no id fails mapping instead of losing identity")
+    void tagWithoutIdFailsMapping() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"label\":\"Bitcoin\",\"slug\":\"bitcoin\"}]"));
+
+        try (Polymarket sdk = sdk()) {
+            IOException failure = assertThrows(IOException.class,
+                    () -> sdk.markets().tags(1));
+            assertTrue(failure.getMessage().contains("tag id"), failure.getMessage());
+        }
+    }
+
+    @Test
+    @DisplayName("TC-MK-014: a series with a blank id fails mapping instead of losing identity")
+    void seriesWithBlankIdFailsMapping() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"   \",\"ticker\":\"nfl\",\"title\":\"NFL\"}]"));
+
+        try (Polymarket sdk = sdk()) {
+            IOException failure = assertThrows(IOException.class,
+                    () -> sdk.markets().series(1));
+            assertTrue(failure.getMessage().contains("series id"), failure.getMessage());
+        }
+    }
+
+    @Test
+    @DisplayName("TC-MK-015: a blank optional outcome value stays absent instead of becoming blank")
+    void blankOptionalOutcomeValuesStayAbsent() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"7\",\"outcomes\":\"[\\\"Yes\\\", \\\"No\\\"]\","
+                        + "\"outcomePrices\":\"[\\\"\\\", \\\"0.5\\\"]\","
+                        + "\"clobTokenIds\":\"[\\\"\\\", \\\"123\\\"]\"}]"));
+
+        DiscoveredMarket market;
+        try (Polymarket sdk = sdk()) {
+            market = sdk.markets().markets(MarketQuery.create()).get(0);
+        }
+
+        MarketOutcome yes = market.outcomes().get(0);
+        assertEquals("Yes", yes.name());
+        assertEquals(Optional.empty(), yes.price());
+        assertEquals(Optional.empty(), yes.tokenId());
+
+        MarketOutcome no = market.outcomes().get(1);
+        assertEquals(new BigDecimal("0.5"), no.price().orElseThrow());
+        assertEquals("123", no.tokenId().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-MK-016: an additive field the SDK has never heard of does not fail a read")
+    void unknownAdditiveFieldsStayTolerated() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"16183\",\"slug\":\"kraken-ipo-in-2025\","
+                        + "\"quantumResolutionOracleV9\":{\"nested\":[1,2]},"
+                        + "\"markets\":[{\"id\":\"516950\",\"whatIsThisEven\":true}]}]"));
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"101867\",\"slug\":\"bitcoin\",\"tagCarouselWeightV2\":7}]"));
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"1\",\"title\":\"NFL\",\"seriesFutureFlag\":[\"x\"]}]"));
+
+        try (Polymarket sdk = sdk()) {
+            DiscoveredEvent event = sdk.markets().events(EventQuery.create()).get(0);
+            assertEquals("16183", event.id());
+            assertEquals("516950", event.markets().get(0).id());
+            assertEquals("101867", sdk.markets().tags(1).get(0).id());
+            assertEquals("1", sdk.markets().series(1).get(0).id());
+        }
+    }
+
+    @Test
+    @DisplayName("TC-MK-017: an optional discovery value stays absent, never a blank required one")
+    void optionalValuesAreNeverCoercedIntoRequiredBlanks() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"16183\",\"ticker\":\"\",\"slug\":null,\"title\":\"  \"}]"));
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"101867\",\"label\":\"\",\"slug\":null}]"));
+        server.enqueue(new MockResponse().setBody(
+                "[{\"id\":\"1\",\"ticker\":null,\"title\":\"\",\"recurrence\":\"  \"}]"));
+
+        try (Polymarket sdk = sdk()) {
+            DiscoveredEvent event = sdk.markets().events(EventQuery.create()).get(0);
+            assertEquals("16183", event.id());
+            assertEquals(Optional.empty(), event.ticker());
+            assertEquals(Optional.empty(), event.slug());
+            assertEquals(Optional.empty(), event.title());
+
+            MarketTag tag = sdk.markets().tags(1).get(0);
+            assertEquals("101867", tag.id());
+            assertEquals(Optional.empty(), tag.label());
+            assertEquals(Optional.empty(), tag.slug());
+
+            MarketSeries series = sdk.markets().series(1).get(0);
+            assertEquals("1", series.id());
+            assertEquals(Optional.empty(), series.ticker());
+            assertEquals(Optional.empty(), series.title());
+            assertEquals(Optional.empty(), series.recurrence());
+        }
     }
 
     /** Walks every type reachable from the model and rejects escape hatches. */
