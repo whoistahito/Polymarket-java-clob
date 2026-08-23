@@ -1,0 +1,218 @@
+{
+  "reviewedOn": "2026-08-23",
+  "sources": {
+    "formulaAndTables": "https://docs.polymarket.com/trading/fees.md",
+    "perMarketParameters": "https://docs.polymarket.com/market-data/market-details.md#trading-fees",
+    "clobBaseFee": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (GET /fee-rate)",
+    "feesAtMatchTime": "https://docs.polymarket.com/changelog/predictions.md (Apr 17, 2026)"
+  },
+  "formula": "fee = C x feeRate x p x (1 - p)",
+  "formulaAsPublished": "fee = C × feeRate × p × (1 - p)",
+  "variables": {
+    "C": "shares traded",
+    "p": "price of the shares"
+  },
+  "takerOnly": true,
+  "makersNeverCharged": true,
+  "appliedAtMatchTime": true,
+  "carriedOnTheOrder": false,
+  "quotedIn": "USDC",
+  "symmetricAroundHalf": true,
+  "symmetryNote": "A trade at 30c incurs the same dollar fee as a trade at 70c.",
+  "precision": {
+    "decimalPlaces": 5,
+    "smallestChargeableFee": "0.00001",
+    "belowTheFloorRoundsToZero": true,
+    "roundingModeIsPublished": false,
+    "roundingNote": "The fee page states five-decimal rounding but not the tie-breaking mode. Every pinned example rounds unambiguously, so no mode is asserted."
+  },
+  "categoryRates": {
+    "Crypto": {
+      "takerRate": "0.07",
+      "makerRate": "0",
+      "makerRebate": "0.20"
+    },
+    "Sports": {
+      "takerRate": "0.05",
+      "makerRate": "0",
+      "makerRebate": "0.15"
+    },
+    "Finance": {
+      "takerRate": "0.04",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Politics": {
+      "takerRate": "0.04",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Economics": {
+      "takerRate": "0.05",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Culture": {
+      "takerRate": "0.05",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Weather": {
+      "takerRate": "0.05",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Other / General": {
+      "takerRate": "0.05",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Mentions": {
+      "takerRate": "0.04",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Tech": {
+      "takerRate": "0.04",
+      "makerRate": "0",
+      "makerRebate": "0.25"
+    },
+    "Geopolitics": {
+      "takerRate": "0",
+      "makerRate": "0",
+      "makerRebate": null
+    }
+  },
+  "perMarketSchedule": {
+    "source": "https://docs.polymarket.com/market-data/market-details.md#trading-fees",
+    "fields": [
+      "feesEnabled",
+      "feeSchedule.rate",
+      "feeSchedule.exponent",
+      "feeSchedule.takerOnly",
+      "feeSchedule.rebateRate"
+    ],
+    "rateIsDecimalCoefficient": true,
+    "exampleRate": "0.04",
+    "exampleExponent": 1,
+    "note": "feeSchedule.rate is the feeRate of the formula, as a decimal coefficient, not basis points."
+  },
+  "unitContradiction": {
+    "clobFeeRateEndpoint": "GET /fee-rate returns base_fee as an integer in BASIS POINTS (example 30).",
+    "gammaFeeSchedule": "feeSchedule.rate is a DECIMAL COEFFICIENT (0.04 - 0.07, i.e. 400 - 700 bps).",
+    "contradiction": "The two official representations of the same coefficient disagree in unit and in magnitude. Never feed base_fee into the formula as a coefficient, and never feed feeSchedule.rate in as basis points."
+  },
+  "derivedExamples": [
+    {
+      "id": "crypto-100-shares-0.01",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.01",
+      "exactFeeUsdc": "0.069300",
+      "feeAtFivePlaces": "0.06930",
+      "publishedUsdc": "0.07"
+    },
+    {
+      "id": "crypto-100-shares-0.10",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.10",
+      "exactFeeUsdc": "0.630000",
+      "feeAtFivePlaces": "0.63000",
+      "publishedUsdc": "0.63"
+    },
+    {
+      "id": "crypto-100-shares-0.30",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.30",
+      "exactFeeUsdc": "1.470000",
+      "feeAtFivePlaces": "1.47000",
+      "publishedUsdc": "1.47"
+    },
+    {
+      "id": "crypto-100-shares-0.50",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.50",
+      "exactFeeUsdc": "1.750000",
+      "feeAtFivePlaces": "1.75000",
+      "publishedUsdc": "1.75"
+    },
+    {
+      "id": "crypto-100-shares-0.70",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.70",
+      "exactFeeUsdc": "1.470000",
+      "feeAtFivePlaces": "1.47000",
+      "publishedUsdc": "1.47"
+    },
+    {
+      "id": "crypto-100-shares-0.99",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.99",
+      "exactFeeUsdc": "0.069300",
+      "feeAtFivePlaces": "0.06930",
+      "publishedUsdc": "0.07"
+    },
+    {
+      "id": "sports-100-shares-0.50",
+      "category": "Sports",
+      "shares": "100",
+      "feeRate": "0.05",
+      "price": "0.50",
+      "exactFeeUsdc": "1.250000",
+      "feeAtFivePlaces": "1.25000",
+      "publishedUsdc": "1.25"
+    },
+    {
+      "id": "politics-100-shares-0.25",
+      "category": "Politics",
+      "shares": "100",
+      "feeRate": "0.04",
+      "price": "0.25",
+      "exactFeeUsdc": "0.750000",
+      "feeAtFivePlaces": "0.75000",
+      "publishedUsdc": "0.75"
+    },
+    {
+      "id": "geopolitics-100-shares-0.50",
+      "category": "Geopolitics",
+      "shares": "100",
+      "feeRate": "0",
+      "price": "0.50",
+      "exactFeeUsdc": "0.0000",
+      "feeAtFivePlaces": "0.00000",
+      "note": "Geopolitical and world events markets are fee-free."
+    },
+    {
+      "id": "crypto-100-shares-0.0025-tick",
+      "category": "Crypto",
+      "shares": "100",
+      "feeRate": "0.07",
+      "price": "0.0025",
+      "exactFeeUsdc": "0.0174562500",
+      "feeAtFivePlaces": "0.01746",
+      "note": "A 0.0025 tick price needs the documented 5-decimal rounding; not in the published table."
+    },
+    {
+      "id": "crypto-0.1-shares-0.0001",
+      "category": "Crypto",
+      "shares": "0.1",
+      "feeRate": "0.07",
+      "price": "0.0001",
+      "exactFeeUsdc": "0.00000069993",
+      "feeAtFivePlaces": "0.00000",
+      "note": "Below the 0.00001 USDC floor, so the charged fee rounds to zero."
+    }
+  ],
+  "derivation": "Derived by docs/protocol/gen-fee-vectors.js with exact BigInt decimal arithmetic (no floating point, no Java SDK code). Each publishedUsdc is Polymarket's own table value and is the independent check on the derivation."
+}
