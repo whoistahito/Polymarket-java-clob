@@ -3,16 +3,16 @@ package com.polymarket.streaming;
 import java.util.List;
 
 /**
- * A live logical channel connection. Survives reconnects transparently — {@link #subscribe} and
- * {@link #unsubscribe} always act on whatever socket is current, or none while reconnecting.
+ * A live logical channel connection, surviving reconnects transparently. The connection owns the
+ * ordering rule: nothing reaches the wire before this generation's initial frame.
  */
 public interface StreamConnection extends AutoCloseable {
 
-    /** Send a dynamic subscribe update for the given delta (never the initial dump). */
-    void subscribe(List<String> ids);
-
-    /** Send a dynamic unsubscribe update for the given delta. */
-    void unsubscribe(List<String> ids);
+    /**
+     * Publishes the current Authoritative Subscription. Before the initial frame goes out the new
+     * subjects are folded into it; afterwards only the delta travels as a dynamic update.
+     */
+    void subscription(List<String> subjects);
 
     /** Idempotent: stops the socket, any pending reconnect, and the heartbeat. */
     @Override

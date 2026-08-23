@@ -9,6 +9,7 @@ public record MakerOrder(
         Optional<BigDecimal> matchedAmount,
         String orderId,
         Optional<String> outcome,
+        Optional<Integer> outcomeIndex,
         String side,
         Optional<String> owner,
         Optional<String> makerAddress,
@@ -18,6 +19,7 @@ public record MakerOrder(
     public MakerOrder {
         matchedAmount = matchedAmount == null ? Optional.empty() : matchedAmount;
         outcome = outcome == null ? Optional.empty() : outcome;
+        outcomeIndex = outcomeIndex == null ? Optional.empty() : outcomeIndex;
         owner = owner == null ? Optional.empty() : owner;
         makerAddress = makerAddress == null ? Optional.empty() : makerAddress;
         feeRateBps = feeRateBps == null ? Optional.empty() : feeRateBps;

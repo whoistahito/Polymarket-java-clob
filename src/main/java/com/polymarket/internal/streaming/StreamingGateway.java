@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 import okhttp3.OkHttpClient;
 
 /**
@@ -60,17 +59,18 @@ public final class StreamingGateway implements StreamTransport, AutoCloseable {
     }
 
     @Override
-    public StreamConnection connectMarket(Supplier<List<String>> idSupplier, StreamEventSink sink) {
+    public StreamConnection connectMarket(
+            List<String> assetIds, boolean customEventsEnabled, StreamEventSink sink) {
         return new ChannelConnection(okHttp, scheduler, mapper, wsBase + MARKET_PATH,
-                StreamChannel.MARKET, null, idSupplier, sink, pingIntervalMs, reconnectDelayMs,
-                maxReconnectDelayMs, stableConnectionMs, maxReconnectAttempts);
+                StreamChannel.MARKET, null, customEventsEnabled, assetIds, sink, pingIntervalMs,
+                reconnectDelayMs, maxReconnectDelayMs, stableConnectionMs, maxReconnectAttempts);
     }
 
     @Override
     public StreamConnection connectUser(
-            ApiCredentials credentials, Supplier<List<String>> marketSupplier, StreamEventSink sink) {
+            ApiCredentials credentials, List<String> markets, StreamEventSink sink) {
         return new ChannelConnection(okHttp, scheduler, mapper, wsBase + USER_PATH,
-                StreamChannel.USER, credentials, marketSupplier, sink, pingIntervalMs, reconnectDelayMs,
+                StreamChannel.USER, credentials, false, markets, sink, pingIntervalMs, reconnectDelayMs,
                 maxReconnectDelayMs, stableConnectionMs, maxReconnectAttempts);
     }
 

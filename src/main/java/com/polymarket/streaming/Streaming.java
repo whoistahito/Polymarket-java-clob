@@ -7,12 +7,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import lombok.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +31,8 @@ public final class Streaming implements AutoCloseable {
     private final Set<String> userMarkets = new LinkedHashSet<>();
     private StreamConnection marketConnection;
     private StreamConnection userConnection;
-    private boolean closed;
+    private boolean customMarketEvents;
+    private volatile boolean closed;
 
     private final AtomicLong marketGeneration = new AtomicLong(0);
     private final AtomicLong userGeneration = new AtomicLong(0);
@@ -40,14 +41,17 @@ public final class Streaming implements AutoCloseable {
     private final FilteredCallbacks<PriceChangeEvent> priceChangeCallbacks = new FilteredCallbacks<>();
     private final FilteredCallbacks<LastTradePriceEvent> lastTradeCallbacks = new FilteredCallbacks<>();
     private final FilteredCallbacks<TickSizeChangeEvent> tickSizeCallbacks = new FilteredCallbacks<>();
+    private final FilteredCallbacks<BestBidAskEvent> bestBidAskCallbacks = new FilteredCallbacks<>();
+    private final FilteredCallbacks<NewMarketEvent> newMarketCallbacks = new FilteredCallbacks<>();
+    private final FilteredCallbacks<MarketResolvedEvent> marketResolvedCallbacks = new FilteredCallbacks<>();
     private final FilteredCallbacks<OrderEvent> orderCallbacks = new FilteredCallbacks<>();
     private final FilteredCallbacks<TradeEvent> tradeCallbacks = new FilteredCallbacks<>();
     private final CopyOnWriteArrayList<StreamLifecycleListener> lifecycleListeners =
             new CopyOnWriteArrayList<>();
 
-    public Streaming(StreamTransport transport, SigningAuthority authority) {
-        this.transport = Objects.requireNonNull(transport, "transport");
-        this.authority = Objects.requireNonNull(authority, "authority");
+    public Streaming(@NonNull StreamTransport transport, @NonNull SigningAuthority authority) {
+        this.transport = transport;
+        this.authority = authority;
     }
 
     /** Handle to a registered callback or lifecycle listener. Removal is local and idempotent. */
@@ -81,6 +85,21 @@ public final class Streaming implements AutoCloseable {
         return tickSizeCallbacks.register(assetIds, handler);
     }
 
+    /** Custom market event; delivered only when {@link #enableCustomMarketEvents()} preceded the subscribe. */
+    public Registration onBestBidAsk(Collection<String> assetIds, Consumer<BestBidAskEvent> handler) {
+        return bestBidAskCallbacks.register(assetIds, handler);
+    }
+
+    /** Custom market event; a new market is filtered on any of the asset IDs it lists. */
+    public Registration onNewMarket(Collection<String> assetIds, Consumer<NewMarketEvent> handler) {
+        return newMarketCallbacks.register(assetIds, handler);
+    }
+
+    /** Custom market event; a resolution is filtered on any of the asset IDs it lists. */
+    public Registration onMarketResolved(Collection<String> assetIds, Consumer<MarketResolvedEvent> handler) {
+        return marketResolvedCallbacks.register(assetIds, handler);
+    }
+
     public Registration onOrder(Collection<String> markets, Consumer<OrderEvent> handler) {
         return orderCallbacks.register(markets, handler);
     }
@@ -89,8 +108,7 @@ public final class Streaming implements AutoCloseable {
         return tradeCallbacks.register(markets, handler);
     }
 
-    public Registration addLifecycleListener(StreamLifecycleListener listener) {
-        Objects.requireNonNull(listener, "listener");
+    public Registration addLifecycleListener(@NonNull StreamLifecycleListener listener) {
         lifecycleListeners.add(listener);
         return () -> lifecycleListeners.remove(listener);
     }
@@ -99,50 +117,64 @@ public final class Streaming implements AutoCloseable {
     // Subscription — authoritative sets                                   //
     // ------------------------------------------------------------------ //
 
+    /**
+     * Asks the market channel for the documented custom events ({@code best_bid_ask},
+     * {@code new_market}, {@code market_resolved}). Must precede the first {@link #subscribeMarket}.
+     */
+    public synchronized void enableCustomMarketEvents() {
+        requireOpen();
+        if (marketConnection != null) {
+            throw new IllegalStateException("the market channel is already subscribed");
+        }
+        customMarketEvents = true;
+    }
+
+    public synchronized boolean customMarketEventsEnabled() {
+        return customMarketEvents;
+    }
+
     public synchronized void subscribeMarket(List<String> assetIds) {
+        requireOpen();
         if (assetIds == null || assetIds.isEmpty()) {
             throw new IllegalArgumentException("assetIds must not be empty");
         }
-        List<String> added = addAll(marketAssetIds, assetIds);
+        addAll(marketAssetIds, assetIds);
         if (marketConnection == null) {
-            marketConnection = transport.connectMarket(this::currentAssetIds, sink);
-            return;
-        }
-        if (!added.isEmpty()) {
-            marketConnection.subscribe(added);
+            marketConnection = transport.connectMarket(List.copyOf(marketAssetIds), customMarketEvents, sink);
+        } else {
+            marketConnection.subscription(List.copyOf(marketAssetIds));
         }
     }
 
     public synchronized void unsubscribeMarket(List<String> assetIds) {
-        if (assetIds == null || assetIds.isEmpty()) {
+        if (closed || assetIds == null || assetIds.isEmpty()) {
             return;
         }
-        List<String> removed = removeAll(marketAssetIds, assetIds);
-        if (marketConnection != null && !removed.isEmpty()) {
-            marketConnection.unsubscribe(removed);
+        if (!removeAll(marketAssetIds, assetIds).isEmpty() && marketConnection != null) {
+            marketConnection.subscription(List.copyOf(marketAssetIds));
         }
     }
 
     /** Requires L2 credentials; missing credentials throw before any socket is opened. */
     public synchronized void subscribeUser(List<String> markets) {
+        requireOpen();
         ApiCredentials credentials = authority.requireApiCredentials("Streaming.subscribeUser");
-        List<String> added = markets == null ? List.of() : addAll(userMarkets, markets);
-        if (userConnection == null) {
-            userConnection = transport.connectUser(credentials, this::currentUserMarkets, sink);
-            return;
+        if (markets != null) {
+            addAll(userMarkets, markets);
         }
-        if (!added.isEmpty()) {
-            userConnection.subscribe(added);
+        if (userConnection == null) {
+            userConnection = transport.connectUser(credentials, List.copyOf(userMarkets), sink);
+        } else {
+            userConnection.subscription(List.copyOf(userMarkets));
         }
     }
 
     public synchronized void unsubscribeUser(List<String> markets) {
-        if (markets == null || markets.isEmpty()) {
+        if (closed || markets == null || markets.isEmpty()) {
             return;
         }
-        List<String> removed = removeAll(userMarkets, markets);
-        if (userConnection != null && !removed.isEmpty()) {
-            userConnection.unsubscribe(removed);
+        if (!removeAll(userMarkets, markets).isEmpty() && userConnection != null) {
+            userConnection.subscription(List.copyOf(userMarkets));
         }
     }
 
@@ -162,7 +194,12 @@ public final class Streaming implements AutoCloseable {
         return userGeneration.get();
     }
 
-    /** Terminates both channels' sockets, reconnect, and heartbeat. Idempotent. */
+    /** True once {@link #close()} has run; a closed capability never reopens. */
+    public boolean isClosed() {
+        return closed;
+    }
+
+    /** Terminal: stops both channels' sockets, reconnect work, heartbeat and callback delivery. */
     @Override
     public synchronized void close() {
         if (closed) {
@@ -179,22 +216,18 @@ public final class Streaming implements AutoCloseable {
         }
     }
 
-    private synchronized List<String> currentAssetIds() {
-        return List.copyOf(marketAssetIds);
+    private void requireOpen() {
+        if (closed) {
+            throw new IllegalStateException("Streaming is closed");
+        }
     }
 
-    private synchronized List<String> currentUserMarkets() {
-        return List.copyOf(userMarkets);
-    }
-
-    private static List<String> addAll(Set<String> authoritative, List<String> ids) {
-        List<String> added = new ArrayList<>();
+    private static void addAll(Set<String> authoritative, List<String> ids) {
         for (String id : ids) {
-            if (id != null && authoritative.add(id)) {
-                added.add(id);
+            if (id != null) {
+                authoritative.add(id);
             }
         }
-        return added;
     }
 
     private static List<String> removeAll(Set<String> authoritative, List<String> ids) {
@@ -233,6 +266,21 @@ public final class Streaming implements AutoCloseable {
         }
 
         @Override
+        public void onBestBidAsk(BestBidAskEvent event) {
+            bestBidAskCallbacks.dispatch(event, byId(event.assetId()));
+        }
+
+        @Override
+        public void onNewMarket(NewMarketEvent event) {
+            newMarketCallbacks.dispatch(event, byAnyId(event.assetIds()));
+        }
+
+        @Override
+        public void onMarketResolved(MarketResolvedEvent event) {
+            marketResolvedCallbacks.dispatch(event, byAnyId(event.assetIds()));
+        }
+
+        @Override
         public void onOrder(OrderEvent event) {
             orderCallbacks.dispatch(event, byId(event.market()));
         }
@@ -245,25 +293,37 @@ public final class Streaming implements AutoCloseable {
         @Override
         public void onOpen(StreamChannel channel, long generation) {
             generationOf(channel).set(generation);
-            lifecycleListeners.forEach(l -> safely("onOpen", () -> l.onOpen(channel, generation)));
+            notifyListeners("onOpen", l -> l.onOpen(channel, generation));
         }
 
         @Override
         public void onResubscribe(StreamChannel channel, long generation) {
-            lifecycleListeners.forEach(l -> safely("onResubscribe", () -> l.onResubscribe(channel, generation)));
+            notifyListeners("onResubscribe", l -> l.onResubscribe(channel, generation));
         }
 
         @Override
         public void onError(StreamChannel channel, long generation, Exception error) {
-            lifecycleListeners.forEach(l -> safely("onError", () -> l.onError(channel, generation, error)));
+            notifyListeners("onError", l -> l.onError(channel, generation, error));
         }
 
         @Override
         public void onClose(StreamChannel channel, long generation, int code, String reason) {
-            lifecycleListeners.forEach(
-                    l -> safely("onClose", () -> l.onClose(channel, generation, code, reason)));
+            notifyListeners("onClose", l -> l.onClose(channel, generation, code, reason));
         }
     };
+
+    private void notifyListeners(String what, Consumer<StreamLifecycleListener> call) {
+        if (closed) {
+            return;
+        }
+        for (StreamLifecycleListener listener : lifecycleListeners) {
+            try {
+                call.accept(listener);
+            } catch (RuntimeException | Error e) {
+                log.warn("Streaming lifecycle listener threw from {}: {}", what, e.toString(), e);
+            }
+        }
+    }
 
     private AtomicLong generationOf(StreamChannel channel) {
         return channel == StreamChannel.MARKET ? marketGeneration : userGeneration;
@@ -271,6 +331,10 @@ public final class Streaming implements AutoCloseable {
 
     private static Predicate<Set<String>> byId(String id) {
         return filter -> id != null && filter.contains(id);
+    }
+
+    private static Predicate<Set<String>> byAnyId(List<String> ids) {
+        return filter -> ids.stream().anyMatch(filter::contains);
     }
 
     private static boolean batchTouches(PriceChangeEvent event, Set<String> filter) {
@@ -282,14 +346,6 @@ public final class Streaming implements AutoCloseable {
         return false;
     }
 
-    private static void safely(String what, Runnable action) {
-        try {
-            action.run();
-        } catch (RuntimeException | Error e) {
-            log.warn("Streaming lifecycle listener threw from {}: {}", what, e.toString(), e);
-        }
-    }
-
     // ------------------------------------------------------------------ //
     // FilteredCallbacks                                                     //
     // ------------------------------------------------------------------ //
@@ -298,13 +354,12 @@ public final class Streaming implements AutoCloseable {
      * Filtered callback list for one event type. An empty filter matches every message; one
      * callback throwing must not stop the rest from receiving the same event.
      */
-    private static final class FilteredCallbacks<T> {
+    private final class FilteredCallbacks<T> {
         private record Entry<T>(Set<String> filter, Consumer<T> callback) {}
 
         private final CopyOnWriteArrayList<Entry<T>> entries = new CopyOnWriteArrayList<>();
 
-        Registration register(Collection<String> filter, Consumer<T> callback) {
-            Objects.requireNonNull(callback, "callback");
+        Registration register(Collection<String> filter, @NonNull Consumer<T> callback) {
             Set<String> copy = filter == null || filter.isEmpty()
                     ? Collections.emptySet() : Set.copyOf(filter);
             Entry<T> entry = new Entry<>(copy, callback);
@@ -313,6 +368,9 @@ public final class Streaming implements AutoCloseable {
         }
 
         void dispatch(T message, Predicate<Set<String>> matches) {
+            if (closed) {
+                return; // a frame already in flight when close() landed reaches no callback
+            }
             for (Entry<T> entry : entries) {
                 if (!entry.filter().isEmpty() && !matches.test(entry.filter())) {
                     continue;

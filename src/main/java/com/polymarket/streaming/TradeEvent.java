@@ -20,10 +20,12 @@ public record TradeEvent(
         Optional<String> outcome,
         Optional<String> owner,
         Optional<String> tradeOwner,
+        Optional<String> makerAddress,
         Optional<String> takerOrderId,
         List<MakerOrder> makerOrders,
         Optional<String> feeRateBps,
         Optional<String> transactionHash,
+        Optional<Integer> bucketIndex,
         Optional<String> traderSide) {
 
     public TradeEvent {
@@ -33,10 +35,12 @@ public record TradeEvent(
         outcome = outcome == null ? Optional.empty() : outcome;
         owner = owner == null ? Optional.empty() : owner;
         tradeOwner = tradeOwner == null ? Optional.empty() : tradeOwner;
+        makerAddress = makerAddress == null ? Optional.empty() : makerAddress;
         takerOrderId = takerOrderId == null ? Optional.empty() : takerOrderId;
         makerOrders = makerOrders == null ? List.of() : List.copyOf(makerOrders);
         feeRateBps = feeRateBps == null ? Optional.empty() : feeRateBps;
         transactionHash = transactionHash == null ? Optional.empty() : transactionHash;
+        bucketIndex = bucketIndex == null ? Optional.empty() : bucketIndex;
         traderSide = traderSide == null ? Optional.empty() : traderSide;
     }
 }
