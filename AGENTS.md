@@ -78,14 +78,20 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   `Eip712OrderSignerVectorTest`. A Deposit Wallet (signature type 3) signs the ERC-7739
   `TypedDataSign` wrapper under the exchange's own domain, not the wallet's. Implemented by
   `com.polymarket.internal.trading.Eip712OrderSigner`; signing is offline and takes no port.
-  `Trading` (issue #14) adds `submit`/`place` over the `OrderSubmitter` **port**, classifying
-  every `POST /order` outcome as `SubmissionOutcome.Accepted`/`Rejected`/`Unknown` — a documented
+  `Trading` (issue #14) adds `submit`/`place` over the `OrderSubmitter` **port**. Both take the
+  resolved Order Intent, and `OrderPlacement.forIntent` derives order type, Maker-Only and GTD
+  expiration from it, so a hand-built placement that contradicts its intent sends nothing.
+  Every `POST /order` outcome is classified as
+  `SubmissionOutcome.Accepted`/`Rejected`/`Unknown` — a documented
   4xx/duplicate/5xx-"order timed out" is a definitive `Rejected`, transport loss and a
-  contradictory or malformed success are `Unknown`, and nothing is ever silently replayed
+  contradictory or malformed success are `Unknown` (a 200 body that is not an object carrying a
+  boolean `success` states nothing, so it is never a rejection), and nothing is ever silently replayed
   (`HttpRuntime.post` executes exactly once). A `PositionId` order is rejected before any request:
   V3 Combo orders route through the RFQ Builder Gateway (issues #25/#26), not `POST /order`.
   Implemented by `com.polymarket.internal.trading.TradingGateway`.
-  `Trading.reconcile` (issue #16) polls `GET /data/trades?id=` (one request per trade ID — the
+  `Trading.reconcile` (issue #16) takes a `SigningIdentity`, because the L2 `POLY_ADDRESS` header
+  carries the Account Signer while the required `maker_address` filter carries the Trading Wallet —
+  they coincide only for an EOA. It polls `GET /data/trades?id=` (one request per trade ID — the
   filter has no batch form) via the `TradeReader` **port** until every ID reaches the terminal
   `TradeStatus.Known.CONFIRMED`/`FAILED`, so a delayed transaction hash just shows up on a later
   poll. A missing or non-terminal record keeps polling; an unrecognised status is kept as its
@@ -96,10 +102,15 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   (15 orders, 1000 cancel IDs) and blank/duplicate cancel IDs are rejected before any request, one
   logical batch is exactly one `POST /orders`/`DELETE /orders`, and a batch is never silently
   chunked. Per-item outcomes are attached **positionally** — the wire array carries no per-item
-  ID — and only when the response is a same-length array; any mismatch, unparseable body, or
-  transport failure is `BatchSubmissionOutcome.Indeterminate` rather than inventing which item
-  succeeded. A cancel ID the server does not confirm is `notCanceled`, even without a server
-  reason. Also implemented by `com.polymarket.internal.trading.TradingGateway`.
+  ID — and only when the response is a same-length array *and every element is a documented order
+  object*; any mismatch, malformed element, unparseable body, or transport failure is
+  `BatchSubmissionOutcome.Indeterminate` rather than inventing which item succeeded.
+  `CancellationOutcome` is sealed `Completed`/`Uncertain`: transport loss, a non-success status and
+  a malformed success are uncertain rather than thrown, and `Completed` keeps `canceled`,
+  `notCanceled` (server-stated) and `unaccounted` (never mentioned) as three distinct facts.
+  Cancel IDs are checked for the 0x-hex shape the official examples share, but not for a length —
+  the spec pins no `pattern` and its own examples disagree (40 vs 64 hex).
+  Also implemented by `com.polymarket.internal.trading.TradingGateway`.
 - `com.polymarket.rewards` (issue #18) — `Rewards` capability, the `RewardLedger` **port**,
   `RewardCursor`/`RewardPage<T>`, and exact-decimal reward models. Cursors travel in the documented
   `next_cursor` **query** parameter, never a header; `RewardCursor.next` treats `LTE=`, blank and a
@@ -125,26 +136,34 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   submission; `BuilderAttributionTest` proves that end to end. Implemented by
   `com.polymarket.internal.builders.BuildersGateway`.
 - `com.polymarket.rfq` (issues #25, #26) — the Builder Gateway requester flow: `Rfq.request`/
-  `status`/`waitForQuote`/`accept` over the `RfqDirectory` **port**, reached at a caller-supplied
+  `status`/`accept`/`awaitSettlement` over the `RfqDirectory` **port**, plus Combo leg discovery
+  through the `ComboMarketCatalog` **port**, reached at a caller-supplied
   gateway host (issued per builder onboarding, so it is not one of `PolymarketConfig`'s fixed
   hosts). `request` and `accept` each sign with two independent HMAC header sets — account
   (`L2Attestation`) and builder (`POLY_BUILDER_*`, the same HMAC primitive, now `public` on
   `L2Attestation`). `RfqOutcome` is sealed (`Quoted`/`Confirmed`/`Waiting`/`Failed`/`Expired`/
-  `Canceled`/`Pending`/`Unknown`); a business failure (no quote, maker decline, execution
+  `Canceled`/`Pending`/`Unknown`/`NotYetAccepted`/`Rejected`); a business failure (no quote, maker
+  decline, execution
   failure) is wire-indistinguishable as anything but status `FAILED` with a free-text nested
   error, so those three stay one `Failed(reason)` case rather than an invented error-code
   schema, and `CONFIRMED`/`FILLED` collapse into one `Confirmed` case matching how the official
-  fixture itself groups them as `"success"`. `waitForQuote` mirrors `Trading.reconcile`'s
-  injected-`Clock` poll loop exactly; a local timeout is `Pending`, never a reported failure.
+  fixture itself groups them as `"success"`. The Quote arrives inline on the create
+  response; a status read *before* acceptance is the gateway's documented HTTP 409, surfaced as
+  `NotYetAccepted`. `awaitSettlement` therefore polls only after acceptance, mirroring
+  `Trading.reconcile`'s injected-`Clock` loop; a local timeout is `Pending`, never a reported
+  failure. HTTP validation (`Rejected`) and the business state machine stay separate axes, and the
+  durable `rfqId` survives every uncertain path.
   `accept` rejects an expired quote before sending, signs `quote.comboPositionId()` through the
   V3 path with `context.withBuilder(quote.builderCode())` (the official rule: "order.builder
   must equal the returned builder_code"), and never throws or replays on transport failure — a
   connection loss becomes `Unknown(rfqId, ...)`, the durable handle for a later status poll.
-  `comboPositionId` itself is read from the first field name the gateway recognises: the fixture
-  names the concept ("the returned Combo YES position ID") without pinning its wire key. Combo
-  market/PositionId discovery is the caller supplying `PositionId` values it already holds — no
-  CTF computation, and no unverified Gamma "list combo markets" endpoint invented without a
-  pinned fixture. Implemented by `com.polymarket.internal.rfq.RfqGateway`.
+  Direction, amounts, Combo position and deadline all ride on `RfqOutcome.Quoted`, so acceptance
+  cannot contradict the request; a payload missing any of them is `Unknown`, never a guessed BUY or
+  a zero amount. `expires_at` and `builder_code` are read top level and the Combo position from
+  `request.yes_position_id`, as `builder-gateway.json` pins them. `signer_address` follows the
+  wallet type (Trading Wallet only for signature type 3); `POLY_ADDRESS` is always the Account
+  Signer. Leg discovery reads the official `GET /v1/rfq/combo-markets` catalog — no local CTF
+  computation. Implemented by `com.polymarket.internal.rfq.RfqGateway` and `ComboMarketGateway`.
 - `AsyncTrading`/`AsyncRfq` (issue #27) — thin `CompletableFuture` decorators, one per method,
   living in `com.polymarket.trading`/`com.polymarket.rfq` alongside the capabilities they wrap.
   Only these two get an async form. Each future completes on the caller-supplied `Executor`
@@ -282,8 +301,9 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after issue #30: `mvn clean verify` → **328 tests, 0 failures,
-  0 errors, 0 skipped** (325 after issues #28/#29, plus `LiveCheckGatingTest`). The drop from 1179 is
+- Verified baseline on Java 21 after wave 3 (issues #14/#17/#25/#26): `mvn clean verify` →
+  **549 tests, 0 failures, 0 errors, 0 skipped**. The earlier 328-test baseline predates waves 1-3.
+  The drop from 1179 is
   the deleted 1.0 facade suite, not lost coverage of 2.0 behavior; the deletion also uncovered a
   dropped capability (CREATE2 wallet derivation), restored with its own golden-vector tests.
   `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else.

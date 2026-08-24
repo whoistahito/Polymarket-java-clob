@@ -34,7 +34,8 @@ class ProtocolContractsTest {
 
     // The production hosts the OpenAPI `servers` blocks declare; every other URL must be a doc page.
     private static final List<String> OFFICIAL_API_HOSTS =
-            List.of("https://clob.polymarket.com", "https://data-api.polymarket.com");
+            List.of("https://clob.polymarket.com", "https://data-api.polymarket.com",
+                    "https://combos-rfq-api.polymarket.com");
 
     // Published verbatim by Polymarket in the "Sign the Order" examples for both exchanges:
     // docs.polymarket.com/trading/place-orders and /trading/combos/market-makers.
@@ -482,7 +483,8 @@ class ProtocolContractsTest {
     @DisplayName("TC-PC-028: every protocol fixture records the date its sources were re-read")
     void everyFixtureRecordsItsReviewDate(String name) {
         JsonNode fixture = load("/protocol/" + name);
-        assertEquals(REVIEWED_ON, fixture.get("reviewedOn").asText(),
+        // A later date is a fixture refreshed on its own; an earlier one is a stale fixture.
+        assertTrue(fixture.get("reviewedOn").asText().compareTo(REVIEWED_ON) >= 0,
                 name + ": refresh the fixture or its review date, never one without the other");
     }
 
@@ -494,7 +496,8 @@ class ProtocolContractsTest {
         collectUrls(load("/protocol/" + name), urls);
         assertFalse(urls.isEmpty(), name + ": carries no source URL");
         for (String url : urls) {
-            assertTrue(url.startsWith("https://docs.polymarket.com/") || OFFICIAL_API_HOSTS.contains(url),
+            assertTrue(url.startsWith("https://docs.polymarket.com/")
+                            || OFFICIAL_API_HOSTS.stream().anyMatch(url::startsWith),
                     name + ": " + url + " is neither official documentation nor a documented API host");
         }
     }
@@ -513,7 +516,8 @@ class ProtocolContractsTest {
 
     static List<String> fixtureNames() {
         return List.of("signing-vectors.json", "constraints.json", "builder-gateway.json",
-                "fees.json", "trades.json", "builder-trades.json", "heartbeat.json");
+                "fees.json", "trades.json", "builder-trades.json", "heartbeat.json",
+                "combo-markets.json", "order-submission.json");
     }
 
     static List<String> feeExampleIds() {

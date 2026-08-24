@@ -49,7 +49,7 @@ reachable through the public API: there is no raw-HTTP escape hatch to work arou
 | Series by id | `GET gamma /series/{id}` | https://docs.polymarket.com/api-reference/series/get-series-by-id | Not supported |
 | Price history | `GET clob /prices-history`, `POST /batch-prices-history` | https://docs.polymarket.com/api-reference/markets/get-prices-history | Not supported |
 | CLOB market listings | `GET clob /clob-markets/{condition_id}`, `/simplified-markets`, `/sampling-markets`, `/sampling-simplified-markets` | https://docs.polymarket.com/api-reference/markets/get-clob-market-info | Not supported — Gamma is the single discovery source (issue #1: one semantic market model) |
-| Combo market discovery | `GET /v1/rfq/combo-markets` | https://docs.polymarket.com/api-reference/combo-markets/get-combo-markets | Not supported — no pinned fixture, so callers supply the `PositionId` values they already hold |
+| Combo market discovery | `GET combos-rfq /v1/rfq/combo-markets` | https://docs.polymarket.com/trading/combos/market-makers | Supported — on `Rfq.comboMarkets(...)`, not on `Markets` |
 
 ## Order books — `Polymarket.orderBooks()`
 
@@ -150,8 +150,9 @@ Requester side only, against the caller-supplied Builder Gateway host:
 |---|---|---|---|
 | `request(...)` | `POST gateway /v1/builder/rfq/requests` (account + builder HMAC) | https://docs.polymarket.com/trading/combos/builders | Supported |
 | `status(rfqId, ...)` | `GET gateway /v1/builder/rfq/requests/{rfqId}` | https://docs.polymarket.com/trading/combos/builders | Supported |
-| `waitForQuote(...)` | polls `status` against an injected `Clock` | https://docs.polymarket.com/trading/combos/builders | Supported |
-| `accept(quote, ...)` | `POST gateway /v1/builder/rfq/requests/{rfqId}/accept` | https://docs.polymarket.com/trading/combos/builders | Supported |
+| `awaitSettlement(...)` | polls `status` after acceptance against an injected `Clock` | https://docs.polymarket.com/trading/combos/builders | Supported |
+| `comboMarkets(ComboMarketQuery)` | `GET combos-rfq /v1/rfq/combo-markets` | https://docs.polymarket.com/trading/combos/market-makers | Supported — credential-free; the official source of leg Position IDs |
+| `accept(quote, ...)` | `POST gateway /v1/builder/rfq/requests/{rfqId}/accept` | https://docs.polymarket.com/trading/combos/builders | Supported — direction, amounts, Combo position and deadline all come from the Quote |
 | `AsyncRfq` | the same endpoints, `CompletableFuture` decorator | — | Supported |
 | Result reconciliation | `Portfolio.positions(...)` / `Trading.reconcile(...)` | https://docs.polymarket.com/trading/combos/overview | Supported — no Polygon RPC involved |
 | Maker quote submit / cancel / last-look confirm | `POST /v1/maker/quotes`, `/v1/maker/quotes/cancel`, `/v1/maker/confirmations` | https://docs.polymarket.com/api-reference/maker/submit-a-quote | Out of scope |

@@ -60,7 +60,7 @@
         "title": "Will Mexico win on 2026-06-11?",
         "outcomes": ["Yes", "No"],
         "outcome_prices": ["0.685", "0.315"],
-        "image": "https://...",
+        "image": "<image-url>",
         "volume": 330327.7128580074,
         "tags": ["sports", "soccer", "games", "world-cup"]
       }
@@ -85,7 +85,7 @@
           "title": "Will the U.S. invade Iran before 2027?",
           "outcomes": ["Yes", "No"],
           "outcome_prices": ["0.165", "0.835"],
-          "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/will-the-us-invade-iran-in-2025-0Eh3J0ku_Fbj.jpg",
+          "image": "<image-url>",
           "volume": 59479547.79032897,
           "tags": ["politics", "iran", "trump", "middle-east", "israel", "geopolitics", "world", "military-strikes"]
         },
@@ -101,7 +101,7 @@
           "title": "Will China invade Taiwan by end of 2026?",
           "outcomes": ["Yes", "No"],
           "outcome_prices": ["0.0375", "0.9625"],
-          "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/china-invades-taiwan-in-2025-CCSd9dX2mrea.jpg",
+          "image": "<image-url>",
           "volume": 40021304.65330001,
           "tags": ["politics", "china", "geopolitics", "foreign-policy", "world", "earn-4"]
         }
