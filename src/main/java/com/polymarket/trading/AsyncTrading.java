@@ -63,7 +63,8 @@ public final class AsyncTrading {
 
     public CompletableFuture<CancellationOutcome> cancel(ApiCredentials credentials, String address,
             List<String> orderIds) {
-        return io(() -> trading.cancel(credentials, address, orderIds));
+        return CompletableFuture.supplyAsync(
+                () -> trading.cancel(credentials, address, orderIds), executor);
     }
 
     public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,

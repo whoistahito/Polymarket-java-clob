@@ -79,8 +79,7 @@ public final class Trading {
     }
 
     /** One {@code POST /orders} for the whole batch; a batch over the official limit sends nothing. */
-    public BatchSubmissionOutcome submitBatch(List<BatchItem> items) {
-        Objects.requireNonNull(items, "items");
+    public BatchSubmissionOutcome submitBatch(@NonNull List<BatchItem> items) {
         if (items.isEmpty()) {
             throw new IllegalArgumentException("a batch must contain at least one order");
         }
@@ -100,11 +99,8 @@ public final class Trading {
     }
 
     /** One {@code DELETE /orders} for the whole set; invalid IDs are rejected before it is sent. */
-    public CancellationOutcome cancel(ApiCredentials credentials, String address, List<String> orderIds)
-            throws IOException {
-        Objects.requireNonNull(credentials, "credentials");
-        Objects.requireNonNull(address, "address");
-        Objects.requireNonNull(orderIds, "orderIds");
+    public CancellationOutcome cancel(@NonNull ApiCredentials credentials, @NonNull String address,
+            @NonNull List<String> orderIds) {
         if (orderIds.isEmpty()) {
             throw new IllegalArgumentException("cancel needs at least one order id");
         }

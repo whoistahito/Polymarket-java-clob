@@ -34,6 +34,7 @@ import java.util.List;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -190,9 +191,11 @@ class OrderBatchTest {
             outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2"));
         }
 
-        assertTrue(outcome.isCanceled("id-1"));
-        assertTrue(!outcome.isCanceled("id-2"));
-        assertEquals("order already matched", outcome.notCanceled().get("id-2"));
+        CancellationOutcome.Completed completed =
+                assertInstanceOf(CancellationOutcome.Completed.class, outcome);
+        assertTrue(completed.isCanceled("id-1"));
+        assertTrue(!completed.isCanceled("id-2"));
+        assertEquals("order already matched", completed.notCanceled().get("id-2"));
 
         RecordedRequest request = server.takeRequest();
         assertEquals("DELETE", request.getMethod());
@@ -201,17 +204,22 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-008: an id the server silently drops is still classified not-canceled")
-    void silentlyDroppedIdIsNotCanceled() throws Exception {
+    @DisplayName("TC-BA-008: an id the server never mentions is unaccounted, not a stated refusal")
+    void silentlyDroppedIdIsUnaccountedNotRefused() throws Exception {
         enqueue("""
-                {"canceled":["id-1"]}""");
+                {"canceled":["id-1"],"not_canceled":{"id-2":"order already matched"}}""");
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
-            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2"));
+            outcome = sdk.trading()
+                    .cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2", "id-3"));
         }
 
-        assertTrue(outcome.notCanceled().containsKey("id-2"));
+        CancellationOutcome.Completed completed =
+                assertInstanceOf(CancellationOutcome.Completed.class, outcome);
+        assertEquals(List.of("id-3"), completed.unaccounted());
+        assertTrue(!completed.notCanceled().containsKey("id-3"));
+        assertTrue(!completed.isCanceled("id-3"));
     }
 
     @Test
@@ -289,5 +297,68 @@ class OrderBatchTest {
         }
 
         assertInstanceOf(BatchSubmissionOutcome.Indeterminate.class, outcome);
+    }
+
+    @Test
+    @DisplayName("TC-BA-013: cancellation transport loss is an explicit uncertain outcome, never thrown")
+    void cancellationTransportLossIsUncertain() throws Exception {
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
+
+        CancellationOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+        }
+
+        CancellationOutcome.Uncertain uncertain =
+                assertInstanceOf(CancellationOutcome.Uncertain.class, outcome);
+        assertTrue(uncertain.cause().isPresent());
+    }
+
+    @Test
+    @DisplayName("TC-BA-014: a non-success cancellation status is uncertain, never thrown")
+    void nonSuccessCancellationStatusIsUncertain() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(503)
+                .setBody("{\"error\":\"Trading is currently disabled\"}"));
+
+        CancellationOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+        }
+
+        CancellationOutcome.Uncertain uncertain =
+                assertInstanceOf(CancellationOutcome.Uncertain.class, outcome);
+        assertEquals(503, uncertain.httpStatus().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-BA-015: a malformed cancellation success body is uncertain, not an empty result")
+    void malformedCancellationSuccessIsUncertain() throws Exception {
+        // clob-openapi.yaml CancelOrdersResponse requires canceled and not_canceled.
+        for (String body : List.of("not json at all", "[]", "{}", "{\"canceled\":\"id-1\"}")) {
+            enqueue(body);
+            CancellationOutcome outcome;
+            try (Polymarket sdk = sdk()) {
+                outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+            }
+            assertInstanceOf(CancellationOutcome.Uncertain.class, outcome, body);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-BA-016: definitive canceled and not-canceled identifiers stay in separate sets")
+    void canceledAndNotCanceledStayDistinct() throws Exception {
+        enqueue("""
+                {"canceled":["id-1"],"not_canceled":{"id-2":"Order not found"}}""");
+
+        CancellationOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2"));
+        }
+
+        CancellationOutcome.Completed completed =
+                assertInstanceOf(CancellationOutcome.Completed.class, outcome);
+        assertEquals(List.of("id-1"), completed.canceled());
+        assertEquals(java.util.Map.of("id-2", "Order not found"), completed.notCanceled());
+        assertTrue(completed.unaccounted().isEmpty());
     }
 }
