@@ -110,6 +110,11 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
 
     /** Classifies one order-response object; reused for both a single body and each batch element. */
     private static SubmissionOutcome classifyOrderNode(JsonNode node, int httpStatus) {
+        // Anything that is not a documented order object states nothing, so it cannot be a rejection.
+        if (!isOrderResponse(node)) {
+            return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
+                    "success response is not a documented order object", Optional.empty());
+        }
         String errorMsg = blankToNull(node.path("errorMsg").asText(null));
         boolean success = node.path("success").asBoolean(false);
 
@@ -134,10 +139,15 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
                     Optional.of(httpStatus), "success without an order status", Optional.empty());
         }
 
-        List<String> tradeIds = new ArrayList<>();
-        node.path("tradeIDs").forEach(t -> tradeIds.add(t.asText()));
-        return new SubmissionOutcome.Accepted(orderId, status, tradeIds,
-                textField(node, "makingAmount"), textField(node, "takingAmount"));
+        // clob-openapi.yaml SendOrderResponse: transactionsHashes is documented on a match.
+        return new SubmissionOutcome.Accepted(orderId, status, texts(node, "tradeIDs"),
+                texts(node, "transactionsHashes"), textField(node, "makingAmount"),
+                textField(node, "takingAmount"));
+    }
+
+    /** clob-openapi.yaml SendOrderResponse: an object whose required {@code success} is a boolean. */
+    private static boolean isOrderResponse(JsonNode node) {
+        return node.isObject() && node.path("success").isBoolean();
     }
 
     @Override
@@ -166,6 +176,13 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         if (array == null || !array.isArray() || array.size() != items.size()) {
             return new BatchSubmissionOutcome.Indeterminate(
                     "batch response did not carry one result per submitted order", Optional.empty());
+        }
+        // One malformed element makes the whole batch unattributable: no per-item guess is invented.
+        for (int i = 0; i < array.size(); i++) {
+            if (!isOrderResponse(array.get(i))) {
+                return new BatchSubmissionOutcome.Indeterminate("batch result " + i
+                        + " is not a documented order object", Optional.empty());
+            }
         }
         List<SubmissionOutcome> perItem = new ArrayList<>();
         array.forEach(node -> perItem.add(classifyOrderNode(node, outcome.status())));
@@ -294,6 +311,12 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         if (message == null) return false;
         String normalized = message.toLowerCase(Locale.ROOT);
         return RETRYABLE_ERRORS.stream().anyMatch(normalized::contains);
+    }
+
+    private static List<String> texts(JsonNode node, String field) {
+        List<String> values = new ArrayList<>();
+        node.path(field).forEach(v -> values.add(v.asText()));
+        return values;
     }
 
     private static Optional<String> textField(JsonNode node, String field) {

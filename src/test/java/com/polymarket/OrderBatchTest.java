@@ -259,4 +259,35 @@ class OrderBatchTest {
         }
         assertEquals(0, server.getRequestCount());
     }
+
+    @Test
+    @DisplayName("TC-BA-011: an equal-length batch response holding a malformed element is indeterminate")
+    void malformedBatchElementMakesTheWholeBatchIndeterminate() throws Exception {
+        enqueue("""
+                [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
+                 "not an order object"]""");
+
+        BatchSubmissionOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().submitBatch(List.of(item("123", 1), item("456", 2)));
+        }
+
+        assertInstanceOf(BatchSubmissionOutcome.Indeterminate.class, outcome);
+    }
+
+    @Test
+    @DisplayName("TC-BA-012: a batch element missing a required field is indeterminate, not a rejection")
+    void batchElementWithoutRequiredSuccessIsIndeterminate() throws Exception {
+        // clob-openapi.yaml SendOrderResponse requires success, orderID and status.
+        enqueue("""
+                [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
+                 {"orderID":"0xb","status":"live"}]""");
+
+        BatchSubmissionOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().submitBatch(List.of(item("123", 1), item("456", 2)));
+        }
+
+        assertInstanceOf(BatchSubmissionOutcome.Indeterminate.class, outcome);
+    }
 }

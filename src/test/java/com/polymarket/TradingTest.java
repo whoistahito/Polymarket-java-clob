@@ -392,4 +392,62 @@ class TradingTest {
         }
         assertEquals(0, server.getRequestCount());
     }
+
+    @Test
+    @DisplayName("TC-TR-020: an accepted matched order preserves the documented transaction hashes")
+    void acceptedPreservesDocumentedTransactionHashes() throws Exception {
+        // order-submission.json sendOrderResponse: the matched_order example, verbatim.
+        enqueue(200, """
+                {"success":true,"orderID":"0xabcdef1234567890abcdef1234567890abcdef12",
+                 "status":"matched","makingAmount":"100000000","takingAmount":"200000000",
+                 "transactionsHashes":["0x1234567890abcdef1234567890abcdef12345678"],
+                 "tradeIDs":["trade-123"],"errorMsg":""}""");
+
+        SubmissionOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+        }
+
+        SubmissionOutcome.Accepted accepted =
+                assertInstanceOf(SubmissionOutcome.Accepted.class, outcome);
+        assertEquals(java.util.List.of("0x1234567890abcdef1234567890abcdef12345678"),
+                accepted.transactionHashes());
+        assertEquals(java.util.List.of("trade-123"), accepted.tradeIds());
+    }
+
+    @Test
+    @DisplayName("TC-TR-021: an accepted live order carries no transaction hashes rather than a guess")
+    void acceptedWithoutTransactionHashesIsEmpty() throws Exception {
+        // order-submission.json sendOrderResponse: the live_order example, verbatim.
+        enqueue(200, """
+                {"success":true,"orderID":"0xabcdef1234567890abcdef1234567890abcdef12",
+                 "status":"live","makingAmount":"100000000","takingAmount":"200000000",
+                 "errorMsg":""}""");
+
+        SubmissionOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+        }
+
+        SubmissionOutcome.Accepted accepted =
+                assertInstanceOf(SubmissionOutcome.Accepted.class, outcome);
+        assertTrue(accepted.transactionHashes().isEmpty());
+        assertTrue(accepted.tradeIds().isEmpty());
+    }
+
+    @Test
+    @DisplayName("TC-TR-022: a successful response that is not an order object is unknown, never rejected")
+    void structurallyInvalidSuccessBodyIsUnknown() throws Exception {
+        for (String body : java.util.List.of("\"oops\"", "[]", "123", "null")) {
+            enqueue(200, body);
+            SubmissionOutcome outcome;
+            try (Polymarket sdk = sdk()) {
+                outcome = sdk.trading()
+                        .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            }
+            assertInstanceOf(SubmissionOutcome.Unknown.class, outcome, body);
+        }
+    }
 }
