@@ -1,7 +1,6 @@
 package com.polymarket.rewards;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import lombok.NonNull;
 
@@ -16,11 +15,11 @@ public record RewardedMarket(
         Optional<String> image,
         @NonNull ScoringRules scoring,
         @NonNull MarketMetrics metrics,
-        List<RewardToken> tokens,
-        List<RewardConfig> configs) {
+        @NonNull List<RewardToken> tokens,
+        @NonNull List<RewardConfig> configs) {
 
     public RewardedMarket {
-        tokens = List.copyOf(Objects.requireNonNull(tokens, "tokens"));
-        configs = List.copyOf(Objects.requireNonNull(configs, "configs"));
+        tokens = List.copyOf(tokens);
+        configs = List.copyOf(configs);
     }
 }

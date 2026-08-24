@@ -1,7 +1,6 @@
 package com.polymarket.builders;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import lombok.NonNull;
 
@@ -13,6 +12,6 @@ public record BuilderTradePage(
         @NonNull List<BuilderTrade> items, Optional<BuilderCursor> nextCursor, int limit, int count) {
 
     public BuilderTradePage {
-        items = List.copyOf(Objects.requireNonNull(items, "items"));
+        items = List.copyOf(items);
     }
 }

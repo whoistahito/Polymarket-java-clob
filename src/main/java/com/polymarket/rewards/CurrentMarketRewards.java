@@ -2,7 +2,6 @@ package com.polymarket.rewards;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import lombok.NonNull;
 
@@ -17,6 +16,6 @@ public record CurrentMarketRewards(
         Optional<BigDecimal> totalDailyRate) {
 
     public CurrentMarketRewards {
-        configs = List.copyOf(Objects.requireNonNull(configs, "configs"));
+        configs = List.copyOf(configs);
     }
 }

@@ -249,6 +249,11 @@ Both are held to digests and HMACs computed independently in `AttestationVectorT
 
 ## Key Conventions
 
+### Null rejection
+- Lombok `@NonNull` on the parameter or record component, never `Objects.requireNonNull` in a body.
+  The two exceptions are `BaseUnits.require` and `Social.requireNotBlank`, whose message names the
+  caller's field rather than the parameter — the generated check would lose that name.
+
 ### Decimal arithmetic
 - All prices and amounts use `BigDecimal`. Never use `double`/`float` for financial values.
 - Collateral and share amounts use **6 decimal places** (pUSD standard); `BaseUnits.toBaseUnits`

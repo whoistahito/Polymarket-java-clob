@@ -20,8 +20,8 @@ public final class Social {
         return directory.profile(requireNotBlank(address, "address"));
     }
 
-    public List<Comment> comments(CommentQuery query) throws IOException {
-        return directory.comments(Objects.requireNonNull(query, "query"));
+    public List<Comment> comments(@NonNull CommentQuery query) throws IOException {
+        return directory.comments(query);
     }
 
     /** One comment (and its replies, if Gamma nests them) looked up by its own comment id. */
@@ -33,16 +33,17 @@ public final class Social {
         return directory.commentsById(requireNotBlank(id, "id"), Optional.of(includePositions));
     }
 
-    public List<Comment> commentsByUserAddress(String address, CommentPage page) throws IOException {
-        return directory.commentsByUserAddress(requireNotBlank(address, "address"),
-                Objects.requireNonNull(page, "page"));
+    public List<Comment> commentsByUserAddress(String address, @NonNull CommentPage page)
+            throws IOException {
+        return directory.commentsByUserAddress(requireNotBlank(address, "address"), page);
     }
 
     /** Profile hits for a query; the events/tags side of {@code /public-search} stays Markets.search(). */
-    public SocialSearchResults search(SearchQuery query) throws IOException {
-        return directory.search(Objects.requireNonNull(query, "query"));
+    public SocialSearchResults search(@NonNull SearchQuery query) throws IOException {
+        return directory.search(query);
     }
 
+    /** Not Lombok's @NonNull: the message names the caller's field, not this parameter. */
     private static String requireNotBlank(String value, String name) {
         Objects.requireNonNull(value, name);
         if (value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
