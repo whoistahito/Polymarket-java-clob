@@ -7,17 +7,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.operations.ForeignSignatureLeak;
+import com.polymarket.operations.GenericSignatureLeak;
 import com.polymarket.operations.InternalTransportLeak;
 import com.polymarket.operations.TransportLibraryLeak;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.JavaParameterizedType;
+import com.tngtech.archunit.core.domain.JavaType;
+import com.tngtech.archunit.core.domain.JavaTypeVariable;
+import com.tngtech.archunit.core.domain.JavaWildcardType;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -94,6 +101,22 @@ class PublicBoundaryTest {
     }
 
     @Test
+    @DisplayName("TC-AR-007: a foreign type hidden in a generic argument, bound or array is rejected")
+    void genericSignatureLeakIsRejected() {
+        AssertionError rejected = assertThrows(AssertionError.class, () ->
+                PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES.check(forbidden(GenericSignatureLeak.class)));
+
+        String message = rejected.getMessage();
+        // One member per signature position the raw-type rule used to walk straight past.
+        assertTrue(message.contains("responses()"), message);
+        assertTrue(message.contains("nested()"), message);
+        assertTrue(message.contains("pending()"), message);
+        assertTrue(message.contains("accept("), message);
+        assertTrue(message.contains("arrays()"), message);
+        assertTrue(message.contains("bounded()"), message);
+    }
+
+    @Test
     @DisplayName("TC-AR-006: every shipped 2.0 public signature is SDK or JDK only")
     void shippedPublicSignaturesAreSdkOrJdkOnly() {
         PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES.check(SHIPPED);
@@ -103,18 +126,39 @@ class PublicBoundaryTest {
         return new ClassFileImporter().importClasses(violation);
     }
 
-    /** ponytail: raw types only — a leak hidden in a type argument such as List&lt;OkHttpClient&gt; is not caught. */
+    /** Walks the whole signature: type arguments, wildcard and type-variable bounds, array components. */
     private static ArchCondition<JavaCodeUnit> useOnlySdkAndJdkTypes() {
         return new ArchCondition<>("use only SDK and JDK types") {
             @Override
             public void check(JavaCodeUnit unit, ConditionEvents events) {
-                Stream.concat(Stream.of(unit.getRawReturnType()), unit.getRawParameterTypes().stream())
-                        .map(JavaClass::getBaseComponentType)
-                        .filter(type -> !isSdkOrJdk(type))
+                Set<JavaClass> exposed = new LinkedHashSet<>();
+                Stream.of(Stream.of(unit.getReturnType()), unit.getParameterTypes().stream(),
+                                unit.getTypeParameters().stream().map(JavaType.class::cast))
+                        .flatMap(s -> s)
+                        .forEach(type -> collect(type, exposed, new LinkedHashSet<>()));
+                exposed.stream().filter(type -> !isSdkOrJdk(type))
                         .forEach(type -> events.add(SimpleConditionEvent.violated(unit,
                                 unit.getFullName() + " exposes " + type.getName())));
             }
         };
+    }
+
+    /** {@code seen} stops a self-referential bound such as {@code <T extends Comparable<T>>}. */
+    private static void collect(JavaType type, Set<JavaClass> into, Set<JavaType> seen) {
+        if (!seen.add(type)) return;
+        if (type instanceof JavaClass raw) {
+            into.add(raw.getBaseComponentType());
+        } else if (type instanceof JavaParameterizedType parameterized) {
+            collect(parameterized.toErasure(), into, seen);
+            parameterized.getActualTypeArguments().forEach(a -> collect(a, into, seen));
+        } else if (type instanceof JavaWildcardType wildcard) {
+            wildcard.getUpperBounds().forEach(b -> collect(b, into, seen));
+            wildcard.getLowerBounds().forEach(b -> collect(b, into, seen));
+        } else if (type instanceof JavaTypeVariable<?> variable) {
+            variable.getUpperBounds().forEach(b -> collect(b, into, seen));
+        } else {
+            collect(type.toErasure(), into, seen);
+        }
     }
 
     private static boolean isSdkOrJdk(JavaClass type) {
