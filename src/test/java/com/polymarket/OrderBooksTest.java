@@ -3,10 +3,15 @@ package com.polymarket;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.polymarket.authentication.PrivateKeySigner;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
+import com.polymarket.internal.trading.Eip712OrderSigner;
+import com.polymarket.markets.MarketQuery;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.OrderBookSnapshot;
 import com.polymarket.markets.OrderBooks;
@@ -15,7 +20,11 @@ import com.polymarket.markets.PriceLevel;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
+import com.polymarket.trading.OrderSigner;
+import com.polymarket.trading.Side;
+import com.polymarket.trading.SigningContext;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -241,6 +250,42 @@ class OrderBooksTest {
             assertEquals("/books?token_ids=" + TOKEN.value() + "," + other.value(),
                     request.getPath());
         }
+    }
+
+    @Test
+    @DisplayName("TC-OB-011: Gamma's minimum notional cannot reach a signing decision")
+    void gammaMinimumNotionalNeverGovernsSigning() throws Exception {
+        // Gamma labels its orderMinSize a USDC notional; the CLOB publishes shares. Here they
+        // disagree by 20x, so whichever value reaches signing is visible in the outcome.
+        try (InputStream in = getClass().getResourceAsStream("/gamma/markets.json")) {
+            server.enqueue(new MockResponse().setBody(new String(in.readAllBytes(),
+                    StandardCharsets.UTF_8).replace("\"orderMinSize\": 5", "\"orderMinSize\": 100")));
+        }
+        server.enqueue(new MockResponse().setBody(bookWithRules("0.01", "5", false)));
+
+        BigDecimal gammaMinimum;
+        MarketRules rules;
+        try (Polymarket sdk = sdk()) {
+            gammaMinimum = sdk.markets().markets(MarketQuery.create()).get(0)
+                    .metadata().minimumOrderNotional().orElseThrow();
+            rules = sdk.orderBooks().book(TOKEN).orElseThrow().rules();
+        }
+
+        assertEquals(new BigDecimal("100"), gammaMinimum);
+        assertEquals(ShareQuantity.of("5"), rules.minimumShares());
+
+        OrderSigner signer = new Eip712OrderSigner();
+        PrivateKeySigner key = PrivateKeySigner.of(
+                "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        SigningContext context = SigningContext.of(SigningIdentity.eoa(key.address()), key, 1L,
+                Instant.ofEpochSecond(1_800_000_000));
+
+        // 10 shares is far under Gamma's 100 and comfortably over the CLOB's 5: it must sign.
+        assertEquals(10_000_000L, signer.sign(TOKEN, Side.BUY, Price.of("0.52"),
+                ShareQuantity.of("10"), rules, context).takerAmount());
+        // Only the live CLOB share minimum can stop an order.
+        assertThrows(IllegalArgumentException.class, () -> signer.sign(TOKEN, Side.BUY,
+                Price.of("0.52"), ShareQuantity.of("4.999999"), rules, context));
     }
 
     @Test

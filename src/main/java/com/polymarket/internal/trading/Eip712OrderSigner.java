@@ -13,7 +13,7 @@ import com.polymarket.trading.SignedOrder;
 import com.polymarket.trading.SigningContext;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.util.Objects;
+import lombok.NonNull;
 import org.web3j.crypto.Hash;
 import org.web3j.utils.Numeric;
 
@@ -59,14 +59,10 @@ public final class Eip712OrderSigner implements OrderSigner {
             Hash.sha3(DEPOSIT_WALLET_VERSION.getBytes(StandardCharsets.UTF_8));
 
     @Override
-    public SignedOrder sign(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context) {
-        Objects.requireNonNull(asset, "asset");
-        Objects.requireNonNull(side, "side");
-        Objects.requireNonNull(pusdLeg, "pusdLeg");
-        Objects.requireNonNull(shareLeg, "shareLeg");
-        Objects.requireNonNull(rules, "rules");
-        Objects.requireNonNull(context, "context");
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
+            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+            @NonNull SigningContext context) {
+        rules.requireAtLeastMinimum(shareLeg);
 
         String version = switch (asset) {
             case TokenId ignored -> "2";
