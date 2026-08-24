@@ -15,6 +15,7 @@ import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
+import java.util.List;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -164,5 +165,42 @@ class OrderSignerTest {
         assertThrows(IllegalArgumentException.class, () -> new TokenId("0xabc"));
         assertThrows(IllegalArgumentException.class, () -> new TokenId("-1"));
         assertThrows(IllegalArgumentException.class, () -> new TokenId("12.5"));
+    }
+
+    @Test
+    @DisplayName("TC-OS-011: a V3 Combo order names the Trading Wallet as maker and the Account Signer as signer")
+    void v3KeepsTheAccountSignerDistinctFromTheTradingWallet() {
+        String tradingWallet = "0x" + "b".repeat(40);
+        PositionId combo = new PositionId("77");
+
+        for (SigningIdentity identity : List.of(
+                SigningIdentity.proxyWallet(tradingWallet, LOCAL_SIGNER.address()),
+                SigningIdentity.safeWallet(tradingWallet, LOCAL_SIGNER.address()))) {
+            SignedOrder order = signer.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"),
+                    RULES, SigningContext.of(identity, LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
+
+            assertEquals(tradingWallet, order.maker(), "the Trading Wallet holds the position");
+            assertEquals(LOCAL_SIGNER.address(), order.signer(), "the Account Signer authorizes it");
+            assertNotEquals(order.maker(), order.signer());
+        }
+
+        SignedOrder deposit = signer.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"), RULES,
+                SigningContext.of(SigningIdentity.depositWallet(tradingWallet, LOCAL_SIGNER.address()),
+                        LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
+        assertEquals(tradingWallet, deposit.maker());
+        assertEquals(LOCAL_SIGNER.address(), deposit.signer());
+    }
+
+    @Test
+    @DisplayName("TC-OS-012: a negative salt or timestamp cannot be signed as an unsigned field")
+    void unsignedSigningValuesFailAtTheirDomainBoundary() {
+        SigningIdentity identity = SigningIdentity.eoa(LOCAL_SIGNER.address());
+
+        assertThrows(IllegalArgumentException.class, () -> SigningContext.of(
+                identity, LOCAL_SIGNER, -1L, Instant.ofEpochSecond(1_800_000_000)),
+                "salt is a uint256 on the wire");
+        assertThrows(IllegalArgumentException.class, () -> SigningContext.of(
+                identity, LOCAL_SIGNER, 7L, Instant.ofEpochSecond(-1)),
+                "timestamp is a uint256 on the wire");
     }
 }
