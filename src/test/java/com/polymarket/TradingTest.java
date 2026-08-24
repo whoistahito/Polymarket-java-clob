@@ -287,7 +287,7 @@ class TradingTest {
 
         try (Polymarket sdk = sdk()) {
             sdk.trading().submit(signedOrder(),
-                    OrderPlacement.of(CREDENTIALS, OrderType.GTD).expiringAt(1_800_000_000L).asPostOnly());
+                    OrderPlacement.goodTilDate(CREDENTIALS, 1_800_000_000L).asPostOnly());
         }
 
         String body = server.takeRequest().getBody().readUtf8();
