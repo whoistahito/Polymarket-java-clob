@@ -62,6 +62,10 @@ public final class Eip712OrderSigner implements OrderSigner {
     public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
             @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
             @NonNull SigningContext context) {
+        if (pusdLeg.isZero() || shareLeg.isZero()) {
+            throw new IllegalArgumentException("an order leg worth nothing cannot be signed: "
+                    + pusdLeg + " pUSD for " + shareLeg + " shares");
+        }
         rules.requireAtLeastMinimum(shareLeg);
 
         String version = switch (asset) {
@@ -87,11 +91,14 @@ public final class Eip712OrderSigner implements OrderSigner {
                 asset.value(), makerAmount, takerAmount, side, identity.signatureType(),
                 timestamp, metadata, builder);
 
-        byte[] digest = identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE
+        boolean depositWallet = identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE;
+        byte[] digest = depositWallet
                 ? depositWalletDigest(domainHash, structHash, identity.tradingWallet())
                 : eip712Digest(domainHash, structHash);
 
-        String signature = context.localSigner().sign(digest);
+        String inner = context.localSigner().sign(digest);
+        String signature = depositWallet
+                ? erc7739Envelope(inner, domainHash, structHash) : inner;
 
         return new SignedOrder(context.salt(), identity.tradingWallet(),
                 identity.accountSigner(), asset, side, identity.signatureType(), makerAmount, takerAmount,
@@ -168,6 +175,29 @@ public final class Eip712OrderSigner implements OrderSigner {
         // trailing salt field is bytes32(0); buf is already zero-filled there
         byte[] typedDataSignStructHash = Hash.sha3(tuple);
         return eip712Digest(exchangeDomainHash, typedDataSignStructHash);
+    }
+
+    /**
+     * Official {@code wrapDepositWalletSignature}: the exchange's ERC-1271 check verifies
+     * innerSignature || appDomainSeparator || contentsHash || contentsDescr || uint16(length).
+     */
+    private static String erc7739Envelope(String innerSignature, byte[] exchangeDomainHash,
+            byte[] orderStructHash) {
+        byte[] descriptor = ORDER_TYPE_STRING.getBytes(StandardCharsets.UTF_8);
+        byte[] inner = Numeric.hexStringToByteArray(innerSignature);
+        byte[] envelope = new byte[inner.length + 32 + 32 + descriptor.length + 2];
+        int offset = 0;
+        System.arraycopy(inner, 0, envelope, offset, inner.length);
+        offset += inner.length;
+        System.arraycopy(exchangeDomainHash, 0, envelope, offset, 32);
+        offset += 32;
+        System.arraycopy(orderStructHash, 0, envelope, offset, 32);
+        offset += 32;
+        System.arraycopy(descriptor, 0, envelope, offset, descriptor.length);
+        offset += descriptor.length;
+        envelope[offset] = (byte) (descriptor.length >>> 8);
+        envelope[offset + 1] = (byte) descriptor.length;
+        return Numeric.toHexString(envelope);
     }
 
     private static void copyPadded(BigInteger value, byte[] buf, int offset) {

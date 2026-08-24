@@ -327,7 +327,8 @@ class AuthenticationTest {
             try (InputStream in = getClass().getResourceAsStream("/protocol/signing-vectors.json")) {
                 for (JsonNode vector : new ObjectMapper().readTree(in).path("vectors")) {
                     if ("v2-deposit-wallet".equals(vector.path("id").asText())) {
-                        return vector.path("signature").asText();
+                        // The exchange verifies the whole ERC-7739 envelope, not its inner 65 bytes.
+                        return vector.path("wrappedSignature").asText();
                     }
                 }
             }

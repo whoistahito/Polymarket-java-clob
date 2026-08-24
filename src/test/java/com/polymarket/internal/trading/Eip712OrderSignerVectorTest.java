@@ -101,7 +101,11 @@ class Eip712OrderSignerVectorTest {
         SignedOrder signed = SIGNER.sign(asset, side == 0 ? Side.BUY : Side.SELL,
                 pusdLeg, shareLeg, rules, context);
 
-        assertEquals(vector.get("signature").asText(), signed.signature(), id);
+        // A Deposit Wallet is a contract: the exchange's ERC-1271 check verifies the whole
+        // ERC-7739 envelope, of which the inner ECDSA signature is only the first 65 bytes.
+        JsonNode expected = vector.has("wrappedSignature")
+                ? vector.get("wrappedSignature") : vector.get("signature");
+        assertEquals(expected.asText(), signed.signature(), id);
         assertEquals(order.get("makerAmount").asText(), String.valueOf(signed.makerAmount()), id);
         assertEquals(order.get("takerAmount").asText(), String.valueOf(signed.takerAmount()), id);
         assertEquals(rawTimestamp, signed.timestamp(), id);
