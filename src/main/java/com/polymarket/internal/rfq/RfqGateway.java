@@ -40,6 +40,10 @@ public final class RfqGateway implements RfqDirectory {
     private static final int DEPOSIT_WALLET_SIGNATURE_TYPE = 3;
     private static final int STATE_CONFLICT = 409;
 
+    /** builder-gateway.json quoteFields, less quote_id: all five ride every official Quote. */
+    private static final String[] QUOTE_AMOUNT_FIELDS = {"blended_price_e6", "maker_amount_e6",
+            "taker_amount_e6", "total_required_e6", "net_receive_e6"};
+
     private final URI gatewayHost;
     private final HttpRuntime runtime;
     private final Clock clock;
@@ -233,27 +237,41 @@ public final class RfqGateway implements RfqDirectory {
             return new RfqOutcome.Waiting(rfqId,
                     new RfqStatus("AWAITING_REQUESTER_ACCEPTANCE"), Optional.empty());
         }
+        // A Quote is executable only if every field acceptance signs against is on the wire;
+        // a guessed direction or a zero amount would sign an order the gateway never quoted.
+        Side direction = direction(request);
+        QuoteAmounts amounts = amounts(quote);
+        if (direction == null || amounts == null) {
+            return new RfqOutcome.Unknown(rfqId,
+                    "AWAITING_REQUESTER_ACCEPTANCE without a complete quote");
+        }
         List<PositionId> legs = new ArrayList<>();
         request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
-        QuoteAmounts amounts = new QuoteAmounts(
-                baseUnits(quote, "blended_price_e6"),
-                baseUnits(quote, "maker_amount_e6"),
-                baseUnits(quote, "taker_amount_e6"),
-                baseUnits(quote, "total_required_e6"),
-                baseUnits(quote, "net_receive_e6"));
-        return new RfqOutcome.Quoted(rfqId, quoteId, direction(request), new PositionId(comboPositionId),
+        return new RfqOutcome.Quoted(rfqId, quoteId, direction, new PositionId(comboPositionId),
                 legs, amounts, Instant.ofEpochMilli(node.path("expires_at").asLong(0)),
                 node.path("builder_code").asText(""));
     }
 
-    /** SELL only when the gateway says so, so an unreadable direction never flips a BUY. */
+    /** Null when the wire named no direction this release knows: never defaulted to a side. */
     private static Side direction(JsonNode request) {
-        return "SELL".equalsIgnoreCase(request.path("direction").asText("")) ? Side.SELL : Side.BUY;
+        String raw = textOrNull(request, "direction");
+        if ("BUY".equalsIgnoreCase(raw)) return Side.BUY;
+        return "SELL".equalsIgnoreCase(raw) ? Side.SELL : null;
     }
 
-    private static long baseUnits(JsonNode node, String field) {
-        String value = textOrNull(node, field);
-        return value == null ? 0L : Long.parseLong(value);
+    /** Null unless all six pinned quote amounts are present and readable. */
+    private static QuoteAmounts amounts(JsonNode quote) {
+        long[] values = new long[QUOTE_AMOUNT_FIELDS.length];
+        for (int i = 0; i < QUOTE_AMOUNT_FIELDS.length; i++) {
+            String raw = textOrNull(quote, QUOTE_AMOUNT_FIELDS[i]);
+            if (raw == null) return null;
+            try {
+                values[i] = Long.parseLong(raw);
+            } catch (NumberFormatException notANumber) {
+                return null;
+            }
+        }
+        return new QuoteAmounts(values[0], values[1], values[2], values[3], values[4]);
     }
 
     /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */

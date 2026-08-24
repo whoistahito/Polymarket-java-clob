@@ -252,6 +252,30 @@ class RfqTest {
     }
 
     @Test
+    @DisplayName("TC-RQ-025: a Quote missing its direction is not executable, never a guessed BUY")
+    void quoteMissingItsDirectionIsNotExecutable() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"direction\":\"SELL\",", ""));
+
+        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+                SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        assertInstanceOf(RfqOutcome.Unknown.class, outcome,
+                "a Quote whose direction the wire omitted states nothing about which way to sign");
+    }
+
+    @Test
+    @DisplayName("TC-RQ-026: a Quote missing a signing amount is not executable, never a guessed zero")
+    void quoteMissingASigningAmountIsNotExecutable() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"maker_amount_e6\":\"966191\",", ""));
+
+        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+                SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        assertInstanceOf(RfqOutcome.Unknown.class, outcome,
+                "signing a zero maker amount would be an order the gateway never quoted");
+    }
+
+    @Test
     @DisplayName("TC-RQ-005: a FAILED status (no quote / decline / execution failure) is Failed with its reason")
     void failedStatusCarriesReason() throws Exception {
         enqueue("""
