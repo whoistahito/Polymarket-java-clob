@@ -170,6 +170,11 @@ TC-PC-012 asserts the derived exact fee rounds to it. That published column is t
 check on the derivation; the Java assertion is a third implementation of the same formula, so a
 mistake in any one of the three shows up as a failure rather than as silent agreement.
 
+`combo-markets.json` keeps its two kinds of evidence apart by name: `documentedExampleResponse` is
+Polymarket's own published example, while `observedResponse` and the `query.limit` bounds are a live
+probe of `combos-rfq-api.polymarket.com` on 2026-08-24 — behaviour the documentation does not state.
+`order-submission.json` is entirely official: every field traces to `clob-openapi.yaml`.
+
 ## 6. Discrepancies against current production code
 
 Recorded here for the tickets that own the code. **No production code was changed by issue #3.**

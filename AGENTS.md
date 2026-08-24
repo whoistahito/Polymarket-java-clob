@@ -301,9 +301,9 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after wave 3 (issues #14/#17/#25/#26): `mvn clean verify` →
-  **549 tests, 0 failures, 0 errors, 0 skipped**. The earlier 328-test baseline predates waves 1-3.
-  The drop from 1179 is
+- Verified baseline on Java 21 after issue #30: `mvn clean verify` → **554 tests, 0 failures,
+  0 errors, 0 skipped**, with the dependency gate clean. The earlier 328-test baseline predates the
+  2.0 repair waves. The drop from 1179 is
   the deleted 1.0 facade suite, not lost coverage of 2.0 behavior; the deletion also uncovered a
   dropped capability (CREATE2 wallet derivation), restored with its own golden-vector tests.
   `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else.

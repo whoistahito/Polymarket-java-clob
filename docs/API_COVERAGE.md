@@ -69,7 +69,7 @@ reachable through the public API: there is no raw-HTTP escape hatch to work arou
 | `submit(...)` / `place(...)` | `POST clob /order` (L2, executed exactly once, never replayed) | https://docs.polymarket.com/api-reference/trade/post-a-new-order | Supported |
 | `submitBatch(...)` | `POST clob /orders` (official limit: 15) | https://docs.polymarket.com/api-reference/trade/post-multiple-orders | Supported |
 | `cancel(...)` | `DELETE clob /orders` (official limit: 1000 ids) | https://docs.polymarket.com/api-reference/trade/cancel-multiple-orders | Supported |
-| `reconcile(...)` | `GET clob /data/trades?id=` per trade id (L2) | https://docs.polymarket.com/api-reference/trade/get-trades | Supported |
+| `reconcile(...)` | `GET clob /data/trades?id=` per trade id (L2) | https://docs.polymarket.com/api-reference/trade/get-trades | Supported — takes a `SigningIdentity`: the header carries the Account Signer, the `maker_address` filter the Trading Wallet |
 | `ImmediatePlanner` | none — pure depth walk over a live book | https://docs.polymarket.com/trading/place-orders | Supported (offline) |
 | `AsyncTrading` | the same endpoints, `CompletableFuture` decorator | — | Supported |
 | Open-order reads | `GET clob /data/orders` (L2) | https://docs.polymarket.com/api-reference/trade/get-user-orders | Supported — on `Portfolio.openOrders(...)`, not on `Trading` |
@@ -153,7 +153,7 @@ onboarding: `sdk.rfq(gatewayHost)`. The root owns each one and closes it with it
 | `comboMarkets(ComboMarketQuery)` | `GET combos-rfq /v1/rfq/combo-markets` | https://docs.polymarket.com/trading/combos/market-makers | Supported — credential-free; the official source of leg Position IDs |
 | `accept(quote, ...)` | `POST gateway /v1/builder/rfq/requests/{rfqId}/accept` | https://docs.polymarket.com/trading/combos/builders | Supported — direction, amounts, Combo position and deadline all come from the Quote |
 | `AsyncRfq` | the same endpoints, `CompletableFuture` decorator | — | Supported |
-| Result reconciliation | `Portfolio.positions(...)` / `Trading.reconcile(...)` | https://docs.polymarket.com/trading/combos/overview | Supported — no Polygon RPC involved |
+| Result reconciliation | `Portfolio.comboPositions(...)` absolute snapshots, or `Trading.reconcile(..., rfqId, ...)` | https://docs.polymarket.com/trading/combos/overview | Supported — no Polygon RPC involved |
 | Maker quote submit / cancel / last-look confirm | `POST /v1/maker/quotes`, `/v1/maker/quotes/cancel`, `/v1/maker/confirmations` | https://docs.polymarket.com/api-reference/maker/submit-a-quote | Out of scope |
 | Quoter Gateway WebSocket | `wss` RFQ channel | https://docs.polymarket.com/api-reference/wss/rfq | Out of scope |
 | Legacy CLOB `/rfq/*` endpoints | — | https://docs.polymarket.com/trading/combos/market-makers | Not supported — superseded by the Builder Gateway |
