@@ -4,7 +4,7 @@ import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningAuthority;
 import java.io.IOException;
 import java.util.List;
-import java.util.Objects;
+import lombok.NonNull;
 
 /**
  * Builder credential lifecycle and builder-attributed trade reads. Every operation is
@@ -15,9 +15,9 @@ public final class Builders {
     private final SigningAuthority authority;
     private final BuilderDirectory directory;
 
-    public Builders(SigningAuthority authority, BuilderDirectory directory) {
-        this.authority = Objects.requireNonNull(authority, "authority");
-        this.directory = Objects.requireNonNull(directory, "directory");
+    public Builders(@NonNull SigningAuthority authority, @NonNull BuilderDirectory directory) {
+        this.authority = authority;
+        this.directory = directory;
     }
 
     public BuilderCredentials createCredentials() throws IOException {
@@ -32,21 +32,14 @@ public final class Builders {
         return directory.revoke(credentials("revokeCredentials"), address("revokeCredentials"));
     }
 
-    public BuilderTradePage trades() throws IOException {
-        return trades(BuilderTradeQuery.create(), BuilderCursor.first());
-    }
-
-    public BuilderTradePage trades(BuilderTradeQuery query) throws IOException {
+    /** There is no unfiltered form: the query carries the Builder code the CLOB requires. */
+    public BuilderTradePage trades(@NonNull BuilderTradeQuery query) throws IOException {
         return trades(query, BuilderCursor.first());
     }
 
-    public BuilderTradePage trades(BuilderCursor cursor) throws IOException {
-        return trades(BuilderTradeQuery.create(), cursor);
-    }
-
-    public BuilderTradePage trades(BuilderTradeQuery query, BuilderCursor cursor) throws IOException {
-        return directory.trades(credentials("trades"), address("trades"),
-                Objects.requireNonNull(query, "query"), Objects.requireNonNull(cursor, "cursor"));
+    public BuilderTradePage trades(@NonNull BuilderTradeQuery query, @NonNull BuilderCursor cursor)
+            throws IOException {
+        return directory.trades(credentials("trades"), address("trades"), query, cursor);
     }
 
     private ApiCredentials credentials(String operation) {

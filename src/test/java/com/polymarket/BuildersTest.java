@@ -40,6 +40,9 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Builders: credential lifecycle and builder trades (issue #19)")
 class BuildersTest {
 
+    /** The documented 32-byte hex Builder code shape: ^0x[a-fA-F0-9]{64}$. */
+    private static final String BUILDER_CODE = "0x" + "ab".repeat(32);
+
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
     private static final ApiCredentials CREDENTIALS = new ApiCredentials(
@@ -158,7 +161,8 @@ class BuildersTest {
         assertThrows(AuthenticationRequiredException.class, builders::createCredentials);
         assertThrows(AuthenticationRequiredException.class, builders::listCredentials);
         assertThrows(AuthenticationRequiredException.class, builders::revokeCredentials);
-        assertThrows(AuthenticationRequiredException.class, builders::trades);
+        assertThrows(AuthenticationRequiredException.class,
+                () -> builders.trades(BuilderTradeQuery.forBuilder(BUILDER_CODE)));
 
         assertEquals(0, server.getRequestCount());
     }
@@ -172,11 +176,11 @@ class BuildersTest {
                   "builder":"0xbuilder","market":"0xmarket","assetId":"123","side":"BUY",
                   "size":"10.5","sizeUsdc":"5.25","price":"0.5","status":"CONFIRMED",
                   "outcome":"YES","outcomeIndex":0,"owner":"0xowner","maker":"0xmaker",
-                  "transactionHash":"0xtxn","matchTime":"2024-03-26T00:00:00Z",
+                  "transactionHash":"0xtxn","matchTime":"1711411200","bucketIndex":7,
                   "fee":"0.01","feeUsdc":"0.005","createdAt":"2024-03-26T00:00:01Z",
                   "updatedAt":"2024-03-26T00:00:02Z"}]}""");
 
-        BuilderTradePage page = builders(authority()).trades();
+        BuilderTradePage page = builders(authority()).trades(BuilderTradeQuery.forBuilder(BUILDER_CODE));
 
         assertEquals(100, page.limit());
         assertEquals(1, page.count());
@@ -187,16 +191,18 @@ class BuildersTest {
         assertEquals("0xbuilder", trade.builder());
         assertEquals(Side.BUY, trade.side());
         assertEquals(new BigDecimal("10.5"), trade.size());
-        assertEquals(new BigDecimal("5.25"), trade.sizeUsdc().orElseThrow());
+        assertEquals(new BigDecimal("5.25"), trade.sizeUsdc());
         assertEquals(new BigDecimal("0.5"), trade.price());
         assertEquals("CONFIRMED", trade.status());
-        assertEquals(0, trade.outcomeIndex().orElseThrow());
-        assertEquals(new BigDecimal("0.01"), trade.fee().orElseThrow());
-        assertEquals(Instant.parse("2024-03-26T00:00:00Z"), trade.matchTime().orElseThrow());
+        assertEquals(0, trade.outcomeIndex());
+        assertEquals(7, trade.bucketIndex());
+        assertEquals(new BigDecimal("0.01"), trade.fee());
+        assertEquals(Instant.parse("2024-03-26T00:00:00Z"), trade.matchTime());
         assertEquals(Instant.parse("2024-03-26T00:00:01Z"), trade.createdAt().orElseThrow());
 
         RecordedRequest request = server.takeRequest();
-        assertEquals("/builder/trades?next_cursor=MA%3D%3D", request.getPath());
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE + "&next_cursor=MA%3D%3D",
+                request.getPath());
         assertEquals(CREDENTIALS.key(), request.getHeader("POLY_API_KEY"));
     }
 
@@ -206,11 +212,13 @@ class BuildersTest {
         enqueue("""
                 {"limit":100,"count":0,"next_cursor":"LTE=","data":[]}""");
 
-        BuilderTradeQuery query = BuilderTradeQuery.create().market("0xmarket").assetId("123");
+        BuilderTradeQuery query =
+                BuilderTradeQuery.forBuilder(BUILDER_CODE).market("0xmarket").assetId("123");
         BuilderTradePage page = builders(authority()).trades(query);
 
         assertEquals(Optional.empty(), page.nextCursor());
-        assertEquals("/builder/trades?market=0xmarket&asset_id=123&next_cursor=MA%3D%3D",
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE
+                        + "&market=0xmarket&asset_id=123&next_cursor=MA%3D%3D",
                 server.takeRequest().getPath());
     }
 
@@ -220,9 +228,170 @@ class BuildersTest {
         enqueue("""
                 {"limit":100,"count":0,"next_cursor":"LTE=","data":[]}""");
 
-        builders(authority()).trades(BuilderCursor.of("MQ=="));
+        builders(authority()).trades(BuilderTradeQuery.forBuilder(BUILDER_CODE),
+                BuilderCursor.of("MQ=="));
 
-        assertEquals("/builder/trades?next_cursor=MQ%3D%3D", server.takeRequest().getPath());
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE + "&next_cursor=MQ%3D%3D",
+                server.takeRequest().getPath());
+    }
+
+    @Test
+    @DisplayName("TC-BD-010: a builder trades read sends the required Builder code")
+    void tradesSendTheRequiredBuilderCode() throws Exception {
+        enqueue("""
+                {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
+
+        builders(authority()).trades(BuilderTradeQuery.forBuilder(BUILDER_CODE));
+
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE + "&next_cursor=MA%3D%3D",
+                server.takeRequest().getPath());
+    }
+
+    @Test
+    @DisplayName("TC-BD-011: a Builder code outside the documented 32-byte hex form is rejected before sending")
+    void anUndocumentedBuilderCodeIsRejectedBeforeSending() {
+        assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder("nope"));
+        assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder("0xab"));
+        assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder(" "));
+
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-BD-012: a bounded trades window sends before and after as unix seconds")
+    void tradesWindowSendsBeforeAndAfterAsUnixSeconds() throws Exception {
+        enqueue("""
+                {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
+
+        // The documented before/after examples: 1700000000 and 1600000000 unix seconds.
+        BuilderTradeQuery query = BuilderTradeQuery.forBuilder(BUILDER_CODE)
+                .after(Instant.parse("2020-09-13T12:26:40Z"))
+                .before(Instant.parse("2023-11-14T22:13:20Z"));
+
+        builders(authority()).trades(query);
+
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE
+                        + "&before=1700000000&after=1600000000&next_cursor=MA%3D%3D",
+                server.takeRequest().getPath());
+    }
+
+    @Test
+    @DisplayName("TC-BD-013: continuation is explicit — a page hands back the cursor the caller must send")
+    void continuationIsExplicitAndEndsOnTheDocumentedSentinel() throws Exception {
+        enqueue("""
+                {"limit":300,"count":0,"next_cursor":"MzAw","data":[]}""");
+        enqueue("""
+                {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
+
+        BuilderTradeQuery query = BuilderTradeQuery.forBuilder(BUILDER_CODE);
+        Builders builders = builders(authority());
+
+        BuilderTradePage first = builders.trades(query);
+        assertEquals("MzAw", first.nextCursor().orElseThrow().value());
+
+        BuilderTradePage second = builders.trades(query, first.nextCursor().orElseThrow());
+        assertEquals(Optional.empty(), second.nextCursor());
+
+        server.takeRequest();
+        assertEquals("/builder/trades?builder_code=" + BUILDER_CODE + "&next_cursor=MzAw",
+                server.takeRequest().getPath());
+    }
+
+    /** The official GET /builder/trades example row, verbatim (builder-trades.json). */
+    private static final String DOCUMENTED_ROW = """
+            {"id":"trade-123","tradeType":"TAKER",
+             "takerOrderHash":"0xabcdef1234567890abcdef1234567890abcdef12",
+             "builder":"0x0000000000000000000000000000000000000000000000000000000000000001",
+             "market":"0x0000000000000000000000000000000000000000000000000000000000000001",
+             "assetId":"15871154585880608648532107628464183779895785213830018178010423617714102767076",
+             "side":"BUY","size":"100000000","sizeUsdc":"50000000","price":"0.5",
+             "status":"TRADE_STATUS_CONFIRMED","outcome":"YES","outcomeIndex":0,
+             "owner":"f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+             "maker":"0x1234567890123456789012345678901234567890",
+             "transactionHash":"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+             "matchTime":"1700000000","bucketIndex":0,"fee":"300000","feeUsdc":"150000",
+             "createdAt":"2024-01-01T00:00:00Z","updatedAt":"2024-01-01T00:00:00Z"}""";
+
+    private BuilderTrade documentedTrade() throws Exception {
+        enqueue("{\"limit\":300,\"count\":1,\"next_cursor\":\"LTE=\",\"data\":["
+                + DOCUMENTED_ROW + "]}");
+        return builders(authority()).trades(BuilderTradeQuery.forBuilder(BUILDER_CODE))
+                .items().get(0);
+    }
+
+    @Test
+    @DisplayName("TC-BD-014: unix match time and ISO creation/update times map by their distinct units")
+    void matchTimeIsUnixWhileCreationAndUpdateTimesAreIso() throws Exception {
+        BuilderTrade trade = documentedTrade();
+
+        // 1700000000 unix seconds is 2023-11-14T22:13:20Z; createdAt/updatedAt are ISO-8601.
+        assertEquals(Instant.parse("2023-11-14T22:13:20Z"), trade.matchTime());
+        assertEquals(Instant.parse("2024-01-01T00:00:00Z"), trade.createdAt().orElseThrow());
+        assertEquals(Instant.parse("2024-01-01T00:00:00Z"), trade.updatedAt().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-BD-015: every required trade field, bucket identity included, is preserved exactly")
+    void everyRequiredTradeFieldIncludingBucketIndexSurvivesExactly() throws Exception {
+        BuilderTrade trade = documentedTrade();
+
+        assertEquals("trade-123", trade.id());
+        assertEquals("TAKER", trade.tradeType());
+        assertEquals("0xabcdef1234567890abcdef1234567890abcdef12", trade.takerOrderHash());
+        assertEquals("0x0000000000000000000000000000000000000000000000000000000000000001",
+                trade.builder());
+        assertEquals("0x0000000000000000000000000000000000000000000000000000000000000001",
+                trade.market());
+        assertEquals("15871154585880608648532107628464183779895785213830018178010423617714102767076",
+                trade.assetId());
+        assertEquals(Side.BUY, trade.side());
+        assertEquals(new BigDecimal("100000000"), trade.size());
+        assertEquals(new BigDecimal("50000000"), trade.sizeUsdc());
+        assertEquals(new BigDecimal("0.5"), trade.price());
+        assertEquals("TRADE_STATUS_CONFIRMED", trade.status());
+        assertEquals("YES", trade.outcome());
+        assertEquals(0, trade.outcomeIndex());
+        assertEquals("f4f247b7-4ac7-ff29-a152-04fda0a8755a", trade.owner());
+        assertEquals("0x1234567890123456789012345678901234567890", trade.maker());
+        assertEquals("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                trade.transactionHash());
+        assertEquals(0, trade.bucketIndex());
+        assertEquals(new BigDecimal("300000"), trade.fee());
+        assertEquals(new BigDecimal("150000"), trade.feeUsdc());
+        assertEquals(Optional.empty(), trade.errorMessage());
+    }
+
+    @Test
+    @DisplayName("TC-BD-016: a trade row missing a required field fails the read explicitly")
+    void aTradeRowMissingARequiredFieldFailsTheRead() throws Exception {
+        enqueue("{\"limit\":300,\"count\":1,\"next_cursor\":\"LTE=\",\"data\":["
+                + DOCUMENTED_ROW.replace("\"bucketIndex\":0,", "") + "]}");
+
+        Builders builders = builders(authority());
+        assertThrows(java.io.IOException.class,
+                () -> builders.trades(BuilderTradeQuery.forBuilder(BUILDER_CODE)));
+    }
+
+    @Test
+    @DisplayName("TC-BD-017: a builder read authenticates with the Account Signer and never sends the API secret")
+    void aBuilderReadAuthenticatesWithTheAccountSignerAndKeepsTheSecretOffTheWire()
+            throws Exception {
+        enqueue("""
+                {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
+
+        String accountSigner = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+        Builders builders = builders(
+                SigningAuthority.apiCredentials(CREDENTIALS, accountSigner));
+
+        builders.trades(BuilderTradeQuery.forBuilder(BUILDER_CODE));
+
+        RecordedRequest request = server.takeRequest();
+        assertTrue(accountSigner.equalsIgnoreCase(request.getHeader("POLY_ADDRESS")),
+                request.getHeader("POLY_ADDRESS"));
+        assertEquals(CREDENTIALS.key(), request.getHeader("POLY_API_KEY"));
+        assertFalse(request.getHeaders().toString().contains(CREDENTIALS.secret()),
+                "the API secret signs the request, it is never sent");
+        assertFalse(request.getPath().contains(CREDENTIALS.secret()));
     }
 
     @Test

@@ -93,7 +93,9 @@ public final class BuildersGateway implements BuilderDirectory {
         }
         JsonNode body = runtime.parse(outcome.body());
         List<BuilderTrade> trades = new ArrayList<>();
-        body.path("data").forEach(node -> trades.add(trade(node)));
+        for (JsonNode node : body.path("data")) {
+            trades.add(trade(node));
+        }
         return new BuilderTradePage(trades,
                 BuilderCursor.next(cursor, text(body, "next_cursor").orElse(null)),
                 body.path("limit").asInt(), body.path("count").asInt());
@@ -101,10 +103,13 @@ public final class BuildersGateway implements BuilderDirectory {
 
     /** The L2 signature covers the path AND its query, so the cursor and filters are signed too. */
     private static String query(BuilderTradeQuery filter, BuilderCursor cursor) {
-        StringBuilder sb = new StringBuilder("?");
+        StringBuilder sb = new StringBuilder("?builder_code=");
+        sb.append(encode(filter.builderCode())).append('&');
         filter.id().ifPresent(v -> sb.append("id=").append(encode(v)).append('&'));
         filter.market().ifPresent(v -> sb.append("market=").append(encode(v)).append('&'));
         filter.assetId().ifPresent(v -> sb.append("asset_id=").append(encode(v)).append('&'));
+        filter.before().ifPresent(v -> sb.append("before=").append(v.getEpochSecond()).append('&'));
+        filter.after().ifPresent(v -> sb.append("after=").append(v.getEpochSecond()).append('&'));
         sb.append("next_cursor=").append(encode(cursor.value()));
         return sb.toString();
     }
@@ -115,47 +120,66 @@ public final class BuildersGateway implements BuilderDirectory {
                 credentials, address, clock.instant().getEpochSecond(), method, path, body);
     }
 
-    private static BuilderTrade trade(JsonNode node) {
+    private static BuilderTrade trade(JsonNode node) throws IOException {
         return new BuilderTrade(
-                node.path("id").asText(),
-                node.path("tradeType").asText(),
-                text(node, "takerOrderHash"),
-                node.path("builder").asText(),
-                node.path("market").asText(),
-                node.path("assetId").asText(),
-                Side.valueOf(node.path("side").asText("BUY").toUpperCase(Locale.ROOT)),
-                decimal(node, "size").orElse(BigDecimal.ZERO),
-                decimal(node, "sizeUsdc"),
-                decimal(node, "price").orElse(BigDecimal.ZERO),
-                node.path("status").asText(),
-                text(node, "outcome"),
-                integer(node, "outcomeIndex"),
-                node.path("owner").asText(),
-                node.path("maker").asText(),
-                text(node, "transactionHash"),
-                instant(node, "matchTime"),
-                decimal(node, "fee"),
-                decimal(node, "feeUsdc"),
+                required(node, "id"),
+                required(node, "tradeType"),
+                required(node, "takerOrderHash"),
+                required(node, "builder"),
+                required(node, "market"),
+                required(node, "assetId"),
+                Side.valueOf(required(node, "side").toUpperCase(Locale.ROOT)),
+                requiredDecimal(node, "size"),
+                requiredDecimal(node, "sizeUsdc"),
+                requiredDecimal(node, "price"),
+                required(node, "status"),
+                required(node, "outcome"),
+                requiredInteger(node, "outcomeIndex"),
+                required(node, "owner"),
+                required(node, "maker"),
+                required(node, "transactionHash"),
+                unixSeconds(node, "matchTime"),
+                requiredInteger(node, "bucketIndex"),
+                requiredDecimal(node, "fee"),
+                requiredDecimal(node, "feeUsdc"),
                 text(node, "err_msg"),
                 instant(node, "createdAt"),
                 instant(node, "updatedAt"));
+    }
+
+    /** A required field is not optional: a dropped one would silently rewrite the trade. */
+    private static String required(JsonNode node, String field) throws IOException {
+        return text(node, field).orElseThrow(
+                () -> new IOException("builder trade carried no " + field));
+    }
+
+    private static BigDecimal requiredDecimal(JsonNode node, String field) throws IOException {
+        return new BigDecimal(required(node, field));
+    }
+
+    private static int requiredInteger(JsonNode node, String field) throws IOException {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isIntegralNumber()) {
+            throw new IOException("builder trade carried no " + field);
+        }
+        return value.asInt();
     }
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private static Optional<BigDecimal> decimal(JsonNode node, String field) {
-        return text(node, field).map(BigDecimal::new);
-    }
-
-    private static Optional<Integer> integer(JsonNode node, String field) {
-        JsonNode value = node.get(field);
-        return value == null || value.isNull() ? Optional.empty() : Optional.of(value.asInt());
-    }
-
     private static Optional<Instant> instant(JsonNode node, String field) {
         return text(node, field).map(Instant::parse);
+    }
+
+    /** matchTime is unix seconds as a decimal string; createdAt/updatedAt are ISO-8601. */
+    private static Instant unixSeconds(JsonNode node, String field) throws IOException {
+        try {
+            return Instant.ofEpochSecond(Long.parseLong(required(node, field)));
+        } catch (NumberFormatException e) {
+            throw new IOException("builder trade " + field + " is not unix seconds", e);
+        }
     }
 
     private static Optional<String> text(JsonNode node, String field) {
