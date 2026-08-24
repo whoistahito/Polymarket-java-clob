@@ -12,7 +12,18 @@ public record MakerOnlyLimitOrder(AssetId asset, Side side, Price price, ShareQu
         Intents.requireTradeable(asset, side, price, size);
     }
 
+    @Override
+    public OrderType orderType() {
+        return OrderType.GTC;
+    }
+
+    @Override
     public boolean postOnly() {
         return true;
+    }
+
+    @Override
+    public long expirationSeconds() {
+        return 0L;
     }
 }

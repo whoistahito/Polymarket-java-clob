@@ -90,7 +90,7 @@ class OrderIntentTest {
             GoodTilDateOrder order = GoodTilDateOrder.expiringAt(
                     ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), wanted, CLOCK);
 
-            assertEquals(wanted.getEpochSecond() + 60, order.wireExpirationSeconds());
+            assertEquals(wanted.getEpochSecond() + 60, order.expirationSeconds());
         }
 
         @Test

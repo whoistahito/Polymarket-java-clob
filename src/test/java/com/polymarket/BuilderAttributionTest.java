@@ -9,10 +9,13 @@ import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
+import com.polymarket.trading.LimitOrder;
+import com.polymarket.trading.OrderExecution;
 import com.polymarket.trading.OrderPlacement;
 import com.polymarket.trading.OrderType;
 import com.polymarket.trading.Side;
@@ -104,9 +107,8 @@ class BuilderAttributionTest {
                 .withMetadata(METADATA_CODE);
 
         try (Polymarket sdk = sdk()) {
-            sdk.trading().place(new TokenId("123"), Side.BUY, PusdAmount.of("5.2"),
-                    ShareQuantity.of("10"), RULES, context,
-                    OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            sdk.trading().place(OrderExecution.of(new LimitOrder(new TokenId("123"), Side.BUY,
+                    Price.of("0.52"), ShareQuantity.of("10")), RULES), context, CREDENTIALS);
         }
 
         RecordedRequest request = server.takeRequest();
@@ -126,9 +128,8 @@ class BuilderAttributionTest {
                 SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
 
         try (Polymarket sdk = sdk()) {
-            sdk.trading().place(new TokenId("123"), Side.BUY, PusdAmount.of("5.2"),
-                    ShareQuantity.of("10"), RULES, context,
-                    OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            sdk.trading().place(OrderExecution.of(new LimitOrder(new TokenId("123"), Side.BUY,
+                    Price.of("0.52"), ShareQuantity.of("10")), RULES), context, CREDENTIALS);
         }
 
         String body = server.takeRequest().getBody().readUtf8();

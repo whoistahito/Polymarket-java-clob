@@ -1,6 +1,7 @@
 package com.polymarket.trading;
 
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PusdAmount;
@@ -14,9 +15,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import lombok.NonNull;
 
 /** Signing and submission are independently reachable; {@link #place} is a thin convenience over both. */
@@ -25,6 +26,10 @@ public final class Trading {
     /** Official limits (constraints.json): a batch beyond these is never silently chunked. */
     public static final int MAX_ORDERS_PER_BATCH = 15;
     public static final int MAX_ORDER_IDS_PER_CANCEL = 1000;
+
+    // order-submission.json: every official order-hash example is 0x-hex, but the sources disagree
+    // on its length (40 vs 64), so the shape is enforced locally and the length is not.
+    private static final Pattern ORDER_ID = Pattern.compile("0x[0-9a-fA-F]+");
 
     private final OrderSigner signer;
     private final OrderSubmitter submitter;
@@ -39,39 +44,47 @@ public final class Trading {
         void sleep(Duration duration) throws InterruptedException;
     }
 
-    public Trading(OrderSigner signer, OrderSubmitter submitter, OrderBatch batch,
-            TradeReader tradeReader, Clock clock) {
+    public Trading(@NonNull OrderSigner signer, @NonNull OrderSubmitter submitter,
+            @NonNull OrderBatch batch, @NonNull TradeReader tradeReader, @NonNull Clock clock) {
         this(signer, submitter, batch, tradeReader, clock, d -> Thread.sleep(d.toMillis()));
     }
 
-    public Trading(OrderSigner signer, OrderSubmitter submitter, OrderBatch batch,
-            TradeReader tradeReader, Clock clock, Sleeper sleeper) {
-        this.signer = Objects.requireNonNull(signer, "signer");
-        this.submitter = Objects.requireNonNull(submitter, "submitter");
-        this.batch = Objects.requireNonNull(batch, "batch");
-        this.tradeReader = Objects.requireNonNull(tradeReader, "tradeReader");
-        this.clock = Objects.requireNonNull(clock, "clock");
-        this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
+    public Trading(@NonNull OrderSigner signer, @NonNull OrderSubmitter submitter,
+            @NonNull OrderBatch batch, @NonNull TradeReader tradeReader, @NonNull Clock clock,
+            @NonNull Sleeper sleeper) {
+        this.signer = signer;
+        this.submitter = submitter;
+        this.batch = batch;
+        this.tradeReader = tradeReader;
+        this.clock = clock;
+        this.sleeper = sleeper;
     }
 
-    public SignedOrder sign(AssetId asset, Side side, PusdAmount pusdLeg, ShareQuantity shareLeg,
-            MarketRules rules, SigningContext context) {
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
+            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+            @NonNull SigningContext context) {
         return signer.sign(asset, side, pusdLeg, shareLeg, rules, context);
     }
 
     /** Never replayed: one signed order produces exactly one {@code POST /order}. */
-    public SubmissionOutcome submit(SignedOrder order, OrderPlacement placement) {
+    public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement) {
         return submitter.submit(order, placement);
     }
 
-    public SubmissionOutcome place(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context, OrderPlacement placement) {
-        return submit(sign(asset, side, pusdLeg, shareLeg, rules, context), placement);
+    /** The Order Intent stays authoritative: a placement that restates it differently sends nothing. */
+    public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement,
+            @NonNull OrderIntent intent) {
+        return submitter.submit(order, placement.requireConsistentWith(intent));
+    }
+
+    /** Signs and submits one resolved Order Intent; Maker-Only and GTD ride along, never restated. */
+    public SubmissionOutcome place(@NonNull OrderExecution execution,
+            @NonNull SigningContext context, @NonNull ApiCredentials credentials) {
+        return submit(execution.sign(signer, context), execution.placement(credentials));
     }
 
     /** One {@code POST /orders} for the whole batch; a batch over the official limit sends nothing. */
-    public BatchSubmissionOutcome submitBatch(List<BatchItem> items) {
-        Objects.requireNonNull(items, "items");
+    public BatchSubmissionOutcome submitBatch(@NonNull List<BatchItem> items) {
         if (items.isEmpty()) {
             throw new IllegalArgumentException("a batch must contain at least one order");
         }
@@ -91,11 +104,8 @@ public final class Trading {
     }
 
     /** One {@code DELETE /orders} for the whole set; invalid IDs are rejected before it is sent. */
-    public CancellationOutcome cancel(ApiCredentials credentials, String address, List<String> orderIds)
-            throws IOException {
-        Objects.requireNonNull(credentials, "credentials");
-        Objects.requireNonNull(address, "address");
-        Objects.requireNonNull(orderIds, "orderIds");
+    public CancellationOutcome cancel(@NonNull ApiCredentials credentials,
+            @NonNull String accountSigner, @NonNull List<String> orderIds) {
         if (orderIds.isEmpty()) {
             throw new IllegalArgumentException("cancel needs at least one order id");
         }
@@ -109,7 +119,13 @@ public final class Trading {
         if (orderIds.size() != Set.copyOf(orderIds).size()) {
             throw new IllegalArgumentException("order ids must not contain duplicates");
         }
-        return batch.cancel(credentials, address, orderIds);
+        for (String id : orderIds) {
+            if (!ORDER_ID.matcher(id).matches()) {
+                throw new IllegalArgumentException(
+                        "an order id is a 0x-prefixed hex order hash, got: " + id);
+            }
+        }
+        return batch.cancel(credentials, accountSigner, orderIds);
     }
 
     /**
@@ -118,32 +134,33 @@ public final class Trading {
      * {@link ReconciliationOutcome.Pending}, never a reported failure.
      */
     public ReconciliationOutcome reconcile(@NonNull ApiCredentials credentials,
-            @NonNull String address, @NonNull String orderId, @NonNull List<String> tradeIds,
-            @NonNull Duration timeout, @NonNull Duration pollInterval) throws IOException {
-        return poll(credentials, address, orderId, Optional.empty(), tradeIds, timeout, pollInterval);
+            @NonNull SigningIdentity identity, @NonNull String orderId,
+            @NonNull List<String> tradeIds, @NonNull Duration timeout,
+            @NonNull Duration pollInterval) throws IOException {
+        return poll(credentials, identity, orderId, Optional.empty(), tradeIds, timeout, pollInterval);
     }
 
     /** The Combo form: the RFQ ID travels with the outcome so a Pending stays recoverable. */
     public ReconciliationOutcome reconcile(@NonNull ApiCredentials credentials,
-            @NonNull String address, @NonNull String orderId, @NonNull String rfqId,
+            @NonNull SigningIdentity identity, @NonNull String orderId, @NonNull String rfqId,
             @NonNull List<String> tradeIds, @NonNull Duration timeout,
             @NonNull Duration pollInterval) throws IOException {
         if (rfqId.isBlank()) throw new IllegalArgumentException("rfqId must not be blank");
-        return poll(credentials, address, orderId, Optional.of(rfqId), tradeIds, timeout,
+        return poll(credentials, identity, orderId, Optional.of(rfqId), tradeIds, timeout,
                 pollInterval);
     }
 
-    private ReconciliationOutcome poll(ApiCredentials credentials, String address, String orderId,
-            Optional<String> rfqId, List<String> tradeIds, Duration timeout, Duration pollInterval)
-            throws IOException {
-        requireReconcilable(address, orderId, tradeIds, timeout, pollInterval);
+    private ReconciliationOutcome poll(ApiCredentials credentials, SigningIdentity identity,
+            String orderId, Optional<String> rfqId, List<String> tradeIds, Duration timeout,
+            Duration pollInterval) throws IOException {
+        requireReconcilable(orderId, tradeIds, timeout, pollInterval);
         ReconciliationOutcome pending =
                 new ReconciliationOutcome.Pending(orderId, tradeIds, rfqId);
         Instant deadline = clock.instant().plus(timeout);
 
         while (true) {
             Optional<ReconciliationOutcome> resolved =
-                    classify(tradeReader.byIds(credentials, address, tradeIds), tradeIds);
+                    classify(tradeReader.byIds(credentials, identity, tradeIds), tradeIds);
             if (resolved.isPresent()) return resolved.get();
 
             // The deadline binds the network work too, so a slow response cannot overshoot it.
@@ -207,12 +224,8 @@ public final class Trading {
         return problems;
     }
 
-    private static void requireReconcilable(String address, String orderId, List<String> tradeIds,
+    private static void requireReconcilable(String orderId, List<String> tradeIds,
             Duration timeout, Duration pollInterval) {
-        if (!address.matches("0x[0-9a-fA-F]{40}")) {
-            throw new IllegalArgumentException(
-                    "address must be a 0x-prefixed 20-byte hex address, got: " + address);
-        }
         if (orderId.isBlank()) throw new IllegalArgumentException("orderId must not be blank");
         if (tradeIds.isEmpty()) {
             throw new IllegalArgumentException("reconcile needs at least one trade id");

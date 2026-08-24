@@ -16,6 +16,7 @@ Machine-readable companions live in `src/test/resources/protocol/` and are enfor
 | `builder-trades.json` | Required `builder_code`, `before`/`after` continuation, cursor sentinels, unix vs ISO timestamp units |
 | `heartbeat.json` | Bodyless `POST /heartbeats` contract and the unlisted id-chaining variant |
 | `combo-markets.json` | Combo markets catalog endpoint, query bounds, YES/NO index alignment, cursor semantics |
+| `order-submission.json` | `SendOrderResponse` required/optional fields incl. `transactionsHashes`, `POST /orders` array shape, `CancelOrdersResponse` contract, order-identifier syntax evidence |
 
 Stream frames are **not** covered here; another ticket owns `streams.json` and the AsyncAPI rows.
 
@@ -42,6 +43,13 @@ Re-fetch, re-hash, and if a hash moved, re-read that page before trusting any fi
 | `https://docs.polymarket.com/api-reference/trade/send-heartbeat.md` | 2026-08-23 | `983e93c10d697ba4cb19d98a8bf9d2fff19d19d5fac2c98ad0bd73ea382014b0` | rendered from clob-openapi.yaml |
 | `https://docs.polymarket.com/llms.txt` | 2026-08-23 | `e80d08b8d48451104ba53d603eb46b6e507e5335184be4c4620840a62888d420` | documentation index, 313 lines |
 | `https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets` | 2026-08-24 | live response, not hashed | unversioned; observed shape pinned in `combo-markets.json` |
+| `https://docs.polymarket.com/api-reference/trade/post-a-new-order.md` | 2026-08-24 | `6c1924f515da4d960337a2db67b37c3d43965dbaa5b8616bd02d95a0a789e8f5` | rendered from clob-openapi.yaml |
+| `https://docs.polymarket.com/api-reference/trade/cancel-multiple-orders.md` | 2026-08-24 | `41f701ad7f4503a0b4a17d9452aa4eb2e70517d7e5658d493417e806b0705983` | rendered from clob-openapi.yaml |
+| `https://docs.polymarket.com/trading/manage-orders.md` | 2026-08-24 | `e4a0238db31d5137b4d0da0d4333b1fb90be8f7c7b47d92968edfd993c8c4482` | prose |
+
+Re-fetched on **2026-08-24** for issues #14/#17: `clob-openapi.yaml` still hashes to
+`82529177635db366c31a08777355b4b95c392a427298c3ba68904b937d4594da`, so the 2026-08-23 pin above
+still covers every schema `order-submission.json` cites.
 
 Out of scope for this refresh, unchanged from the previous review: Gamma OpenAPI, Combos RFQ
 OpenAPI (quoter/maker only), Relayer / Bridge / Perps OpenAPI, and the AsyncAPI documents.
@@ -61,6 +69,9 @@ OpenAPI (quoter/maker only), Relayer / Bridge / Perps OpenAPI, and the AsyncAPI 
 | Combo markets catalog, YES/NO index alignment, `next_cursor` | `https://docs.polymarket.com/trading/combos/market-makers.md` (Get Combo Markets) |
 | Exchange V2 typed data, GTD rules, side encoding, tick precision table | `https://docs.polymarket.com/trading/place-orders.md` |
 | Exchange V3 typed data, ERC-7739 wrapping | `https://docs.polymarket.com/trading/combos/market-makers.md` |
+| `SendOrderResponse` fields incl. `transactionsHashes`, `CancelOrdersResponse` contract, absence of an order-ID pattern | `https://docs.polymarket.com/api-spec/clob-openapi.yaml` |
+| Real 32-byte order-hash example (`OpenOrder.id`) | `https://docs.polymarket.com/trading/manage-orders.md` |
+| `POLY_ADDRESS` is "Ethereum address associated with the API key"; `maker_address` is "Maker address to filter trades" | `https://docs.polymarket.com/api-spec/clob-openapi.yaml` (`securitySchemes.polyAddress`, `GET /data/trades`) |
 | Contract addresses | `https://docs.polymarket.com/resources/contracts.md` |
 | Dated behaviour changes | `https://docs.polymarket.com/changelog/predictions.md` |
 
@@ -196,3 +207,22 @@ In every case the fixture states the OFFICIAL value.
 11. `internal/portfolio/PortfolioGateway` caps Data API `/trades` at limit 500 / offset 1000 and
     cites `constraints.json` for it. The pinned spec values are 10000 / 10000; the 500/1000 figures
     come from the superseded 2025-08-26 changelog entry.
+
+12. `internal/trading/TradeReaderGateway` used ONE caller-supplied address for both the L2
+    `POLY_ADDRESS` header and the required `maker_address` trade filter. `POLY_ADDRESS` is the
+    "Ethereum address associated with the API key" (the Account Signer); `maker_address` filters on
+    the maker of the order (the Trading Wallet). They coincide only for an EOA, so a Proxy, Safe or
+    Deposit Trading Wallet could not reconcile at all. **Fixed by issue #14**: the port now takes a
+    `SigningIdentity`.
+13. `SubmissionOutcome.Accepted` dropped `transactionsHashes`, a documented `SendOrderResponse`
+    field. `constraints.json.settlement` (changelog Jul 17, 2026) and the live `clob-openapi.yaml`
+    contradict each other on whether `POST /order` still returns it; both are official. **Fixed by
+    issue #14**: the field is carried when present and never required. See
+    `order-submission.json.sendOrderResponse.settlementContradiction`.
+14. Order-identifier syntax is **not** constrained by the official spec. Every `orderID` /
+    `order_id` / `order_ids` field in `clob-openapi.yaml` is a bare `type: string` with no
+    `pattern`, while sibling fields in the same schemas do carry patterns. The published examples
+    disagree on length: `SendOrderResponse.orderID` and `CancelOrderPayload.orderID` show 0x + 40
+    hex, while `GET /data/order/{orderID}`, `GET /order-scoring` and `manage-orders.md` show
+    0x + 64 hex. Issue #17 therefore enforces only the 0x-hex **shape** every official example
+    shares, never a length. See `order-submission.json.orderIdentifierSyntax`.

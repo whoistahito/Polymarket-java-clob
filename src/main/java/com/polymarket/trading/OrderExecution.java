@@ -40,7 +40,7 @@ public record OrderExecution(
     public static OrderExecution of(@NonNull GoodTilDateOrder intent, @NonNull MarketRules rules) {
         return new OrderExecution(intent.asset(), intent.side(), intent.price(), intent.size(),
                 rules.notional(intent.price(), intent.size()), rules, OrderType.GTD, false,
-                intent.wireExpirationSeconds());
+                intent.expirationSeconds());
     }
 
     /** Legs priced at the plan's Protected Price, never at the blended average of the walk. */
@@ -74,6 +74,6 @@ public record OrderExecution(
         Price protectedPrice = plan.protectedPrice();
         return new OrderExecution(asset, side, protectedPrice, plan.shares(),
                 rules.notional(protectedPrice, plan.shares()), rules,
-                policy == ExecutionPolicy.FOK ? OrderType.FOK : OrderType.FAK, false, 0L);
+                policy.orderType(), false, 0L);
     }
 }

@@ -41,6 +41,7 @@ class TradeReconciliationTest {
             "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
             "c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldA==", "hex-passphrase");
     private static final Instant START = Instant.ofEpochSecond(1_800_000_000L);
+    private static final SigningIdentity EOA = SigningIdentity.eoa(SIGNER.address());
     private static final String MAKER_FILTER =
             "maker_address=0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 
@@ -124,7 +125,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1", "t2"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -159,7 +160,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -178,7 +179,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1", "t2"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -196,7 +197,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofSeconds(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofDays(1), Duration.ZERO);
         }
 
@@ -214,7 +215,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofSeconds(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofDays(1), Duration.ZERO);
         }
 
@@ -231,7 +232,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofSeconds(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofDays(1), Duration.ZERO);
         }
 
@@ -247,7 +248,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -266,7 +267,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -281,7 +282,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(30), Duration.ZERO);
         }
 
@@ -301,7 +302,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofHours(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(1), Duration.ZERO);
         }
 
@@ -320,7 +321,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofHours(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1", "rfq-7",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1", "rfq-7",
                     List.of("t1", "t2"), Duration.ofSeconds(1), Duration.ZERO);
         }
 
@@ -339,7 +340,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofMinutes(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(30), Duration.ofHours(2));
         }
 
@@ -354,7 +355,7 @@ class TradeReconciliationTest {
 
         ReconciliationOutcome outcome;
         try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofHours(1)))) {
-            outcome = sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                     List.of("t1"), Duration.ofSeconds(1), Duration.ZERO);
         }
 
@@ -372,7 +373,7 @@ class TradeReconciliationTest {
 
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
             assertInstanceOf(ReconciliationOutcome.Confirmed.class,
-                    sdk.trading().reconcile(CREDENTIALS, SIGNER.address(), "order-1",
+                    sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
                             List.of("t1"), Duration.ofSeconds(30), Duration.ZERO));
 
             PositionSnapshot after = sdk.portfolio()
@@ -387,25 +388,45 @@ class TradeReconciliationTest {
     void identifiersAndDurationsAreValidatedBeforeSending() throws Exception {
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
             var trading = sdk.trading();
+            assertThrows(IllegalArgumentException.class, () -> SigningIdentity.eoa("0xnope"));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    "0xnope", "order-1", List.of("t1"), Duration.ofSeconds(1), Duration.ZERO));
+                    EOA, " ", List.of("t1"), Duration.ofSeconds(1), Duration.ZERO));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), " ", List.of("t1"), Duration.ofSeconds(1), Duration.ZERO));
+                    EOA, "order-1", List.of(), Duration.ofSeconds(1), Duration.ZERO));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), "order-1", List.of(), Duration.ofSeconds(1), Duration.ZERO));
-            assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), "order-1", List.of("t1", "t1"), Duration.ofSeconds(1),
+                    EOA, "order-1", List.of("t1", "t1"), Duration.ofSeconds(1),
                     Duration.ZERO));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), "order-1", List.of("t1"), Duration.ofSeconds(-1),
+                    EOA, "order-1", List.of("t1"), Duration.ofSeconds(-1),
                     Duration.ZERO));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), "order-1", List.of("t1"), Duration.ofSeconds(1),
+                    EOA, "order-1", List.of("t1"), Duration.ofSeconds(1),
                     Duration.ofSeconds(-1)));
             assertThrows(IllegalArgumentException.class, () -> trading.reconcile(CREDENTIALS,
-                    SIGNER.address(), "order-1", " ", List.of("t1"), Duration.ofSeconds(1),
+                    EOA, "order-1", " ", List.of("t1"), Duration.ofSeconds(1),
                     Duration.ZERO));
         }
         assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RC-015: a Proxy Trading Wallet signs as the Account Signer but filters on the wallet")
+    void proxyWalletSignsAsSignerAndFiltersOnTheTradingWallet() throws Exception {
+        SigningIdentity proxy = SigningIdentity.deriveProxyWallet(SIGNER.address());
+        server.enqueue(new MockResponse().setBody(
+                "{\"limit\":100,\"next_cursor\":\"LTE=\",\"count\":0,\"data\":[]}"));
+
+        try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
+            sdk.trading().reconcile(CREDENTIALS, proxy, "order-1", List.of("t1"),
+                    Duration.ZERO, Duration.ZERO);
+        }
+
+        // POLY_ADDRESS is the address associated with the API key (the Account Signer);
+        // maker_address filters on the maker of the order (the Trading Wallet). They differ here.
+        RecordedRequest request = server.takeRequest();
+        assertEquals(SIGNER.address(), request.getHeader("POLY_ADDRESS"));
+        assertTrue(request.getPath().contains("maker_address=" + proxy.tradingWallet()),
+                request.getPath());
+        assertTrue(!proxy.tradingWallet().equalsIgnoreCase(proxy.accountSigner()));
     }
 }
