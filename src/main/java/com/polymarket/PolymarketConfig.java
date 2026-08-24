@@ -2,7 +2,6 @@ package com.polymarket;
 
 import java.net.URI;
 import java.time.Duration;
-import java.util.Objects;
 
 /**
  * SDK-owned network configuration. Exposes only JDK types, so a transport-library
@@ -103,6 +102,6 @@ public final class PolymarketConfig {
     }
 
     private static <T> T require(T value) {
-        return Objects.requireNonNull(value);
+        return value;
     }
 }

@@ -4,14 +4,15 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Live CLOB order books. Every call is a credential-free read of the exchange itself. */
 public final class OrderBooks {
 
     private final OrderBookSource source;
 
-    public OrderBooks(OrderBookSource source) {
-        this.source = Objects.requireNonNull(source, "source");
+    public OrderBooks(@NonNull OrderBookSource source) {
+        this.source = source;
     }
 
     /** Empty when the exchange keeps no book for that token. */

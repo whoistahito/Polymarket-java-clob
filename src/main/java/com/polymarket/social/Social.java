@@ -4,14 +4,15 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Public profile, comment and search reads. Every call is a credential-free Gamma read. */
 public final class Social {
 
     private final SocialDirectory directory;
 
-    public Social(SocialDirectory directory) {
-        this.directory = Objects.requireNonNull(directory, "directory");
+    public Social(@NonNull SocialDirectory directory) {
+        this.directory = directory;
     }
 
     /** Empty when Gamma does not know the address. */

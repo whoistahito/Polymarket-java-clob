@@ -9,9 +9,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import lombok.NonNull;
 
 /** Public reward reads. One call returns one page; walking pages is the caller's decision. */
 public final class Rewards {
@@ -19,20 +19,19 @@ public final class Rewards {
     private final SigningAuthority authority;
     private final RewardLedger ledger;
 
-    public Rewards(SigningAuthority authority, RewardLedger ledger) {
-        this.authority = Objects.requireNonNull(authority, "authority");
-        this.ledger = Objects.requireNonNull(ledger, "ledger");
+    public Rewards(@NonNull SigningAuthority authority, @NonNull RewardLedger ledger) {
+        this.authority = authority;
+        this.ledger = ledger;
     }
 
     /** First page of the reward programmes configured on one market. Needs no credentials. */
-    public RewardPage<RewardedMarket> marketRewards(String conditionId) throws IOException {
+    public RewardPage<RewardedMarket> marketRewards(@NonNull String conditionId) throws IOException {
         return marketRewards(conditionId, RewardCursor.first());
     }
 
-    public RewardPage<RewardedMarket> marketRewards(String conditionId, RewardCursor cursor)
-            throws IOException {
-        return ledger.marketRewards(requireConditionId(conditionId),
-                Objects.requireNonNull(cursor, "cursor"));
+    public RewardPage<RewardedMarket> marketRewards(@NonNull String conditionId,
+            @NonNull RewardCursor cursor) throws IOException {
+        return ledger.marketRewards(requireConditionId(conditionId), cursor);
     }
 
     /**
@@ -59,8 +58,9 @@ public final class Rewards {
         return currentRewards(RewardCursor.first());
     }
 
-    public RewardPage<CurrentMarketRewards> currentRewards(RewardCursor cursor) throws IOException {
-        return ledger.currentRewards(Objects.requireNonNull(cursor, "cursor"));
+    public RewardPage<CurrentMarketRewards> currentRewards(@NonNull RewardCursor cursor)
+            throws IOException {
+        return ledger.currentRewards(cursor);
     }
 
     /** First page of rewarded markets with their trading metrics. Unbounded, so page by page. */
@@ -68,25 +68,24 @@ public final class Rewards {
         return rewardedMarkets(RewardCursor.first());
     }
 
-    public RewardPage<RewardedMarket> rewardedMarkets(RewardCursor cursor) throws IOException {
-        return ledger.rewardedMarkets(Objects.requireNonNull(cursor, "cursor"));
+    public RewardPage<RewardedMarket> rewardedMarkets(@NonNull RewardCursor cursor)
+            throws IOException {
+        return ledger.rewardedMarkets(cursor);
     }
 
     /** First page of the maker's per-market earnings for one day. L2-authenticated. */
-    public RewardPage<UserEarning> earnings(LocalDate date) throws IOException {
+    public RewardPage<UserEarning> earnings(@NonNull LocalDate date) throws IOException {
         return earnings(date, RewardCursor.first());
     }
 
-    public RewardPage<UserEarning> earnings(LocalDate date, RewardCursor cursor)
+    public RewardPage<UserEarning> earnings(@NonNull LocalDate date, @NonNull RewardCursor cursor)
             throws IOException {
-        return ledger.earnings(credentials("earnings"), address("earnings"),
-                Objects.requireNonNull(date, "date"), Objects.requireNonNull(cursor, "cursor"));
+        return ledger.earnings(credentials("earnings"), address("earnings"), date, cursor);
     }
 
     /** The maker's earnings for one day summed per reward asset. Not paginated by the CLOB. */
-    public List<UserEarning> totalEarnings(LocalDate date) throws IOException {
-        return ledger.totalEarnings(credentials("totalEarnings"), address("totalEarnings"),
-                Objects.requireNonNull(date, "date"));
+    public List<UserEarning> totalEarnings(@NonNull LocalDate date) throws IOException {
+        return ledger.totalEarnings(credentials("totalEarnings"), address("totalEarnings"), date);
     }
 
     /** Live share of each market's rewards the maker is earning, keyed by condition id. */
@@ -96,15 +95,15 @@ public final class Rewards {
     }
 
     /** First page of rewarded markets with the maker's earnings on each. L2-authenticated. */
-    public RewardPage<UserRewardedMarket> userRewardedMarkets(LocalDate date) throws IOException {
+    public RewardPage<UserRewardedMarket> userRewardedMarkets(@NonNull LocalDate date)
+            throws IOException {
         return userRewardedMarkets(date, RewardCursor.first());
     }
 
-    public RewardPage<UserRewardedMarket> userRewardedMarkets(LocalDate date, RewardCursor cursor)
-            throws IOException {
+    public RewardPage<UserRewardedMarket> userRewardedMarkets(@NonNull LocalDate date,
+            @NonNull RewardCursor cursor) throws IOException {
         return ledger.userRewardedMarkets(credentials("userRewardedMarkets"),
-                address("userRewardedMarkets"), Objects.requireNonNull(date, "date"),
-                Objects.requireNonNull(cursor, "cursor"));
+                address("userRewardedMarkets"), date, cursor);
     }
 
     private ApiCredentials credentials(String operation) {
@@ -116,7 +115,6 @@ public final class Rewards {
     }
 
     private static String requireConditionId(String conditionId) {
-        Objects.requireNonNull(conditionId, "conditionId");
         if (conditionId.isBlank()) {
             throw new IllegalArgumentException("conditionId must not be blank");
         }

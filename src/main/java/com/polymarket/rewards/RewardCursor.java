@@ -1,7 +1,7 @@
 package com.polymarket.rewards;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * A CLOB reward pagination cursor. It travels in the documented {@code next_cursor} query
@@ -23,8 +23,7 @@ public final class RewardCursor {
         return new RewardCursor(FIRST_PAGE);
     }
 
-    public static RewardCursor of(String value) {
-        Objects.requireNonNull(value, "value");
+    public static RewardCursor of(@NonNull String value) {
         if (value.isBlank()) throw new IllegalArgumentException("cursor must not be blank");
         if (LAST_PAGE.equals(value)) {
             throw new IllegalArgumentException("LTE= is the end of the walk, not a page to request");
@@ -33,8 +32,7 @@ public final class RewardCursor {
     }
 
     /** Empty when the server ended the walk, said nothing, or handed back the cursor just sent. */
-    public static Optional<RewardCursor> next(RewardCursor sent, String raw) {
-        Objects.requireNonNull(sent, "sent");
+    public static Optional<RewardCursor> next(@NonNull RewardCursor sent, String raw) {
         if (raw == null || raw.isBlank() || LAST_PAGE.equals(raw) || sent.value.equals(raw)) {
             return Optional.empty();
         }

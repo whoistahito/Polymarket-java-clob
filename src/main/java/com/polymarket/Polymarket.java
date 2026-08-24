@@ -34,8 +34,8 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.NonNull;
 
 /**
  * Entry point to the Polymarket SDK. Construction needs no credentials and performs no
@@ -94,8 +94,8 @@ public final class Polymarket implements AutoCloseable {
         return with(config, SigningAuthority.none());
     }
 
-    public static Polymarket with(PolymarketConfig config, SigningAuthority authority) {
-        Objects.requireNonNull(config, "config");
+    public static Polymarket with(@NonNull PolymarketConfig config,
+            @NonNull SigningAuthority authority) {
         return new Polymarket(config, new HttpRuntime(config.connectTimeout(),
                 config.requestTimeout(), config.readRetryPolicy()), authority, Clock.systemUTC());
     }
@@ -105,10 +105,9 @@ public final class Polymarket implements AutoCloseable {
         return with(config, runtime, SigningAuthority.none(), Clock.systemUTC());
     }
 
-    static Polymarket with(PolymarketConfig config, HttpRuntime runtime,
-            SigningAuthority authority, Clock clock) {
-        return new Polymarket(Objects.requireNonNull(config), Objects.requireNonNull(runtime),
-                Objects.requireNonNull(authority), Objects.requireNonNull(clock));
+    static Polymarket with(@NonNull PolymarketConfig config, @NonNull HttpRuntime runtime,
+            @NonNull SigningAuthority authority, @NonNull Clock clock) {
+        return new Polymarket(config, runtime, authority, clock);
     }
 
     public PolymarketConfig config() {

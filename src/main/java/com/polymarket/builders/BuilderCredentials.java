@@ -1,15 +1,10 @@
 package com.polymarket.builders;
 
-import java.util.Objects;
+import lombok.NonNull;
 
 /** Builder API-key credentials, returned once on creation. All three parts are secret. */
-public record BuilderCredentials(String key, String secret, String passphrase) {
+public record BuilderCredentials(@NonNull String key, @NonNull String secret, @NonNull String passphrase) {
 
-    public BuilderCredentials {
-        Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(secret, "secret");
-        Objects.requireNonNull(passphrase, "passphrase");
-    }
 
     @Override
     public String toString() {

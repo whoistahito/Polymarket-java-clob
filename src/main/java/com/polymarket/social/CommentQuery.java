@@ -1,7 +1,7 @@
 package com.polymarket.social;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Immutable filter for the general comment listing. {@code limit} is required so no read is unbounded. */
 public final class CommentQuery {
@@ -49,9 +49,7 @@ public final class CommentQuery {
     }
 
     /** Both fields travel together: Gamma has no route filtered by id alone. */
-    public CommentQuery forEntity(ParentEntityType type, String id) {
-        Objects.requireNonNull(type, "type");
-        Objects.requireNonNull(id, "id");
+    public CommentQuery forEntity(@NonNull ParentEntityType type, @NonNull String id) {
         return new CommentQuery(limit, offset, order, ascending, type, id, includePositions,
                 holdersOnly);
     }
