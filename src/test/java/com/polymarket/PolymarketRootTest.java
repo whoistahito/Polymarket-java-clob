@@ -172,6 +172,18 @@ class PolymarketRootTest {
         assertThrows(IllegalStateException.class, sdk::rtds);
     }
 
+    @Test
+    @DisplayName("TC-PR-011: Builders is reached through the root, never by constructing a gateway")
+    void buildersAreOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.builders.Builders builders = sdk.builders();
+        assertSame(builders, sdk.builders(), "the root must own one Builders capability");
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, sdk::builders);
+    }
+
     private PolymarketConfig config() {
         URI host = server.url("/").uri();
         return PolymarketConfig.defaults()
