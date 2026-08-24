@@ -143,4 +143,26 @@ class OrderSignerTest {
         assertEquals(5_200_000L, signed.makerAmount(), "5.20 pUSD in six-decimal base units");
         assertEquals(10_000_000L, signed.takerAmount(), "10 shares in six-decimal base units");
     }
+
+    @Test
+    @DisplayName("TC-OS-009: an order leg worth nothing is refused before signing")
+    void aZeroLegIsRefused() {
+        SigningContext context = SigningContext.of(SigningIdentity.eoa(LOCAL_SIGNER.address()),
+                LOCAL_SIGNER, 1L, Instant.ofEpochSecond(1_800_000_000));
+        MarketRules noMinimum = new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0"), false);
+
+        assertThrows(IllegalArgumentException.class, () -> signer.sign(new TokenId("123"),
+                Side.BUY, PusdAmount.of("0"), ShareQuantity.of("10"), noMinimum, context));
+        assertThrows(IllegalArgumentException.class, () -> signer.sign(new TokenId("123"),
+                Side.BUY, PusdAmount.of("5.2"), ShareQuantity.of("0"), noMinimum, context));
+    }
+
+    @Test
+    @DisplayName("TC-OS-010: an asset identifier that is not a uint256 cannot reach the signer")
+    void anInvalidIdentifierFailsAtItsOwnBoundary() {
+        // The signer takes a sealed AssetId, so a malformed identifier fails before it exists.
+        assertThrows(IllegalArgumentException.class, () -> new TokenId("0xabc"));
+        assertThrows(IllegalArgumentException.class, () -> new TokenId("-1"));
+        assertThrows(IllegalArgumentException.class, () -> new TokenId("12.5"));
+    }
 }

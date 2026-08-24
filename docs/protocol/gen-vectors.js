@@ -71,7 +71,7 @@ const v3Order = (signatureType, maker, signer) => ({
   builder: ZERO32,
 });
 
-const depositWrapper = (contents, exchangeDomain) => ({
+const depositWrapper = (contents) => ({
   contents,
   name: "DepositWallet",
   version: "1",
@@ -80,9 +80,25 @@ const depositWrapper = (contents, exchangeDomain) => ({
   salt: ZERO32,
 });
 
+const ORDER_TYPE_STRING = ethers.TypedDataEncoder.from({ Order: ORDER_TYPE }).encodeType("Order");
+
+// The exact ERC-7739 envelope published as wrapDepositWalletSignature() on
+// docs.polymarket.com/trading/place-orders and /trading/combos/market-makers:
+// innerSignature || appDomainSeparator || contentsHash || contentsDescr || uint16(len).
+function wrapDepositWalletSignature(innerSignature, dom, contents) {
+  return ethers.concat([
+    innerSignature,
+    ethers.TypedDataEncoder.hashDomain(dom),
+    ethers.TypedDataEncoder.hashStruct("Order", { Order: ORDER_TYPE }, contents),
+    ethers.toUtf8Bytes(ORDER_TYPE_STRING),
+    ethers.toBeHex(ORDER_TYPE_STRING.length, 2),
+  ]);
+}
+
 async function vector(id, note, dom, types, primaryType, message) {
   const enc = ethers.TypedDataEncoder.from(types);
-  return {
+  const signature = await wallet.signTypedData(dom, types, message);
+  const vec = {
     id,
     note,
     domain: dom,
@@ -95,8 +111,16 @@ async function vector(id, note, dom, types, primaryType, message) {
     structHash: ethers.TypedDataEncoder.hashStruct(primaryType, types, message),
     digest: ethers.TypedDataEncoder.hash(dom, types, message),
     signerAddress: wallet.address,
-    signature: await wallet.signTypedData(dom, types, message),
+    signature,
   };
+  if (primaryType === "TypedDataSign") {
+    vec.contentsDescr = ORDER_TYPE_STRING;
+    vec.contentsHash = ethers.TypedDataEncoder.hashStruct(
+      "Order", { Order: ORDER_TYPE }, message.contents);
+    // What the exchange's ERC-1271 check verifies. `signature` above is only its first 65 bytes.
+    vec.wrappedSignature = wrapDepositWalletSignature(signature, dom, message.contents);
+  }
+  return vec;
 }
 
 (async () => {
@@ -117,13 +141,17 @@ async function vector(id, note, dom, types, primaryType, message) {
     await vector("v2-deposit-wallet",
       "Exchange V2 token order, Deposit Wallet (signatureType 3) wrapped for ERC-7739",
       v2Dom, { Order: ORDER_TYPE, TypedDataSign: TYPED_DATA_SIGN_TYPE }, "TypedDataSign",
-      depositWrapper(v2Order(3, DEPOSIT_WALLET, eoa), v2Dom)),
+      depositWrapper(v2Order(3, DEPOSIT_WALLET, eoa))),
     await vector("v3-eoa", "Exchange V3 Combo position order, EOA (signatureType 0)",
       v3Dom, { Order: ORDER_TYPE }, "Order", v3Order(0, eoa, eoa)),
+    await vector("v3-proxy", "Exchange V3 Combo position order, Proxy Wallet (signatureType 1)",
+      v3Dom, { Order: ORDER_TYPE }, "Order", v3Order(1, DEPOSIT_WALLET, eoa)),
+    await vector("v3-safe", "Exchange V3 Combo position order, Safe Wallet (signatureType 2)",
+      v3Dom, { Order: ORDER_TYPE }, "Order", v3Order(2, DEPOSIT_WALLET, eoa)),
     await vector("v3-deposit-wallet",
       "Exchange V3 Combo position order, Deposit Wallet (signatureType 3) wrapped for ERC-7739",
       v3Dom, { Order: ORDER_TYPE, TypedDataSign: TYPED_DATA_SIGN_TYPE }, "TypedDataSign",
-      depositWrapper(v3Order(3, DEPOSIT_WALLET, eoa), v3Dom)),
+      depositWrapper(v3Order(3, DEPOSIT_WALLET, eoa))),
   ];
 
   console.log(JSON.stringify({
