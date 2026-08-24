@@ -1,0 +1,112 @@
+{
+  "reviewedOn": "2026-08-24",
+  "sources": [
+    "https://docs.polymarket.com/trading/combos/market-makers.md",
+    "https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets"
+  ],
+  "sourceSha256": {
+    "https://docs.polymarket.com/trading/combos/market-makers.md": "2ebce652431e732c07356c207c623181d880d3e9c1beb61a77790357837d2232"
+  },
+  "docSection": "Get Combo Markets",
+  "note": "The Combo markets catalog is how leg Position IDs are discovered. It replaces any local CTF position-id computation, which is out of scope for this SDK.",
+
+  "endpoint": {
+    "method": "GET",
+    "host": "https://combos-rfq-api.polymarket.com",
+    "path": "/v1/rfq/combo-markets",
+    "authenticated": false,
+    "ordering": "markets are ordered by volume descending"
+  },
+
+  "query": {
+    "limit": {
+      "documented": "--data-urlencode \"limit=50\"",
+      "observedMinimum": 1,
+      "observedMaximum": 100,
+      "observedOn": "2026-08-24",
+      "rejectionBodies": {
+        "0": "{\"error\":\"invalid limit\"}",
+        "101": "{\"error\":\"invalid rfq: invalid limit\"}"
+      }
+    },
+    "cursor": "opaque; send back the previous page's next_cursor verbatim",
+    "exclude": "comma-separated condition_id list; omits those markets from the page"
+  },
+
+  "responseFields": {
+    "topLevel": ["markets", "next_cursor"],
+    "market": ["id", "condition_id", "position_ids", "slug", "title", "outcomes", "outcome_prices", "image", "volume", "tags"],
+    "undocumentedButObserved": ["pending"]
+  },
+
+  "indexAlignment": {
+    "rule": "position_ids, outcomes and outcome_prices are aligned by array index. Index 0 is the YES outcome, index 1 is the NO outcome.",
+    "yesIndex": 0,
+    "noIndex": 1
+  },
+  "nextCursor": {
+    "nullMeansNoMorePages": true,
+    "observedFirstPageCursorAtLimitTwo": "NA"
+  },
+  "idKind": "position_ids are the underlying market outcome position IDs a Combo RFQ names as leg_position_ids - not CLOB token IDs and not the derived Combo position ID",
+
+  "documentedExampleResponse": {
+    "markets": [
+      {
+        "id": "1897034",
+        "condition_id": "0x4cd7...110ff",
+        "position_ids": ["1012585...362880", "1012585...362881"],
+        "slug": "fifwc-mex-rsa-2026-06-11-mex",
+        "title": "Will Mexico win on 2026-06-11?",
+        "outcomes": ["Yes", "No"],
+        "outcome_prices": ["0.685", "0.315"],
+        "image": "https://...",
+        "volume": 330327.7128580074,
+        "tags": ["sports", "soccer", "games", "world-cup"]
+      }
+    ],
+    "next_cursor": "Mg"
+  },
+
+  "observedResponse": {
+    "capturedOn": "2026-08-24",
+    "request": "GET /v1/rfq/combo-markets?limit=2",
+    "body": {
+      "markets": [
+        {
+          "id": "665374",
+          "condition_id": "0x5db999fad322cea2914535aae5517060c3f80ad6d8c0231cde2124a434d16846",
+          "position_ids": [
+            "798559951534518479645224261511384773234863312866932338530531601041078616064",
+            "798559951534518479645224261511384773234863312866932338530531601041078616065"
+          ],
+          "pending": true,
+          "slug": "will-the-us-invade-iran-before-2027",
+          "title": "Will the U.S. invade Iran before 2027?",
+          "outcomes": ["Yes", "No"],
+          "outcome_prices": ["0.165", "0.835"],
+          "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/will-the-us-invade-iran-in-2025-0Eh3J0ku_Fbj.jpg",
+          "volume": 59479547.79032897,
+          "tags": ["politics", "iran", "trump", "middle-east", "israel", "geopolitics", "world", "military-strikes"]
+        },
+        {
+          "id": "567621",
+          "condition_id": "0xd9fb1184af0064e5e34b129f5b79afa5a17b7e32f2953ab05efed82315fee6d4",
+          "position_ids": [
+            "737627543131928977073597406197629922241678896546839963013331152486512197632",
+            "737627543131928977073597406197629922241678896546839963013331152486512197633"
+          ],
+          "pending": true,
+          "slug": "will-china-invade-taiwan-before-2027",
+          "title": "Will China invade Taiwan by end of 2026?",
+          "outcomes": ["Yes", "No"],
+          "outcome_prices": ["0.0375", "0.9625"],
+          "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/china-invades-taiwan-in-2025-CCSd9dX2mrea.jpg",
+          "volume": 40021304.65330001,
+          "tags": ["politics", "china", "geopolitics", "foreign-policy", "world", "earn-4"]
+        }
+      ],
+      "next_cursor": "NA"
+    }
+  }
+}

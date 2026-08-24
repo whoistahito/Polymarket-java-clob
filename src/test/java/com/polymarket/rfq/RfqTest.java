@@ -1,4 +1,4 @@
-package com.polymarket;
+package com.polymarket.rfq;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -10,12 +10,11 @@ import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
 import com.polymarket.internal.http.HttpRuntime;
+import com.polymarket.ReadRetryPolicy;
+import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
-import com.polymarket.rfq.Rfq;
-import com.polymarket.rfq.RfqOutcome;
-import com.polymarket.rfq.RfqRequest;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -59,9 +58,11 @@ class RfqTest {
 
     private Rfq rfq(Clock clock) {
         URI host = server.url("/").uri();
-        return new Rfq(new RfqGateway(host, new HttpRuntime(Duration.ofSeconds(2),
-                Duration.ofSeconds(5), ReadRetryPolicy.none(), d -> {
-                }), clock), clock);
+        HttpRuntime runtime = new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
+                ReadRetryPolicy.none(), d -> {
+                });
+        return new Rfq(new RfqGateway(host, runtime, clock),
+                new ComboMarketGateway(host, runtime), clock);
     }
 
     private void enqueue(String body) {
@@ -252,10 +253,11 @@ class RfqTest {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
         URI host = server.url("/").uri();
-        Rfq withRetries = new Rfq(new RfqGateway(host, new HttpRuntime(Duration.ofSeconds(2),
-                Duration.ofSeconds(5), new ReadRetryPolicy(5, Duration.ZERO, Duration.ZERO),
-                d -> {
-                }), FIXED), FIXED);
+        HttpRuntime runtime = new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
+                new ReadRetryPolicy(5, Duration.ZERO, Duration.ZERO), d -> {
+                });
+        Rfq withRetries = new Rfq(new RfqGateway(host, runtime, FIXED),
+                new ComboMarketGateway(host, runtime), FIXED);
 
         withRetries.request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
