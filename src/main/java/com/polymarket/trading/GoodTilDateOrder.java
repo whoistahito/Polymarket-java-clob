@@ -38,11 +38,22 @@ public record GoodTilDateOrder(
         return new GoodTilDateOrder(asset, side, price, size, expiresAt);
     }
 
+    @Override
+    public OrderType orderType() {
+        return OrderType.GTD;
+    }
+
+    @Override
+    public boolean postOnly() {
+        return false;
+    }
+
     /**
      * The value to put on the wire: the exchange subtracts its one-minute threshold, so the
      * caller's intended expiry has to be shifted forward to survive until then.
      */
-    public long wireExpirationSeconds() {
+    @Override
+    public long expirationSeconds() {
         return expiresAt.plus(SECURITY_THRESHOLD).getEpochSecond();
     }
 }

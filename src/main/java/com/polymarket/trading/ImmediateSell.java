@@ -35,4 +35,19 @@ public record ImmediateSell(
     public Side side() {
         return Side.SELL;
     }
+
+    @Override
+    public OrderType orderType() {
+        return policy.orderType();
+    }
+
+    @Override
+    public boolean postOnly() {
+        return false;
+    }
+
+    @Override
+    public long expirationSeconds() {
+        return 0L;
+    }
 }

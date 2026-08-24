@@ -39,34 +39,43 @@ public final class Trading {
         void sleep(Duration duration) throws InterruptedException;
     }
 
-    public Trading(OrderSigner signer, OrderSubmitter submitter, OrderBatch batch,
-            TradeReader tradeReader, Clock clock) {
+    public Trading(@NonNull OrderSigner signer, @NonNull OrderSubmitter submitter,
+            @NonNull OrderBatch batch, @NonNull TradeReader tradeReader, @NonNull Clock clock) {
         this(signer, submitter, batch, tradeReader, clock, d -> Thread.sleep(d.toMillis()));
     }
 
-    public Trading(OrderSigner signer, OrderSubmitter submitter, OrderBatch batch,
-            TradeReader tradeReader, Clock clock, Sleeper sleeper) {
-        this.signer = Objects.requireNonNull(signer, "signer");
-        this.submitter = Objects.requireNonNull(submitter, "submitter");
-        this.batch = Objects.requireNonNull(batch, "batch");
-        this.tradeReader = Objects.requireNonNull(tradeReader, "tradeReader");
-        this.clock = Objects.requireNonNull(clock, "clock");
-        this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
+    public Trading(@NonNull OrderSigner signer, @NonNull OrderSubmitter submitter,
+            @NonNull OrderBatch batch, @NonNull TradeReader tradeReader, @NonNull Clock clock,
+            @NonNull Sleeper sleeper) {
+        this.signer = signer;
+        this.submitter = submitter;
+        this.batch = batch;
+        this.tradeReader = tradeReader;
+        this.clock = clock;
+        this.sleeper = sleeper;
     }
 
-    public SignedOrder sign(AssetId asset, Side side, PusdAmount pusdLeg, ShareQuantity shareLeg,
-            MarketRules rules, SigningContext context) {
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
+            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+            @NonNull SigningContext context) {
         return signer.sign(asset, side, pusdLeg, shareLeg, rules, context);
     }
 
     /** Never replayed: one signed order produces exactly one {@code POST /order}. */
-    public SubmissionOutcome submit(SignedOrder order, OrderPlacement placement) {
+    public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement) {
         return submitter.submit(order, placement);
     }
 
-    public SubmissionOutcome place(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context, OrderPlacement placement) {
-        return submit(sign(asset, side, pusdLeg, shareLeg, rules, context), placement);
+    /** The Order Intent stays authoritative: a placement that restates it differently sends nothing. */
+    public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement,
+            @NonNull OrderIntent intent) {
+        return submitter.submit(order, placement.requireConsistentWith(intent));
+    }
+
+    /** Signs and submits one resolved Order Intent; Maker-Only and GTD ride along, never restated. */
+    public SubmissionOutcome place(@NonNull OrderExecution execution,
+            @NonNull SigningContext context, @NonNull ApiCredentials credentials) {
+        return submit(execution.sign(signer, context), execution.placement(credentials));
     }
 
     /** One {@code POST /orders} for the whole batch; a batch over the official limit sends nothing. */

@@ -11,10 +11,15 @@ import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PositionId;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
+import com.polymarket.trading.GoodTilDateOrder;
+import com.polymarket.trading.LimitOrder;
+import com.polymarket.trading.MakerOnlyLimitOrder;
+import com.polymarket.trading.OrderExecution;
 import com.polymarket.trading.OrderPlacement;
 import com.polymarket.trading.OrderType;
 import com.polymarket.trading.Side;
@@ -76,9 +81,12 @@ class TradingTest {
                 .withApiCredentials(CREDENTIALS);
     }
 
+    private static SigningContext context() {
+        return SigningContext.of(SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
+    }
+
     private SignedOrder signedOrder() {
-        SigningContext context = SigningContext.of(
-                SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
+        SigningContext context = context();
         try (Polymarket sdk = sdk()) {
             return sdk.trading().sign(new TokenId("123"), Side.BUY,
                     PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
@@ -293,5 +301,95 @@ class TradingTest {
         String body = server.takeRequest().getBody().readUtf8();
         assertTrue(body.contains("\"expiration\":\"1800000000\""), body);
         assertTrue(body.contains("\"postOnly\":true"), body);
+    }
+
+    @Test
+    @DisplayName("TC-TR-013: a Maker-Only Order Intent places a post-only GTC order it never restates")
+    void makerOnlyIntentRidesAlongToTheWire() throws Exception {
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
+
+        try (Polymarket sdk = sdk()) {
+            sdk.trading().place(OrderExecution.of(new MakerOnlyLimitOrder(new TokenId("123"),
+                    Side.BUY, Price.of("0.52"), ShareQuantity.of("10")), RULES), context(),
+                    CREDENTIALS);
+        }
+
+        String body = server.takeRequest().getBody().readUtf8();
+        assertTrue(body.contains("\"orderType\":\"GTC\""), body);
+        assertTrue(body.contains("\"postOnly\":true"), body);
+    }
+
+    @Test
+    @DisplayName("TC-TR-014: a GTD Order Intent derives its shifted expiration onto the wire")
+    void goodTilDateIntentRidesAlongToTheWire() throws Exception {
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
+
+        try (Polymarket sdk = sdk()) {
+            sdk.trading().place(OrderExecution.of(new GoodTilDateOrder(new TokenId("123"),
+                    Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
+                    Instant.ofEpochSecond(1_800_000_000L)), RULES), context(), CREDENTIALS);
+        }
+
+        String body = server.takeRequest().getBody().readUtf8();
+        assertTrue(body.contains("\"orderType\":\"GTD\""), body);
+        // constraints.json gtd.securityThresholdSeconds = 60: 1800000000 + 60.
+        assertTrue(body.contains("\"expiration\":\"1800000060\""), body);
+    }
+
+    @Test
+    @DisplayName("TC-TR-015: a placement contradicting its Order Intent sends nothing")
+    void contradictoryPlacementSendsNothing() throws Exception {
+        MakerOnlyLimitOrder intent = new MakerOnlyLimitOrder(
+                new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
+        SignedOrder order = signedOrder();
+
+        try (Polymarket sdk = sdk()) {
+            assertThrows(IllegalArgumentException.class, () -> sdk.trading()
+                    .submit(order, OrderPlacement.of(CREDENTIALS, OrderType.GTC), intent));
+        }
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-TR-016: an Order Intent invalid against its Market Rule Snapshot sends nothing")
+    void offGridAndUndersizedIntentsSendNothing() throws Exception {
+        TokenId asset = new TokenId("123");
+
+        assertThrows(IllegalArgumentException.class, () -> OrderExecution.of(
+                new LimitOrder(asset, Side.BUY, Price.of("0.525"), ShareQuantity.of("10")), RULES));
+        assertThrows(IllegalArgumentException.class, () -> OrderExecution.of(
+                new LimitOrder(asset, Side.BUY, Price.of("0.52"), ShareQuantity.of("0.5")), RULES));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-TR-017: a GTD expiration inside the official minimum lifetime sends nothing")
+    void tooSoonGoodTilDateSendsNothing() throws Exception {
+        // constraints.json gtd.minimumFutureSeconds = 180.
+        assertThrows(IllegalArgumentException.class, () -> GoodTilDateOrder.expiringAt(
+                new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
+                FIXED.instant().plusSeconds(179), FIXED));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-TR-018: a post-only attribute on an immediate order type sends nothing")
+    void postOnlyImmediateOrderSendsNothing() throws Exception {
+        assertThrows(IllegalArgumentException.class,
+                () -> OrderPlacement.of(CREDENTIALS, OrderType.FOK).asPostOnly());
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-TR-019: an amount beyond the 6-decimal pUSD grid sends nothing")
+    void unrepresentableAmountSendsNothing() throws Exception {
+        try (Polymarket sdk = sdk()) {
+            assertThrows(IllegalArgumentException.class, () -> sdk.trading().sign(
+                    new TokenId("123"), Side.BUY, PusdAmount.of("5.2"),
+                    ShareQuantity.of("10.0000001"), RULES, context()));
+        }
+        assertEquals(0, server.getRequestCount());
     }
 }

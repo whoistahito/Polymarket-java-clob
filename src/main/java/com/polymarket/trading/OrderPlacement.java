@@ -27,6 +27,28 @@ public record OrderPlacement(@NonNull ApiCredentials credentials, @NonNull Order
         }
     }
 
+    /** Derives every submission attribute from the Order Intent, so none can be restated wrongly. */
+    public static OrderPlacement forIntent(@NonNull ApiCredentials credentials,
+            @NonNull OrderIntent intent) {
+        return new OrderPlacement(credentials, intent.orderType(), intent.expirationSeconds(),
+                intent.postOnly());
+    }
+
+    /** Refuses a hand-built placement that contradicts its Order Intent, before anything is sent. */
+    public OrderPlacement requireConsistentWith(@NonNull OrderIntent intent) {
+        if (orderType != intent.orderType() || postOnly != intent.postOnly()
+                || expirationSeconds != intent.expirationSeconds()) {
+            throw new IllegalArgumentException("placement " + describe(orderType, expirationSeconds,
+                    postOnly) + " contradicts the Order Intent's " + describe(intent.orderType(),
+                    intent.expirationSeconds(), intent.postOnly()));
+        }
+        return this;
+    }
+
+    private static String describe(OrderType type, long expiration, boolean postOnly) {
+        return type + "/expiration=" + expiration + "/postOnly=" + postOnly;
+    }
+
     /** Every order type except GTD, which has no meaning without an expiration. */
     public static OrderPlacement of(ApiCredentials credentials, OrderType orderType) {
         return new OrderPlacement(credentials, orderType, 0L, false);

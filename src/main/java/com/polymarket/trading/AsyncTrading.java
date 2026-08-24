@@ -46,10 +46,15 @@ public final class AsyncTrading {
         return CompletableFuture.supplyAsync(() -> trading.submit(order, placement), executor);
     }
 
-    public CompletableFuture<SubmissionOutcome> place(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context, OrderPlacement placement) {
+    public CompletableFuture<SubmissionOutcome> submit(SignedOrder order, OrderPlacement placement,
+            OrderIntent intent) {
+        return CompletableFuture.supplyAsync(() -> trading.submit(order, placement, intent), executor);
+    }
+
+    public CompletableFuture<SubmissionOutcome> place(OrderExecution execution,
+            SigningContext context, ApiCredentials credentials) {
         return CompletableFuture.supplyAsync(
-                () -> trading.place(asset, side, pusdLeg, shareLeg, rules, context, placement), executor);
+                () -> trading.place(execution, context, credentials), executor);
     }
 
     public CompletableFuture<BatchSubmissionOutcome> submitBatch(List<BatchItem> items) {
