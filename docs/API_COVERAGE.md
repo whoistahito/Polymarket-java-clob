@@ -3,7 +3,7 @@
 What this SDK actually calls, grouped by 2.0 capability. Anything not marked **Supported** is not
 reachable through the public API: there is no raw-HTTP escape hatch to work around a gap.
 
-- **Last reviewed: 2026-08-18.** Every row was re-derived from `src/main/java/com/polymarket/` and its
+- **Last reviewed: 2026-08-24.** Every row was re-derived from `src/main/java/com/polymarket/` and its
   URL checked against `https://docs.polymarket.com/sitemap.xml`; the credential-free reads were
   confirmed against production by `mvn -Plive test`. The official inventory this release was designed
   against was pinned on 2026-08-16 (issue #1).
@@ -72,11 +72,11 @@ reachable through the public API: there is no raw-HTTP escape hatch to work arou
 | `reconcile(...)` | `GET clob /data/trades?id=` per trade id (L2) | https://docs.polymarket.com/api-reference/trade/get-trades | Supported |
 | `ImmediatePlanner` | none — pure depth walk over a live book | https://docs.polymarket.com/trading/place-orders | Supported (offline) |
 | `AsyncTrading` | the same endpoints, `CompletableFuture` decorator | — | Supported |
-| Open-order reads | `GET clob /data/orders`, `/data/order/{orderID}` | https://docs.polymarket.com/api-reference/trade/get-user-orders | Not supported |
+| Open-order reads | `GET clob /data/orders` (L2) | https://docs.polymarket.com/api-reference/trade/get-user-orders | Supported — on `Portfolio.openOrders(...)`, not on `Trading` |
 | Cancel single order | `DELETE clob /order` | https://docs.polymarket.com/api-reference/trade/cancel-single-order | Not supported — `cancel(...)` covers one id as a batch of one |
 | Cancel all / cancel by market | `DELETE clob /cancel-all`, `/cancel-market-orders` | https://docs.polymarket.com/api-reference/trade/cancel-all-orders | Not supported — an unbounded write whose per-order outcome cannot be reported |
 | Order scoring | `GET clob /order-scoring`, `/orders-scoring` | https://docs.polymarket.com/api-reference/trade/get-order-scoring-status | Not supported |
-| Balance / allowance | `GET clob /balance-allowance`, `POST /balance-allowance/update` | https://docs.polymarket.com/api-spec/clob-openapi.yaml | Not supported |
+| Balance / allowance | `GET clob /balance-allowance` (L2) | https://docs.polymarket.com/api-spec/clob-openapi.yaml | Supported (read) — on `Portfolio.collateralBalance()` / `.conditionalBalance(tokenId)`; the `POST` update is not supported |
 | Maker rebates | `GET clob /rebates/current` | https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker | Not supported |
 | V1 order signing, dynamic protocol-version resolution | — | — | Out of scope |
 | Split / merge / redeem / approval / collateral return | — | https://docs.polymarket.com/trading/combos/collateral-return | Out of scope |
@@ -96,7 +96,8 @@ reachable through the public API: there is no raw-HTTP escape hatch to work arou
 | Market positions / top holders | `GET data /v1/market-positions`, `/holders` | https://docs.polymarket.com/api-reference/core/get-top-holders-for-markets | Not supported |
 | Portfolio value / P&L | `GET data /value`, `/pnl` | https://docs.polymarket.com/api-reference/core/get-total-value-of-a-users-positions | Not supported |
 | Trader leaderboard | `GET data /v1/leaderboard` | https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings | Not supported |
-| Combo positions / combo activity | `GET data /v1/positions/combos`, `/v1/activity/combos` | https://docs.polymarket.com/api-reference/core/get-user-combo-positions | Not supported |
+| `comboPositions(ComboPositionQuery[, PageCursor])` | `GET data /v1/positions/combos` | https://docs.polymarket.com/api-reference/core/get-user-combo-positions | Supported — absolute snapshots, never accumulated deltas |
+| Combo activity | `GET data /v1/activity/combos` | https://docs.polymarket.com/api-reference/core/get-user-combo-positions | Not supported |
 | Accounting snapshot, open interest, live volume, markets traded | `GET data /v1/accounting-snapshot`, `/oi`, `/live-volume`, `/traded` | https://docs.polymarket.com/api-reference/misc/get-open-interest | Not supported |
 
 ## Rewards — `Polymarket.rewards()`
@@ -123,7 +124,7 @@ Not on `Polymarket`; construct it directly:
 | `createCredentials()` | `POST clob /auth/builder-api-key` (L2) | https://docs.polymarket.com/api-spec/clob-openapi.yaml | Supported |
 | `listCredentials()` | `GET clob /auth/builder-api-key` (L2) | https://docs.polymarket.com/api-spec/clob-openapi.yaml | Supported |
 | `revokeCredentials()` | `DELETE clob /auth/builder-api-key` (L2) | https://docs.polymarket.com/api-spec/clob-openapi.yaml | Supported |
-| `trades([query][, cursor])` | `GET clob /builder/trades` (L2) | https://docs.polymarket.com/api-reference/trade/get-builder-trades | Supported |
+| `trades([query][, cursor])` | `GET clob /builder/trades` (L2) | https://docs.polymarket.com/api-reference/trade/get-builder-trades | Supported — filters by builder code, id, market, asset, `before` and `after` |
 | Builder attribution on an order | carried by `SigningContext.withBuilder(...)` into `POST /order` | https://docs.polymarket.com/programs/builders/overview | Supported |
 | Builder leaderboard, daily builder volume | `GET data /v1/builders-leaderboard`, `/v1/builders-volume` | https://docs.polymarket.com/api-reference/builders/get-aggregated-builder-leaderboard | Not supported |
 
@@ -166,7 +167,8 @@ Requester side only, against the caller-supplied Builder Gateway host:
 | `Rtds` Binance / Chainlink price events | `wss://ws-live-data.polymarket.com` | https://docs.polymarket.com/market-data/realtime-data | Supported |
 | `Rtds` comment and reaction created/removed events | `wss://ws-live-data.polymarket.com` | https://docs.polymarket.com/market-data/realtime-data | Supported |
 | Sports WebSocket channel | `wss` sports channel | https://docs.polymarket.com/api-reference/wss/sports | Not supported |
-| Midpoint / best-bid-ask / new-market / market-resolved frames | CLOB market channel | https://docs.polymarket.com/api-reference/wss/market | Not supported — 1.0 `WsClient` behavior with no counterpart in the current channel description |
+| `enableCustomMarketEvents()` → `BestBidAskEvent`, `NewMarketEvent`, `MarketResolvedEvent` | CLOB market channel | https://docs.polymarket.com/api-reference/wss/market | Supported — opt-in, because these frames have no counterpart in the current channel description |
+| Midpoint frames | CLOB market channel | https://docs.polymarket.com/api-reference/wss/market | Not supported — derivable from the book |
 | Raw socket access, arbitrary JSON frames | — | — | Out of scope |
 
 ## Operations — `Polymarket` itself
@@ -176,7 +178,7 @@ Requester side only, against the caller-supplied Builder Gateway host:
 | `serverTime()` | `GET clob /time` | https://docs.polymarket.com/api-reference/data/get-server-time | Supported |
 | `health()` | probes `clob /time`, `gamma /status`, `data /` | — | Supported — an unreachable service is reported, not thrown |
 | `geoblock()` | `GET https://polymarket.com/api/geoblock` | https://docs.polymarket.com/api-reference/geoblock | Supported |
-| `startHeartbeat()` / `stopHeartbeat()` | `POST clob /v1/heartbeats` (L2) | https://docs.polymarket.com/api-reference/trade/send-heartbeat | Supported — idle until started |
+| `startHeartbeat()` / `stopHeartbeat()` | `POST clob /heartbeats` (L2, bodyless) | https://docs.polymarket.com/api-reference/trade/send-heartbeat | Supported — idle until started |
 | Automatic geoblock preflight before every action | — | — | Out of scope |
 
 ## Product areas excluded from 2.x entirely
