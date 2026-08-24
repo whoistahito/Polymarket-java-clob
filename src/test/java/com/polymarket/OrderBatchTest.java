@@ -52,6 +52,13 @@ class OrderBatchTest {
             Clock.fixed(Instant.ofEpochSecond(1773890758L), ZoneOffset.UTC);
     private static final MarketRules RULES =
             new MarketRules(TickSize.of("0.01"), ShareQuantity.of("1"), false);
+    /** Official order-hash examples: manage-orders.md OpenOrder.id and the order_id query examples. */
+    private static final String ID_1 =
+            "0xff354cd7ca7539dfa9c28d90943ab5779a4eac34b9b37a757d7b32bdfb11790b";
+    private static final String ID_2 =
+            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+    private static final String ID_3 =
+            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
 
     private MockWebServer server;
 
@@ -159,7 +166,7 @@ class OrderBatchTest {
     @DisplayName("TC-BA-005: cancelling more than 1000 ids fails before sending")
     void oversizeCancelSendsNothing() throws Exception {
         List<String> ids = new ArrayList<>();
-        for (int i = 0; i < 1001; i++) ids.add("id-" + i);
+        for (int i = 0; i < 1001; i++) ids.add(String.format("0x%064x", i));
 
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class,
@@ -173,9 +180,9 @@ class OrderBatchTest {
     void blankAndDuplicateIdsRejected() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class, () -> sdk.trading()
-                    .cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "")));
+                    .cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, "")));
             assertThrows(IllegalArgumentException.class, () -> sdk.trading()
-                    .cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-1")));
+                    .cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, ID_1)));
         }
         assertEquals(0, server.getRequestCount());
     }
@@ -183,53 +190,52 @@ class OrderBatchTest {
     @Test
     @DisplayName("TC-BA-007: cancellation distinguishes canceled from not-canceled ids")
     void cancellationDistinguishesOutcomePerId() throws Exception {
-        enqueue("""
-                {"canceled":["id-1"],"not_canceled":{"id-2":"order already matched"}}""");
+        enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
+                + ID_2 + "\":\"order already matched\"}}");
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
-            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2"));
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, ID_2));
         }
 
         CancellationOutcome.Completed completed =
                 assertInstanceOf(CancellationOutcome.Completed.class, outcome);
-        assertTrue(completed.isCanceled("id-1"));
-        assertTrue(!completed.isCanceled("id-2"));
-        assertEquals("order already matched", completed.notCanceled().get("id-2"));
+        assertTrue(completed.isCanceled(ID_1));
+        assertTrue(!completed.isCanceled(ID_2));
+        assertEquals("order already matched", completed.notCanceled().get(ID_2));
 
         RecordedRequest request = server.takeRequest();
         assertEquals("DELETE", request.getMethod());
         assertEquals("/orders", request.getPath());
-        assertEquals("[\"id-1\",\"id-2\"]", request.getBody().readUtf8());
+        assertEquals("[\"" + ID_1 + "\",\"" + ID_2 + "\"]", request.getBody().readUtf8());
     }
 
     @Test
     @DisplayName("TC-BA-008: an id the server never mentions is unaccounted, not a stated refusal")
     void silentlyDroppedIdIsUnaccountedNotRefused() throws Exception {
-        enqueue("""
-                {"canceled":["id-1"],"not_canceled":{"id-2":"order already matched"}}""");
+        enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
+                + ID_2 + "\":\"order already matched\"}}");
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
             outcome = sdk.trading()
-                    .cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2", "id-3"));
+                    .cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, ID_2, ID_3));
         }
 
         CancellationOutcome.Completed completed =
                 assertInstanceOf(CancellationOutcome.Completed.class, outcome);
-        assertEquals(List.of("id-3"), completed.unaccounted());
-        assertTrue(!completed.notCanceled().containsKey("id-3"));
-        assertTrue(!completed.isCanceled("id-3"));
+        assertEquals(List.of(ID_3), completed.unaccounted());
+        assertTrue(!completed.notCanceled().containsKey(ID_3));
+        assertTrue(!completed.isCanceled(ID_3));
     }
 
     @Test
     @DisplayName("TC-BA-009: the HMAC signature covers exactly the bytes sent as the cancel body")
     void hmacCoversExactBytesSent() throws Exception {
-        enqueue("""
-                {"canceled":["id-1"]}""");
+        enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{}}");
 
         try (Polymarket sdk = sdk()) {
-            sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+            sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
         }
 
         RecordedRequest request = server.takeRequest();
@@ -306,7 +312,7 @@ class OrderBatchTest {
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
-            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
         }
 
         CancellationOutcome.Uncertain uncertain =
@@ -322,7 +328,7 @@ class OrderBatchTest {
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
-            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
         }
 
         CancellationOutcome.Uncertain uncertain =
@@ -334,11 +340,11 @@ class OrderBatchTest {
     @DisplayName("TC-BA-015: a malformed cancellation success body is uncertain, not an empty result")
     void malformedCancellationSuccessIsUncertain() throws Exception {
         // clob-openapi.yaml CancelOrdersResponse requires canceled and not_canceled.
-        for (String body : List.of("not json at all", "[]", "{}", "{\"canceled\":\"id-1\"}")) {
+        for (String body : List.of("not json at all", "[]", "{}", "{\"canceled\":\"" + ID_1 + "\"}")) {
             enqueue(body);
             CancellationOutcome outcome;
             try (Polymarket sdk = sdk()) {
-                outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1"));
+                outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
             }
             assertInstanceOf(CancellationOutcome.Uncertain.class, outcome, body);
         }
@@ -347,18 +353,88 @@ class OrderBatchTest {
     @Test
     @DisplayName("TC-BA-016: definitive canceled and not-canceled identifiers stay in separate sets")
     void canceledAndNotCanceledStayDistinct() throws Exception {
-        enqueue("""
-                {"canceled":["id-1"],"not_canceled":{"id-2":"Order not found"}}""");
+        enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
+                + ID_2 + "\":\"Order not found\"}}");
 
         CancellationOutcome outcome;
         try (Polymarket sdk = sdk()) {
-            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of("id-1", "id-2"));
+            outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, ID_2));
         }
 
         CancellationOutcome.Completed completed =
                 assertInstanceOf(CancellationOutcome.Completed.class, outcome);
-        assertEquals(List.of("id-1"), completed.canceled());
-        assertEquals(java.util.Map.of("id-2", "Order not found"), completed.notCanceled());
+        assertEquals(List.of(ID_1), completed.canceled());
+        assertEquals(java.util.Map.of(ID_2, "Order not found"), completed.notCanceled());
         assertTrue(completed.unaccounted().isEmpty());
+    }
+
+    @Test
+    @DisplayName("TC-BA-017: an order id outside the documented 0x-hex shape fails before sending")
+    void malformedOrderIdSendsNothing() throws Exception {
+        // order-submission.json orderIdentifierSyntax: every official example is 0x-hex; only the
+        // length disagrees between sources, so the shape is enforced and the length is not.
+        try (Polymarket sdk = sdk()) {
+            for (String malformed : List.of("id-1", "0x", "ff354cd7", "0xzz", "0x1234 ")) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> sdk.trading().cancel(CREDENTIALS, SIGNER.address(),
+                                List.of(malformed)), malformed);
+            }
+        }
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-BA-018: both documented order-id lengths are accepted, since the sources disagree")
+    void bothDocumentedOrderIdLengthsAreAccepted() throws Exception {
+        enqueue("""
+                {"canceled":[],"not_canceled":{}}""");
+
+        // clob-openapi.yaml examples: 0x + 40 hex (CancelOrderPayload) and 0x + 64 hex (order_id).
+        try (Polymarket sdk = sdk()) {
+            assertInstanceOf(CancellationOutcome.Completed.class, sdk.trading()
+                    .cancel(CREDENTIALS, SIGNER.address(),
+                            List.of("0xabcdef1234567890abcdef1234567890abcdef12", ID_1)));
+        }
+        assertEquals(1, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-BA-019: the HMAC signature covers exactly the bytes sent as the batch body")
+    void batchHmacCoversExactBytesSent() throws Exception {
+        enqueue("""
+                [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
+                 {"success":true,"orderID":"0xb","status":"live","tradeIDs":[]}]""");
+
+        try (Polymarket sdk = sdk()) {
+            sdk.trading().submitBatch(List.of(item("123", 1), item("456", 2)));
+        }
+
+        assertSignatureBindsBody(server.takeRequest(), "POST", "/orders");
+    }
+
+    @Test
+    @DisplayName("TC-BA-020: the HMAC signature covers exactly the bytes sent as the order body")
+    void singleOrderHmacCoversExactBytesSent() throws Exception {
+        enqueue("""
+                {"success":true,"orderID":"0xa","status":"live","tradeIDs":[]}""");
+
+        BatchItem single = item("123", 1);
+        try (Polymarket sdk = sdk()) {
+            sdk.trading().submit(single.order(), single.placement());
+        }
+
+        assertSignatureBindsBody(server.takeRequest(), "POST", "/order");
+    }
+
+    /** Re-signs the bytes actually on the wire, then proves one extra byte no longer verifies. */
+    private static void assertSignatureBindsBody(RecordedRequest request, String method, String path) {
+        String sentBody = request.getBody().readUtf8();
+        assertEquals(path, request.getPath());
+        assertEquals(com.polymarket.internal.authentication.L2Attestation.headers(
+                        CREDENTIALS, SIGNER.address(), 1773890758L, method, path, sentBody)
+                .get("POLY_SIGNATURE"), request.getHeader("POLY_SIGNATURE"));
+        assertTrue(!com.polymarket.internal.authentication.L2Attestation.headers(
+                        CREDENTIALS, SIGNER.address(), 1773890758L, method, path, sentBody + " ")
+                .get("POLY_SIGNATURE").equals(request.getHeader("POLY_SIGNATURE")));
     }
 }

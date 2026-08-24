@@ -3,6 +3,7 @@ package com.polymarket.internal.trading;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.polymarket.PolymarketConfig;
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.authentication.L2Attestation;
 import com.polymarket.internal.http.HttpOutcome;
 import com.polymarket.internal.http.HttpRuntime;
@@ -46,17 +47,21 @@ public final class TradeReaderGateway implements TradeReader {
     }
 
     @Override
-    public List<SettledTrade> byIds(ApiCredentials credentials, String address, List<String> tradeIds)
-            throws IOException {
+    public List<SettledTrade> byIds(ApiCredentials credentials, SigningIdentity identity,
+            List<String> tradeIds) throws IOException {
+        // POLY_ADDRESS is the Account Signer that owns the API key; maker_address is the Trading
+        // Wallet named as the maker. They coincide only for an EOA.
+        String accountSigner = identity.accountSigner();
         List<SettledTrade> trades = new ArrayList<>();
         for (String id : tradeIds) {
-            String filter = PATH + "?id=" + encode(id) + "&maker_address=" + encode(address);
+            String filter = PATH + "?id=" + encode(id)
+                    + "&maker_address=" + encode(identity.tradingWallet());
             Set<String> visited = new HashSet<>();
             String cursor = null;
             while (true) {
                 String path = cursor == null ? filter : filter + "&next_cursor=" + encode(cursor);
                 HttpOutcome outcome = runtime.get(config.clobHost(), path,
-                        l2Headers(credentials, address, path));
+                        l2Headers(credentials, accountSigner, path));
                 if (!outcome.successful()) {
                     throw new IOException("could not read trade " + id + ": HTTP " + outcome.status());
                 }

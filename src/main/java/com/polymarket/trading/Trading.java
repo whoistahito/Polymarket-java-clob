@@ -1,6 +1,7 @@
 package com.polymarket.trading;
 
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PusdAmount;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import lombok.NonNull;
 
 /** Signing and submission are independently reachable; {@link #place} is a thin convenience over both. */
@@ -25,6 +27,10 @@ public final class Trading {
     /** Official limits (constraints.json): a batch beyond these is never silently chunked. */
     public static final int MAX_ORDERS_PER_BATCH = 15;
     public static final int MAX_ORDER_IDS_PER_CANCEL = 1000;
+
+    // order-submission.json: every official order-hash example is 0x-hex, but the sources disagree
+    // on its length (40 vs 64), so the shape is enforced locally and the length is not.
+    private static final Pattern ORDER_ID = Pattern.compile("0x[0-9a-fA-F]+");
 
     private final OrderSigner signer;
     private final OrderSubmitter submitter;
@@ -99,8 +105,8 @@ public final class Trading {
     }
 
     /** One {@code DELETE /orders} for the whole set; invalid IDs are rejected before it is sent. */
-    public CancellationOutcome cancel(@NonNull ApiCredentials credentials, @NonNull String address,
-            @NonNull List<String> orderIds) {
+    public CancellationOutcome cancel(@NonNull ApiCredentials credentials,
+            @NonNull String accountSigner, @NonNull List<String> orderIds) {
         if (orderIds.isEmpty()) {
             throw new IllegalArgumentException("cancel needs at least one order id");
         }
@@ -114,7 +120,12 @@ public final class Trading {
         if (orderIds.size() != Set.copyOf(orderIds).size()) {
             throw new IllegalArgumentException("order ids must not contain duplicates");
         }
-        return batch.cancel(credentials, address, orderIds);
+        orderIds.stream().filter(id -> !ORDER_ID.matcher(id).matches()).findFirst()
+                .ifPresent(id -> {
+                    throw new IllegalArgumentException(
+                            "an order id is a 0x-prefixed hex order hash, got: " + id);
+                });
+        return batch.cancel(credentials, accountSigner, orderIds);
     }
 
     /**
@@ -123,32 +134,33 @@ public final class Trading {
      * {@link ReconciliationOutcome.Pending}, never a reported failure.
      */
     public ReconciliationOutcome reconcile(@NonNull ApiCredentials credentials,
-            @NonNull String address, @NonNull String orderId, @NonNull List<String> tradeIds,
-            @NonNull Duration timeout, @NonNull Duration pollInterval) throws IOException {
-        return poll(credentials, address, orderId, Optional.empty(), tradeIds, timeout, pollInterval);
+            @NonNull SigningIdentity identity, @NonNull String orderId,
+            @NonNull List<String> tradeIds, @NonNull Duration timeout,
+            @NonNull Duration pollInterval) throws IOException {
+        return poll(credentials, identity, orderId, Optional.empty(), tradeIds, timeout, pollInterval);
     }
 
     /** The Combo form: the RFQ ID travels with the outcome so a Pending stays recoverable. */
     public ReconciliationOutcome reconcile(@NonNull ApiCredentials credentials,
-            @NonNull String address, @NonNull String orderId, @NonNull String rfqId,
+            @NonNull SigningIdentity identity, @NonNull String orderId, @NonNull String rfqId,
             @NonNull List<String> tradeIds, @NonNull Duration timeout,
             @NonNull Duration pollInterval) throws IOException {
         if (rfqId.isBlank()) throw new IllegalArgumentException("rfqId must not be blank");
-        return poll(credentials, address, orderId, Optional.of(rfqId), tradeIds, timeout,
+        return poll(credentials, identity, orderId, Optional.of(rfqId), tradeIds, timeout,
                 pollInterval);
     }
 
-    private ReconciliationOutcome poll(ApiCredentials credentials, String address, String orderId,
-            Optional<String> rfqId, List<String> tradeIds, Duration timeout, Duration pollInterval)
-            throws IOException {
-        requireReconcilable(address, orderId, tradeIds, timeout, pollInterval);
+    private ReconciliationOutcome poll(ApiCredentials credentials, SigningIdentity identity,
+            String orderId, Optional<String> rfqId, List<String> tradeIds, Duration timeout,
+            Duration pollInterval) throws IOException {
+        requireReconcilable(orderId, tradeIds, timeout, pollInterval);
         ReconciliationOutcome pending =
                 new ReconciliationOutcome.Pending(orderId, tradeIds, rfqId);
         Instant deadline = clock.instant().plus(timeout);
 
         while (true) {
             Optional<ReconciliationOutcome> resolved =
-                    classify(tradeReader.byIds(credentials, address, tradeIds), tradeIds);
+                    classify(tradeReader.byIds(credentials, identity, tradeIds), tradeIds);
             if (resolved.isPresent()) return resolved.get();
 
             // The deadline binds the network work too, so a slow response cannot overshoot it.
@@ -212,12 +224,8 @@ public final class Trading {
         return problems;
     }
 
-    private static void requireReconcilable(String address, String orderId, List<String> tradeIds,
+    private static void requireReconcilable(String orderId, List<String> tradeIds,
             Duration timeout, Duration pollInterval) {
-        if (!address.matches("0x[0-9a-fA-F]{40}")) {
-            throw new IllegalArgumentException(
-                    "address must be a 0x-prefixed 20-byte hex address, got: " + address);
-        }
         if (orderId.isBlank()) throw new IllegalArgumentException("orderId must not be blank");
         if (tradeIds.isEmpty()) {
             throw new IllegalArgumentException("reconcile needs at least one trade id");

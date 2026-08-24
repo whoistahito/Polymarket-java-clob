@@ -1,6 +1,7 @@
 package com.polymarket.trading;
 
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PusdAmount;
@@ -68,14 +69,16 @@ public final class AsyncTrading {
     }
 
     public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,
-            String address, String orderId, List<String> tradeIds, Duration timeout, Duration pollInterval) {
-        return io(() -> trading.reconcile(credentials, address, orderId, tradeIds, timeout, pollInterval));
+            SigningIdentity identity, String orderId, List<String> tradeIds, Duration timeout,
+            Duration pollInterval) {
+        return io(() -> trading.reconcile(credentials, identity, orderId, tradeIds, timeout,
+                pollInterval));
     }
 
     public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,
-            String address, String orderId, String rfqId, List<String> tradeIds, Duration timeout,
-            Duration pollInterval) {
-        return io(() -> trading.reconcile(credentials, address, orderId, rfqId, tradeIds, timeout,
+            SigningIdentity identity, String orderId, String rfqId, List<String> tradeIds,
+            Duration timeout, Duration pollInterval) {
+        return io(() -> trading.reconcile(credentials, identity, orderId, rfqId, tradeIds, timeout,
                 pollInterval));
     }
 
