@@ -15,6 +15,7 @@ Machine-readable companions live in `src/test/resources/protocol/` and are enfor
 | `trades.json` | CLOB paginated trade envelope, full trade-status vocabulary, required filters, Data API trade feed contrast |
 | `builder-trades.json` | Required `builder_code`, `before`/`after` continuation, cursor sentinels, unix vs ISO timestamp units |
 | `heartbeat.json` | Bodyless `POST /heartbeats` contract and the unlisted id-chaining variant |
+| `combo-markets.json` | Combo markets catalog endpoint, query bounds, YES/NO index alignment, cursor semantics |
 
 Stream frames are **not** covered here; another ticket owns `streams.json` and the AsyncAPI rows.
 
@@ -40,6 +41,7 @@ Re-fetch, re-hash, and if a hash moved, re-read that page before trusting any fi
 | `https://docs.polymarket.com/api-reference/trade/get-trades.md` | 2026-08-23 | `a7b88859fbca99a55bb5c2d43fc21dedf1a44701dba9abc5383478df8883e3fb` | rendered from clob-openapi.yaml |
 | `https://docs.polymarket.com/api-reference/trade/send-heartbeat.md` | 2026-08-23 | `983e93c10d697ba4cb19d98a8bf9d2fff19d19d5fac2c98ad0bd73ea382014b0` | rendered from clob-openapi.yaml |
 | `https://docs.polymarket.com/llms.txt` | 2026-08-23 | `e80d08b8d48451104ba53d603eb46b6e507e5335184be4c4620840a62888d420` | documentation index, 313 lines |
+| `https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets` | 2026-08-24 | live response, not hashed | unversioned; observed shape pinned in `combo-markets.json` |
 
 Out of scope for this refresh, unchanged from the previous review: Gamma OpenAPI, Combos RFQ
 OpenAPI (quoter/maker only), Relayer / Bridge / Perps OpenAPI, and the AsyncAPI documents.
@@ -56,6 +58,7 @@ OpenAPI (quoter/maker only), Relayer / Bridge / Perps OpenAPI, and the AsyncAPI 
 | Bodyless `POST /heartbeats` | `https://docs.polymarket.com/api-spec/clob-openapi.yaml`, indexed by `llms.txt` |
 | Builder Gateway requester flow, address roles, HTTP status table | `https://docs.polymarket.com/trading/combos/builders.md` (Direct API tab) |
 | `signer_address` / `maker_address` per wallet type | `https://docs.polymarket.com/trading/combos/market-makers.md` (Resolve Quoter Identity) |
+| Combo markets catalog, YES/NO index alignment, `next_cursor` | `https://docs.polymarket.com/trading/combos/market-makers.md` (Get Combo Markets) |
 | Exchange V2 typed data, GTD rules, side encoding, tick precision table | `https://docs.polymarket.com/trading/place-orders.md` |
 | Exchange V3 typed data, ERC-7739 wrapping | `https://docs.polymarket.com/trading/combos/market-makers.md` |
 | Contract addresses | `https://docs.polymarket.com/resources/contracts.md` |
@@ -178,17 +181,18 @@ In every case the fixture states the OFFICIAL value.
    `heartbeat_id` body. The published Heartbeat is the bodyless `POST /heartbeats` returning
    `{"status":"ok"}`. Its `DEFAULT_INTERVAL = 5s` and the "cancelled after a 10 s silence" comment
    have no published source. See `heartbeat.json`.
-7. `internal/rfq/RfqGateway.quoted(...)` reads `expires_at` and `builder_code` from inside `quote`
-   and `leg_position_ids` from the top level. Officially `expires_at` and `builder_code` are top
-   level and `leg_position_ids` is inside `request`. See `builder-gateway.json.createResponse`.
-8. The same method looks for the Combo position id under `combo_position_id` / `comboPositionId` /
-   `position_id` / `tokenId`. The official field is `request.yes_position_id`; none of the four
-   names exists in the response.
-9. `RfqGateway.requestBody(...)` sends `signer_address = identity.signer()` (the Account Signer).
-   For the documented Deposit Wallet flow both `signer_address` and `maker_address` are the Trading
-   Wallet. See `builder-gateway.json.addressRoles`.
-10. `RfqGateway.accept(...)` uses `signedOrder.signer()` as `POLY_ADDRESS`. `POLY_ADDRESS` is always
-    the Account Signer EOA that owns the credentials, never the Deposit Wallet.
+7. ~~`internal/rfq/RfqGateway.quoted(...)` reads `expires_at` and `builder_code` from inside
+   `quote` and `leg_position_ids` from the top level.~~ **Repaired (issue #25.)** Both are read
+   from the top level and the legs from `request`. See `builder-gateway.json.createResponse`.
+8. ~~The same method looks for the Combo position id under `combo_position_id` /
+   `comboPositionId` / `position_id` / `tokenId`; none of the four exists.~~ **Repaired (issue
+   #25.)** It reads the pinned `request.yes_position_id`.
+9. ~~`RfqGateway.requestBody(...)` sends `signer_address = identity.signer()` (the Account
+   Signer).~~ **Repaired (issue #25.)** `signer_address` follows the wallet type: only signature
+   type 3 puts the Trading Wallet there. See `builder-gateway.json.addressRoles`.
+10. ~~`RfqGateway.accept(...)` uses `signedOrder.signer()` as `POLY_ADDRESS`.~~ **Repaired (issue
+    #26.)** The Signing Identity is passed through, so `POLY_ADDRESS` is always the Account
+    Signer EOA that owns the credentials.
 11. `internal/portfolio/PortfolioGateway` caps Data API `/trades` at limit 500 / offset 1000 and
     cites `constraints.json` for it. The pinned spec values are 10000 / 10000; the 500/1000 figures
     come from the superseded 2025-08-26 changelog entry.

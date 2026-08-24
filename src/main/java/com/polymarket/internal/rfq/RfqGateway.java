@@ -9,10 +9,13 @@ import com.polymarket.internal.authentication.L2Attestation;
 import com.polymarket.internal.http.HttpOutcome;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.PositionId;
+import com.polymarket.rfq.QuoteAmounts;
 import com.polymarket.rfq.RfqDirectory;
+import com.polymarket.rfq.RfqGatewayException;
 import com.polymarket.rfq.RfqOutcome;
 import com.polymarket.rfq.RfqRequest;
 import com.polymarket.rfq.RfqStatus;
+import com.polymarket.trading.Side;
 import com.polymarket.trading.SignedOrder;
 import java.io.IOException;
 import java.net.URI;
@@ -22,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Transport for the Builder Gateway requester flow. Ground truth:
@@ -33,6 +37,8 @@ public final class RfqGateway implements RfqDirectory {
 
     private static final String REQUESTS_PATH = "/v1/builder/rfq/requests";
     private static final String ACCEPT_SUFFIX = "/accept";
+    private static final int DEPOSIT_WALLET_SIGNATURE_TYPE = 3;
+    private static final int STATE_CONFLICT = 409;
 
     private final URI gatewayHost;
     private final HttpRuntime runtime;
@@ -68,18 +74,23 @@ public final class RfqGateway implements RfqDirectory {
                 accountCredentials, address, timestamp, "GET", path, null);
 
         HttpOutcome outcome = runtime.get(gatewayHost, path, headers);
+        // Official: a status read before acceptance is the gateway's documented 409.
+        if (outcome.status() == STATE_CONFLICT) {
+            return new RfqOutcome.NotYetAccepted(rfqId);
+        }
         return classify(outcome, rfqId);
     }
 
     @Override
     public RfqOutcome accept(String rfqId, String quoteId, SignedOrder signedOrder,
-            ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
+            SigningIdentity identity, ApiCredentials accountCredentials,
+            BuilderCredentials builderCredentials) {
         String path = REQUESTS_PATH + "/" + rfqId + ACCEPT_SUFFIX;
         String body = acceptBody(quoteId, signedOrder);
         long timestamp = clock.instant().getEpochSecond();
         Map<String, String> headers = new LinkedHashMap<>();
         headers.putAll(L2Attestation.headers(
-                accountCredentials, signedOrder.signer(), timestamp, "POST", path, body));
+                accountCredentials, identity.accountSigner(), timestamp, "POST", path, body));
         headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", path, body));
 
         try {
@@ -121,7 +132,10 @@ public final class RfqGateway implements RfqDirectory {
     private String requestBody(RfqRequest request, SigningIdentity identity) {
         Map<String, Object> size = new LinkedHashMap<>();
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("signer_address", identity.accountSigner());
+        // Only signature type 3 collapses signer_address onto the Trading Wallet;
+        // POLY_ADDRESS stays the Account Signer for every type (builder-gateway.json).
+        body.put("signer_address", identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE
+                ? identity.tradingWallet() : identity.accountSigner());
         body.put("maker_address", identity.tradingWallet());
         body.put("signature_type", identity.signatureType());
         List<String> legs = new ArrayList<>();
@@ -162,16 +176,26 @@ public final class RfqGateway implements RfqDirectory {
      */
     private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId) throws IOException {
         JsonNode node = tryParse(outcome.body());
-        if (node == null) {
-            if (fallbackRfqId != null) {
-                return new RfqOutcome.Unknown(fallbackRfqId, "unreadable response body");
-            }
-            throw new IOException("could not read RFQ response: HTTP " + outcome.status());
-        }
-        String rfqId = textOrNull(node, "rfq_id");
+        String rfqId = node == null ? fallbackRfqId : textOrNull(node, "rfq_id");
         if (rfqId == null) rfqId = fallbackRfqId;
+
+        // Two independent axes: this is the HTTP verdict on the exchange, never the RFQ's
+        // business result. A business failure is HTTP 200 with status FAILED, handled below.
+        if (!outcome.successful()) {
+            String reason = node == null ? "HTTP " + outcome.status() : errorEnvelope(node);
+            if (rfqId == null) {
+                throw new RfqGatewayException(outcome.status(), reason);
+            }
+            return new RfqOutcome.Rejected(rfqId, outcome.status(), reason);
+        }
+        if (node == null) {
+            if (rfqId != null) {
+                return new RfqOutcome.Unknown(rfqId, "unreadable response body");
+            }
+            throw new RfqGatewayException(outcome.status(), "unreadable response body");
+        }
         if (rfqId == null) {
-            throw new IOException("RFQ response carried no rfq_id");
+            throw new RfqGatewayException(outcome.status(), "response carried no rfq_id");
         }
         RfqStatus status = new RfqStatus(node.path("status").asText(""));
 
@@ -188,37 +212,60 @@ public final class RfqGateway implements RfqDirectory {
             return quoted(node, rfqId);
         }
         if (status.is(RfqStatus.Known.CONFIRMED) || status.is(RfqStatus.Known.FILLED)) {
-            return new RfqOutcome.Confirmed(rfqId, status.raw());
+            return new RfqOutcome.Confirmed(rfqId, status.raw(), takerOrderHash(node));
         }
         if (status.isNonTerminal()) {
-            return new RfqOutcome.Waiting(rfqId, status);
+            return new RfqOutcome.Waiting(rfqId, status, takerOrderHash(node));
         }
         return new RfqOutcome.Unknown(rfqId, status.raw());
     }
 
+    /**
+     * Official shape: expires_at and builder_code are TOP LEVEL, the Combo position and legs
+     * live under request, and only the six pinned quote fields live under quote.
+     */
     private RfqOutcome quoted(JsonNode node, String rfqId) {
-        JsonNode quote = node.has("quote") ? node.path("quote") : node;
+        JsonNode quote = node.path("quote");
+        JsonNode request = node.path("request");
         String quoteId = textOrNull(quote, "quote_id");
-        String comboPositionId = firstText(quote, "combo_position_id", "comboPositionId",
-                "position_id", "tokenId");
+        String comboPositionId = textOrNull(request, "yes_position_id");
         if (quoteId == null || comboPositionId == null) {
-            return new RfqOutcome.Waiting(rfqId, new RfqStatus("AWAITING_REQUESTER_ACCEPTANCE"));
+            return new RfqOutcome.Waiting(rfqId,
+                    new RfqStatus("AWAITING_REQUESTER_ACCEPTANCE"), Optional.empty());
         }
         List<PositionId> legs = new ArrayList<>();
-        node.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
-        return new RfqOutcome.Quoted(rfqId, quoteId, new PositionId(comboPositionId), legs,
-                Long.parseLong(quote.path("maker_amount_e6").asText("0")),
-                Long.parseLong(quote.path("taker_amount_e6").asText("0")),
-                Instant.ofEpochMilli(quote.path("expires_at").asLong(0)),
-                quote.path("builder_code").asText(""));
+        request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
+        QuoteAmounts amounts = new QuoteAmounts(
+                baseUnits(quote, "blended_price_e6"),
+                baseUnits(quote, "maker_amount_e6"),
+                baseUnits(quote, "taker_amount_e6"),
+                baseUnits(quote, "total_required_e6"),
+                baseUnits(quote, "net_receive_e6"));
+        return new RfqOutcome.Quoted(rfqId, quoteId, direction(request), new PositionId(comboPositionId),
+                legs, amounts, Instant.ofEpochMilli(node.path("expires_at").asLong(0)),
+                node.path("builder_code").asText(""));
     }
 
-    private static String firstText(JsonNode node, String... fields) {
-        for (String field : fields) {
-            String value = textOrNull(node, field);
-            if (value != null) return value;
-        }
-        return null;
+    /** SELL only when the gateway says so, so an unreadable direction never flips a BUY. */
+    private static Side direction(JsonNode request) {
+        return "SELL".equalsIgnoreCase(request.path("direction").asText("")) ? Side.SELL : Side.BUY;
+    }
+
+    private static long baseUnits(JsonNode node, String field) {
+        String value = textOrNull(node, field);
+        return value == null ? 0L : Long.parseLong(value);
+    }
+
+    /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */
+    private static Optional<String> takerOrderHash(JsonNode node) {
+        return Optional.ofNullable(textOrNull(node, "taker_order_hash"));
+    }
+
+    /** Official: "a non-2xx response carries a stable code and a human-readable top-level error". */
+    private static String errorEnvelope(JsonNode node) {
+        String code = textOrNull(node, "code");
+        String message = errorReason(node);
+        return code == null ? message : code + ": " + message;
     }
 
     private static String errorReason(JsonNode node) {

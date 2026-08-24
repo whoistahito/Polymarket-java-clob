@@ -1,9 +1,11 @@
 package com.polymarket.rfq;
 
 import com.polymarket.markets.PositionId;
+import com.polymarket.trading.Side;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
+import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * A typed Combo RFQ business outcome. A local wait timeout is {@link Pending}, never a
@@ -14,38 +16,30 @@ public sealed interface RfqOutcome {
     String rfqId();
 
     /**
-     * A quote is ready to accept before {@code expiresAt} (AWAITING_REQUESTER_ACCEPTANCE).
-     * {@code comboPositionId} is the single position ID the accept order signs against — the
-     * fixture names this concept ("the returned Combo YES position ID") without pinning its
-     * wire key, so the gateway reads it from the first field name it recognises.
+     * A quote ready to accept before {@code expiresAt} (AWAITING_REQUESTER_ACCEPTANCE).
+     * {@code direction} is the direction the gateway echoed for the request, so acceptance
+     * cannot restate it; {@code comboPositionId} is {@code request.yes_position_id}.
      */
-    record Quoted(String rfqId, String quoteId, PositionId comboPositionId, List<PositionId> legs,
-            long makerAmountBaseUnits, long takerAmountBaseUnits, Instant expiresAt, String builderCode)
+    record Quoted(@NonNull String rfqId, @NonNull String quoteId, @NonNull Side direction,
+            @NonNull PositionId comboPositionId, @NonNull List<PositionId> legs,
+            @NonNull QuoteAmounts amounts, @NonNull Instant expiresAt, @NonNull String builderCode)
             implements RfqOutcome {
         public Quoted {
-            Objects.requireNonNull(rfqId, "rfqId");
-            Objects.requireNonNull(quoteId, "quoteId");
-            Objects.requireNonNull(comboPositionId, "comboPositionId");
             legs = List.copyOf(legs);
-            Objects.requireNonNull(expiresAt, "expiresAt");
-            Objects.requireNonNull(builderCode, "builderCode");
         }
     }
 
     /** Routed execution succeeded (status CONFIRMED or FILLED — the fixture groups both as success). */
-    record Confirmed(String rfqId, String status) implements RfqOutcome {
-        public Confirmed {
-            Objects.requireNonNull(rfqId, "rfqId");
-            Objects.requireNonNull(status, "status");
-        }
+    record Confirmed(@NonNull String rfqId, @NonNull String status,
+            @NonNull Optional<String> takerOrderHash) implements RfqOutcome {
     }
 
-    /** Still non-terminal (e.g. awaiting a maker); not a local timeout, just not resolved yet. */
-    record Waiting(String rfqId, RfqStatus status) implements RfqOutcome {
-        public Waiting {
-            Objects.requireNonNull(rfqId, "rfqId");
-            Objects.requireNonNull(status, "status");
-        }
+    /**
+     * Still non-terminal (e.g. awaiting a maker); not a local timeout, just not resolved yet.
+     * A retried acceptance may omit {@code takerOrderHash}, so its absence proves nothing.
+     */
+    record Waiting(@NonNull String rfqId, @NonNull RfqStatus status,
+            @NonNull Optional<String> takerOrderHash) implements RfqOutcome {
     }
 
     /**
@@ -53,37 +47,35 @@ public sealed interface RfqOutcome {
      * The wire protocol reports all three as status FAILED with only a free-text nested error,
      * so they are not split into separate types without inventing an unverified error schema.
      */
-    record Failed(String rfqId, String reason) implements RfqOutcome {
-        public Failed {
-            Objects.requireNonNull(rfqId, "rfqId");
-            Objects.requireNonNull(reason, "reason");
-        }
+    record Failed(@NonNull String rfqId, @NonNull String reason) implements RfqOutcome {
     }
 
-    record Expired(String rfqId) implements RfqOutcome {
-        public Expired {
-            Objects.requireNonNull(rfqId, "rfqId");
-        }
+    record Expired(@NonNull String rfqId) implements RfqOutcome {
     }
 
-    record Canceled(String rfqId) implements RfqOutcome {
-        public Canceled {
-            Objects.requireNonNull(rfqId, "rfqId");
-        }
+    record Canceled(@NonNull String rfqId) implements RfqOutcome {
     }
 
     /** The local wait deadline passed while still non-terminal; not a failed trade. */
-    record Pending(String rfqId) implements RfqOutcome {
-        public Pending {
-            Objects.requireNonNull(rfqId, "rfqId");
-        }
+    record Pending(@NonNull String rfqId) implements RfqOutcome {
+    }
+
+    /**
+     * The gateway refused the exchange itself (HTTP 4xx/5xx), which is a transport-level
+     * verdict, not the RFQ's business result. Kept apart from {@link Failed} deliberately.
+     */
+    record Rejected(@NonNull String rfqId, int httpStatus, @NonNull String reason)
+            implements RfqOutcome {
+    }
+
+    /**
+     * A status read arrived before the RFQ was accepted (HTTP 409), so the state machine has
+     * nothing to report yet. The Quote from the create response is still the thing to accept.
+     */
+    record NotYetAccepted(@NonNull String rfqId) implements RfqOutcome {
     }
 
     /** A status this release does not know; kept as raw text rather than guessed at. */
-    record Unknown(String rfqId, String rawStatus) implements RfqOutcome {
-        public Unknown {
-            Objects.requireNonNull(rfqId, "rfqId");
-            Objects.requireNonNull(rawStatus, "rawStatus");
-        }
+    record Unknown(@NonNull String rfqId, @NonNull String rawStatus) implements RfqOutcome {
     }
 }
