@@ -13,6 +13,7 @@ import com.polymarket.internal.operations.HeartbeatGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
+import com.polymarket.internal.social.SocialGateway;
 import com.polymarket.internal.streaming.RtdsGateway;
 import com.polymarket.internal.streaming.StreamingGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
@@ -25,6 +26,7 @@ import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
 import com.polymarket.rewards.Rewards;
+import com.polymarket.social.Social;
 import com.polymarket.streaming.Rtds;
 import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
@@ -51,6 +53,7 @@ public final class Polymarket implements AutoCloseable {
     private final Portfolio portfolio;
     private final Rewards rewards;
     private final Builders builders;
+    private final Social social;
     private final Trading trading;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
@@ -72,6 +75,7 @@ public final class Polymarket implements AutoCloseable {
         this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
         this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
         this.builders = new Builders(authority, new BuildersGateway(config, runtime, clock));
+        this.social = new Social(new SocialGateway(config, runtime));
         TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
         this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
@@ -145,6 +149,12 @@ public final class Polymarket implements AutoCloseable {
     public Builders builders() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return builders;
+    }
+
+    /** Public Gamma profiles, comments and profile search. Credential-free. */
+    public Social social() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return social;
     }
 
     /** V2 token order signing and submission. Signing needs no credentials; submission needs L2. */

@@ -184,6 +184,18 @@ class PolymarketRootTest {
         assertThrows(IllegalStateException.class, sdk::builders);
     }
 
+    @Test
+    @DisplayName("TC-PR-012: Social is reached through the root, never by constructing a gateway")
+    void socialIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.social.Social social = sdk.social();
+        assertSame(social, sdk.social(), "the root must own one Social capability");
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, sdk::social);
+    }
+
     private PolymarketConfig config() {
         URI host = server.url("/").uri();
         return PolymarketConfig.defaults()

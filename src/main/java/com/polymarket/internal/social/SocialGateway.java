@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 
 /** Gamma transport for social reads; maps wire JSON to domain values and nothing else. */
 public final class SocialGateway implements SocialDirectory {
@@ -43,7 +42,8 @@ public final class SocialGateway implements SocialDirectory {
 
     @Override
     public Optional<Profile> profile(String address) throws IOException {
-        return readOptional("/public-profile?address=" + encode(address)).map(SocialGateway::profile);
+        Optional<JsonNode> body = readOptional("/public-profile?address=" + encode(address));
+        return body.isPresent() ? Optional.of(profile(body.get())) : Optional.empty();
     }
 
     @Override
@@ -57,7 +57,7 @@ public final class SocialGateway implements SocialDirectory {
         query.parentEntityId().ifPresent(v -> params.add("parent_entity_id", v));
         query.includePositions().ifPresent(v -> params.add("get_positions", v.toString()));
         query.holdersOnly().ifPresent(v -> params.add("holders_only", v.toString()));
-        return read("/comments" + params, SocialGateway::comment);
+        return read("/comments" + params);
     }
 
     @Override
@@ -65,7 +65,7 @@ public final class SocialGateway implements SocialDirectory {
             throws IOException {
         QueryString params = new QueryString();
         includePositions.ifPresent(v -> params.add("get_positions", v.toString()));
-        return read("/comments/" + encode(id) + params, SocialGateway::comment);
+        return read("/comments/" + encode(id) + params);
     }
 
     @Override
@@ -76,7 +76,7 @@ public final class SocialGateway implements SocialDirectory {
         page.offset().ifPresent(v -> params.add("offset", v.toString()));
         page.order().ifPresent(v -> params.add("order", v));
         page.ascending().ifPresent(v -> params.add("ascending", v.toString()));
-        return read("/comments/user_address/" + encode(address) + params, SocialGateway::comment);
+        return read("/comments/user_address/" + encode(address) + params);
     }
 
     @Override
@@ -95,34 +95,40 @@ public final class SocialGateway implements SocialDirectory {
         }
         JsonNode body = runtime.parse(outcome.body());
         List<SearchProfile> profiles = new ArrayList<>();
-        body.path("profiles").forEach(node -> profiles.add(searchProfile(node)));
+        for (JsonNode node : body.path("profiles")) {
+            profiles.add(searchProfile(node));
+        }
         JsonNode pagination = body.path("pagination");
         return new SocialSearchResults(profiles, flag(pagination, "hasMore"),
                 integer(pagination, "totalResults"));
     }
 
-    private static SearchProfile searchProfile(JsonNode node) {
+    private static SearchProfile searchProfile(JsonNode node) throws IOException {
         return new SearchProfile(
-                text(node, "id"), text(node, "name"), text(node, "pseudonym"),
+                required(node, "id", "profile id"), text(node, "name"), text(node, "pseudonym"),
                 flag(node, "displayUsernamePublic"), text(node, "profileImage"), text(node, "bio"),
                 text(node, "proxyWallet"), flag(node, "walletActivated"), flag(node, "isCloseOnly"));
     }
 
-    private List<Comment> read(String path, Function<JsonNode, Comment> mapper) throws IOException {
+    private List<Comment> read(String path) throws IOException {
         HttpOutcome outcome = runtime.get(config.gammaHost(), path, ACCEPT_JSON);
         if (!outcome.successful()) {
             throw new IOException("social read " + path + " failed with HTTP " + outcome.status());
         }
         List<Comment> comments = new ArrayList<>();
-        runtime.parse(outcome.body()).forEach(node -> comments.add(mapper.apply(node)));
+        for (JsonNode node : runtime.parse(outcome.body())) {
+            comments.add(comment(node));
+        }
         return List.copyOf(comments);
     }
 
-    private static Comment comment(JsonNode node) {
+    private static Comment comment(JsonNode node) throws IOException {
+        Optional<String> parentEntityType = text(node, "parentEntityType");
         return new Comment(
-                node.path("id").asText(),
+                required(node, "id", "comment id"),
                 text(node, "body"),
-                firstText(node, "parentEntityType").flatMap(SocialGateway::parentEntityType),
+                parentEntityType.flatMap(SocialGateway::parentEntityType),
+                parentEntityType,
                 firstText(node, "parentEntityId", "parentEntityID"),
                 firstText(node, "parentCommentId", "parentCommentID"),
                 text(node, "userAddress"),
@@ -137,7 +143,7 @@ public final class SocialGateway implements SocialDirectory {
 
     /**
      * Gamma's own enum values, not uniformly cased: "Event", "Series", "market". A value Gamma
-     * adds later stays absent rather than failing the whole comment read.
+     * adds later stays absent here; the comment keeps its wire text so it is still readable.
      */
     private static Optional<ParentEntityType> parentEntityType(String wireValue) {
         for (ParentEntityType type : ParentEntityType.values()) {
@@ -160,22 +166,26 @@ public final class SocialGateway implements SocialDirectory {
                 positions);
     }
 
-    private static List<Reaction> reactions(JsonNode array) {
+    private static List<Reaction> reactions(JsonNode array) throws IOException {
+        if (array == null) return List.of();
         List<Reaction> reactions = new ArrayList<>();
-        if (array != null) {
-            array.forEach(node -> reactions.add(new Reaction(node.path("id").asText(),
-                    text(node, "commentId"), text(node, "reactionType"), text(node, "icon"),
-                    text(node, "userAddress"), instant(node, "createdAt"))));
+        for (JsonNode node : array) {
+            reactions.add(new Reaction(required(node, "id", "reaction id"),
+                    firstText(node, "commentID", "commentId"), text(node, "reactionType"),
+                    text(node, "icon"), text(node, "userAddress"), instant(node, "createdAt"),
+                    Optional.ofNullable(node.get("profile")).map(SocialGateway::commentAuthor)));
         }
         return List.copyOf(reactions);
     }
 
-    private static Profile profile(JsonNode node) {
+    private static Profile profile(JsonNode node) throws IOException {
         List<LinkedAccount> users = new ArrayList<>();
         JsonNode array = node.get("users");
         if (array != null) {
-            array.forEach(child -> users.add(new LinkedAccount(child.path("id").asText(),
-                    flag(child, "creator"), flag(child, "mod"))));
+            for (JsonNode child : array) {
+                users.add(new LinkedAccount(required(child, "id", "linked account id"),
+                        flag(child, "creator"), flag(child, "mod")));
+            }
         }
         return new Profile(
                 text(node, "proxyWallet"), text(node, "name"), text(node, "pseudonym"),
@@ -205,6 +215,13 @@ public final class SocialGateway implements SocialDirectory {
 
     private static Optional<Instant> instant(JsonNode node, String field) {
         return text(node, field).map(Instant::parse);
+    }
+
+    /** Identity is not optional: a blank or missing id would publish a record nobody can name. */
+    private static String required(JsonNode node, String field, String described)
+            throws IOException {
+        return text(node, field).orElseThrow(
+                () -> new IOException("social payload carried no " + described));
     }
 
     private static Optional<String> text(JsonNode node, String field) {

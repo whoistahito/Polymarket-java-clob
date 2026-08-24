@@ -2,38 +2,30 @@ package com.polymarket.social;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
-/** A comment on an event, market or series, as Gamma publishes it. */
+/**
+ * A comment on an event, market or series, as Gamma publishes it. {@code parentEntityTypeText}
+ * keeps the wire value, so a kind Gamma has not documented yet is still readable.
+ */
 public record Comment(
-        String id,
-        Optional<String> body,
-        Optional<ParentEntityType> parentEntityType,
-        Optional<String> parentEntityId,
-        Optional<String> parentCommentId,
-        Optional<String> userAddress,
-        Optional<String> replyAddress,
-        Optional<Instant> createdAt,
-        Optional<Instant> updatedAt,
-        Optional<CommentAuthor> author,
-        List<Reaction> reactions,
-        Optional<Integer> reportCount,
-        Optional<Integer> reactionCount) {
+        @NonNull String id,
+        @NonNull Optional<String> body,
+        @NonNull Optional<ParentEntityType> parentEntityType,
+        @NonNull Optional<String> parentEntityTypeText,
+        @NonNull Optional<String> parentEntityId,
+        @NonNull Optional<String> parentCommentId,
+        @NonNull Optional<String> userAddress,
+        @NonNull Optional<String> replyAddress,
+        @NonNull Optional<Instant> createdAt,
+        @NonNull Optional<Instant> updatedAt,
+        @NonNull Optional<CommentAuthor> author,
+        @NonNull List<Reaction> reactions,
+        @NonNull Optional<Integer> reportCount,
+        @NonNull Optional<Integer> reactionCount) {
 
     public Comment {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(body, "body");
-        Objects.requireNonNull(parentEntityType, "parentEntityType");
-        Objects.requireNonNull(parentEntityId, "parentEntityId");
-        Objects.requireNonNull(parentCommentId, "parentCommentId");
-        Objects.requireNonNull(userAddress, "userAddress");
-        Objects.requireNonNull(replyAddress, "replyAddress");
-        Objects.requireNonNull(createdAt, "createdAt");
-        Objects.requireNonNull(updatedAt, "updatedAt");
-        Objects.requireNonNull(author, "author");
-        Objects.requireNonNull(reportCount, "reportCount");
-        Objects.requireNonNull(reactionCount, "reactionCount");
         reactions = List.copyOf(reactions);
     }
 }
