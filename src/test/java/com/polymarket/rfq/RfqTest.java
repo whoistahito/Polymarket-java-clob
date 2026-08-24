@@ -451,4 +451,63 @@ class RfqTest {
         assertEquals("rfq-1", unknown.rfqId());
         assertEquals(1, server.getRequestCount());
     }
+
+    @Test
+    @DisplayName("TC-RQ-021: an HTTP validation refusal is Rejected, never a business Failed")
+    void httpValidationRefusalIsRejectedNotFailed() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(403).setBody("""
+                {"rfq_id":"rfq-1","code":"BUILDER_CODE_DISABLED",
+                 "error":"the builder key has no enabled builder code"}"""));
+
+        RfqOutcome outcome = rfq(FIXED).status("rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address());
+
+        RfqOutcome.Rejected rejected = assertInstanceOf(RfqOutcome.Rejected.class, outcome);
+        assertEquals("rfq-1", rejected.rfqId());
+        assertEquals(403, rejected.httpStatus());
+        assertTrue(rejected.reason().contains("the builder key has no enabled builder code"),
+                rejected.reason());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-022: an acceptance refused with HTTP 409 is Rejected, not a read-before-acceptance")
+    void acceptanceRefusedWithConflictIsRejected() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(409).setBody("""
+                {"rfq_id":"rfq-1","code":"QUOTE_MISMATCH","error":"quote mismatch"}"""));
+
+        RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
+                new com.polymarket.internal.trading.Eip712OrderSigner(),
+                acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RfqOutcome.Rejected rejected = assertInstanceOf(RfqOutcome.Rejected.class, outcome);
+        assertEquals(409, rejected.httpStatus());
+        assertEquals("rfq-1", rejected.rfqId());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-023: an unreadable acceptance body keeps the durable RFQ ID as Unknown")
+    void unreadableAcceptanceBodyKeepsTheRfqId() throws Exception {
+        server.enqueue(new MockResponse().setBody("<html>gateway</html>"));
+
+        RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
+                new com.polymarket.internal.trading.Eip712OrderSigner(),
+                acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);
+        assertEquals("rfq-1", unknown.rfqId());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-024: a create refused before an RFQ exists reports the HTTP status, inventing no RFQ ID")
+    void createRefusedBeforeAnRfqExistsReportsTheHttpStatus() {
+        server.enqueue(new MockResponse().setResponseCode(400).setBody("""
+                {"code":"INVALID_LEGS","error":"leg position ids are not compatible"}"""));
+
+        RfqGatewayException refused = assertThrows(RfqGatewayException.class,
+                () -> rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                        ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
+
+        assertEquals(400, refused.httpStatus());
+        assertTrue(refused.getMessage().contains("leg position ids are not compatible"),
+                refused.getMessage());
+    }
 }

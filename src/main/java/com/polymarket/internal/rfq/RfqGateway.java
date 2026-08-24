@@ -11,6 +11,7 @@ import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.PositionId;
 import com.polymarket.rfq.QuoteAmounts;
 import com.polymarket.rfq.RfqDirectory;
+import com.polymarket.rfq.RfqGatewayException;
 import com.polymarket.rfq.RfqOutcome;
 import com.polymarket.rfq.RfqRequest;
 import com.polymarket.rfq.RfqStatus;
@@ -175,16 +176,26 @@ public final class RfqGateway implements RfqDirectory {
      */
     private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId) throws IOException {
         JsonNode node = tryParse(outcome.body());
-        if (node == null) {
-            if (fallbackRfqId != null) {
-                return new RfqOutcome.Unknown(fallbackRfqId, "unreadable response body");
-            }
-            throw new IOException("could not read RFQ response: HTTP " + outcome.status());
-        }
-        String rfqId = textOrNull(node, "rfq_id");
+        String rfqId = node == null ? fallbackRfqId : textOrNull(node, "rfq_id");
         if (rfqId == null) rfqId = fallbackRfqId;
+
+        // Two independent axes: this is the HTTP verdict on the exchange, never the RFQ's
+        // business result. A business failure is HTTP 200 with status FAILED, handled below.
+        if (!outcome.successful()) {
+            String reason = node == null ? "HTTP " + outcome.status() : errorEnvelope(node);
+            if (rfqId == null) {
+                throw new RfqGatewayException(outcome.status(), reason);
+            }
+            return new RfqOutcome.Rejected(rfqId, outcome.status(), reason);
+        }
+        if (node == null) {
+            if (rfqId != null) {
+                return new RfqOutcome.Unknown(rfqId, "unreadable response body");
+            }
+            throw new RfqGatewayException(outcome.status(), "unreadable response body");
+        }
         if (rfqId == null) {
-            throw new IOException("RFQ response carried no rfq_id");
+            throw new RfqGatewayException(outcome.status(), "response carried no rfq_id");
         }
         RfqStatus status = new RfqStatus(node.path("status").asText(""));
 
@@ -248,6 +259,13 @@ public final class RfqGateway implements RfqDirectory {
     /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */
     private static Optional<String> takerOrderHash(JsonNode node) {
         return Optional.ofNullable(textOrNull(node, "taker_order_hash"));
+    }
+
+    /** Official: "a non-2xx response carries a stable code and a human-readable top-level error". */
+    private static String errorEnvelope(JsonNode node) {
+        String code = textOrNull(node, "code");
+        String message = errorReason(node);
+        return code == null ? message : code + ": " + message;
     }
 
     private static String errorReason(JsonNode node) {
