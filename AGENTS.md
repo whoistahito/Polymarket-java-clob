@@ -175,12 +175,14 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   `RtdsChannelConnection` porting the same proven reconnect/backoff/heartbeat algorithm.
   Implemented by `com.polymarket.internal.streaming.RtdsGateway`.
 - Heartbeat (issue #24) — `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
-  `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch `POST /v1/heartbeats`
-  tick; nothing ticks on construction. The first tick sends `{"heartbeat_id":""}` (the deleted 1.0
-  facade string-concatenated a `null` id into the literal text `"null"` on its first call — a
-  real bug, not the documented contract); every later tick chains the `heartbeat_id` the
-  previous response returned. A failed tick is logged and stays scheduled — only
-  `stopHeartbeat()`/`close()` cancels it, and both are idempotent. Implemented by
+  `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch tick; nothing ticks on
+  construction. Each tick is a **bodyless** L2-signed `POST /heartbeats` (`sendHeartbeat` declares
+  no `requestBody`) and a successful status is the whole acknowledgement — there is no
+  `heartbeat_id` chain. That chain belongs to `POST /v1/heartbeats` (`sendHeartbeatV1`), which is
+  in `clob-openapi.yaml` but absent from `llms.txt`; `heartbeat.json` pins both and marks the
+  bodyless form current. No official page publishes a beat interval, so the SDK's 5 s default is a
+  local choice. Start, stop and close are idempotent; a failed tick is logged and stays scheduled —
+  dropping the schedule would have the exchange cancel the caller's open orders. Implemented by
   `com.polymarket.internal.operations.HeartbeatGateway`.
 
 Rules that later tickets inherit: no OkHttp/Jackson/Web3j type in a public signature, no transport
