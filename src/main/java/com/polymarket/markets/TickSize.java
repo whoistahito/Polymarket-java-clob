@@ -2,7 +2,8 @@ package com.polymarket.markets;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import lombok.NonNull;
 
 /**
  * One of the six documented price grids, matched by numeric value. There is deliberately no
@@ -14,18 +15,26 @@ public final class TickSize {
             new BigDecimal("0.1"), new BigDecimal("0.01"), new BigDecimal("0.005"),
             new BigDecimal("0.0025"), new BigDecimal("0.001"), new BigDecimal("0.0001"));
 
+    // Official "Choose a Price and Size" table: price, size and amount decimals per tick.
+    private static final Map<String, int[]> PRECISION = Map.of(
+            "0.1", new int[] {1, 2, 3},
+            "0.01", new int[] {2, 2, 4},
+            "0.005", new int[] {3, 2, 5},
+            "0.0025", new int[] {4, 2, 6},
+            "0.001", new int[] {3, 2, 5},
+            "0.0001", new int[] {4, 2, 6});
+
     private final BigDecimal value;
 
     private TickSize(BigDecimal value) {
         this.value = value;
     }
 
-    public static TickSize of(String value) {
-        return of(new BigDecimal(Objects.requireNonNull(value, "value")));
+    public static TickSize of(@NonNull String value) {
+        return of(new BigDecimal(value));
     }
 
-    public static TickSize of(BigDecimal value) {
-        Objects.requireNonNull(value, "value");
+    public static TickSize of(@NonNull BigDecimal value) {
         return SUPPORTED.stream()
                 .filter(supported -> supported.compareTo(value) == 0)
                 .findFirst()
@@ -38,8 +47,27 @@ public final class TickSize {
         return value;
     }
 
-    public boolean isOnGrid(Price price) {
+    public boolean isOnGrid(@NonNull Price price) {
         return price.value().remainder(value).compareTo(BigDecimal.ZERO) == 0;
+    }
+
+    /** Documented decimals a price on this grid may carry. */
+    public int priceDecimals() {
+        return precision()[0];
+    }
+
+    /** Documented decimals a share quantity on this grid may carry. */
+    public int sizeDecimals() {
+        return precision()[1];
+    }
+
+    /** Documented decimals the pUSD leg on this grid may carry. */
+    public int amountDecimals() {
+        return precision()[2];
+    }
+
+    private int[] precision() {
+        return PRECISION.get(value.stripTrailingZeros().toPlainString());
     }
 
     @Override
