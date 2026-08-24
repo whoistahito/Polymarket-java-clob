@@ -26,8 +26,6 @@ import java.util.Optional;
 public final class ComboMarketGateway implements ComboMarketCatalog {
 
     /** Published in the "Get Combo Markets" API tab; not one of PolymarketConfig's hosts. */
-    public static final URI DEFAULT_HOST = URI.create("https://combos-rfq-api.polymarket.com");
-
     private static final String CATALOG_PATH = "/v1/rfq/combo-markets";
     private static final int YES_INDEX = 0;
     private static final int NO_INDEX = 1;

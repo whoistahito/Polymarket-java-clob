@@ -196,6 +196,33 @@ class PolymarketRootTest {
         assertThrows(IllegalStateException.class, sdk::social);
     }
 
+    @Test
+    @DisplayName("TC-PR-013: RFQ is reached through the root at a caller-supplied gateway host")
+    void rfqIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        URI gateway = URI.create("https://gateway.example");
+
+        com.polymarket.rfq.Rfq rfq = sdk.rfq(gateway);
+
+        assertSame(rfq, sdk.rfq(gateway), "the root must own one RFQ capability per gateway host");
+        assertNotNull(sdk.rfq(URI.create("https://other.example")));
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, () -> sdk.rfq(gateway));
+    }
+
+    @Test
+    @DisplayName("TC-PR-014: the Combo markets catalog host is configured, never hardcoded internally")
+    void comboMarketsHostIsConfigurable() {
+        assertEquals(URI.create("https://combos-rfq-api.polymarket.com"),
+                PolymarketConfig.defaults().comboMarketsHost());
+        assertEquals(URI.create("https://elsewhere.example"),
+                PolymarketConfig.defaults()
+                        .comboMarketsHost(URI.create("https://elsewhere.example"))
+                        .comboMarketsHost());
+    }
+
     private PolymarketConfig config() {
         URI host = server.url("/").uri();
         return PolymarketConfig.defaults()

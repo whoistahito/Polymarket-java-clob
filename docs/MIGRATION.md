@@ -160,8 +160,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `client.getBuilderTrades(..)` | `Builders.trades([BuilderTradeQuery][, BuilderCursor])` |
 | `model.BuilderApiKey`, `BuilderApiKeyResponse`, `BuilderTrade` | `BuilderCredentials` (redacted), `BuilderCredentialSummary`, `BuilderCredentialRevocation`, `BuilderTrade`, `BuilderTradePage` |
 
-`Builders` is not on the `Polymarket` root — build it with
-`new Builders(authority, new BuildersGateway(config, runtime, Clock.systemUTC()))`.
+`Builders` is on the `Polymarket` root: `sdk.builders()`.
 
 ## RFQ
 
@@ -173,13 +172,13 @@ only the **requester** flow, over the Builder Gateway (issues #25/#26).
 | `rfq.createRfqRequest(RfqUserOrder, tickSize)` | `Rfq.request(RfqRequest, SigningIdentity, ..)` → `RfqOutcome` |
 | `rfq.getRfqRequests(..)` | `Rfq.status(rfqId, ..)` (valid only after acceptance — before it, the gateway answers 409 as `NotYetAccepted`), or `Rfq.awaitSettlement(..)` for the poll loop |
 | `rfq.getRfqBestQuote(..)` / `getRfqRequesterQuotes(..)` | `RfqOutcome.Quoted`, returned inline on `Rfq.request(..)` — there is no quote to poll for |
-| `rfq.acceptRfqQuote(AcceptQuoteParams)` | `Rfq.accept(quoted, side, signer, ..)` — signs the V3 Combo order and refuses an expired quote before sending |
+| `rfq.acceptRfqQuote(AcceptQuoteParams)` | `Rfq.accept(quoted, signer, ..)` — the direction comes from the Quote, and an expired quote is refused before sending |
 | `rfq.cancelRfqRequest(..)` / `cancelRfqQuote(..)` / `createRfqQuote(..)` / `getRfqQuoterQuotes(..)` / `approveRfqOrder(..)` / `rfqConfig()` | Removed — maker/quoter behavior is out of scope (issue #1) |
 | `AsyncRfqClient` | `com.polymarket.rfq.AsyncRfq` |
 | `model.RfqRequest`, `RfqQuote`, `RfqUserOrder`, `RfqUserQuote`, `RfqMatchType`, `RfqPaginatedResponse`, `*Params` | `RfqRequest` (sealed `Buy`/`Sell`), `RfqStatus`, `RfqOutcome` (sealed) |
 
-`Rfq` is not on the `Polymarket` root, because the gateway host is issued per builder onboarding:
-`new Rfq(new RfqGateway(gatewayHost, runtime, Clock.systemUTC()), Clock.systemUTC())`.
+`Rfq` is on the `Polymarket` root, but takes the gateway host issued per builder onboarding:
+`sdk.rfq(gatewayHost)`. The root owns each one and closes it with itself.
 
 ## Streaming
 

@@ -116,8 +116,7 @@ Cursors travel in the documented `next_cursor` **query** parameter, never a head
 
 ## Builders — `com.polymarket.builders.Builders`
 
-Not on `Polymarket`; construct it directly:
-`new Builders(authority, new BuildersGateway(config, runtime, Clock.systemUTC()))`.
+Reached through the root: `sdk.builders()`.
 
 | Operation | Endpoint | Docs | Status |
 |---|---|---|---|
@@ -130,7 +129,7 @@ Not on `Polymarket`; construct it directly:
 
 ## Social — `com.polymarket.social.Social`
 
-Not on `Polymarket`; construct it directly: `new Social(new SocialGateway(config, runtime))`.
+Reached through the root: `sdk.social()`.
 
 | Operation | Endpoint | Docs | Status |
 |---|---|---|---|
@@ -143,8 +142,8 @@ Not on `Polymarket`; construct it directly: `new Social(new SocialGateway(config
 
 ## RFQ — `com.polymarket.rfq.Rfq`
 
-Requester side only, against the caller-supplied Builder Gateway host:
-`new Rfq(new RfqGateway(gatewayHost, runtime, Clock.systemUTC()), Clock.systemUTC())`.
+Requester side only. Reached through the root at the Builder Gateway host issued during builder
+onboarding: `sdk.rfq(gatewayHost)`. The root owns each one and closes it with itself.
 
 | Operation | Endpoint | Docs | Status |
 |---|---|---|---|

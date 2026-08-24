@@ -13,6 +13,8 @@ import com.polymarket.internal.operations.HeartbeatGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
+import com.polymarket.internal.rfq.ComboMarketGateway;
+import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.internal.social.SocialGateway;
 import com.polymarket.internal.streaming.RtdsGateway;
 import com.polymarket.internal.streaming.StreamingGateway;
@@ -26,14 +28,18 @@ import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
 import com.polymarket.rewards.Rewards;
+import com.polymarket.rfq.Rfq;
 import com.polymarket.social.Social;
 import com.polymarket.streaming.Rtds;
 import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
 import java.io.IOException;
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.NonNull;
 
@@ -60,6 +66,10 @@ public final class Polymarket implements AutoCloseable {
     private final RtdsGateway rtdsGateway;
     private final Rtds rtds;
     private final HeartbeatGateway heartbeat;
+    private final Clock clock;
+    // One Rfq per Builder Gateway host: the host is issued per builder onboarding, so the root
+    // cannot know it up front, but it still owns every capability it hands out.
+    private final Map<URI, Rfq> rfqByGateway = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -84,6 +94,7 @@ public final class Polymarket implements AutoCloseable {
         this.rtdsGateway = new RtdsGateway();
         this.rtds = new Rtds(rtdsGateway);
         this.heartbeat = new HeartbeatGateway(config, runtime, clock);
+        this.clock = clock;
     }
 
     public static Polymarket withDefaults() {
@@ -174,6 +185,15 @@ public final class Polymarket implements AutoCloseable {
         return rtds;
     }
 
+    /** The Combo requester flow against the Builder Gateway issued during builder onboarding. */
+    public Rfq rfq(@NonNull URI builderGatewayHost) {
+        requireOpen();
+        return rfqByGateway.computeIfAbsent(builderGatewayHost, host -> new Rfq(
+                new RfqGateway(host, runtime, clock),
+                new ComboMarketGateway(config.comboMarketsHost(), runtime),
+                clock));
+    }
+
     public ServerTime serverTime() throws IOException {
         return open().serverTime();
     }
@@ -211,8 +231,12 @@ public final class Polymarket implements AutoCloseable {
     }
 
     private OperationsGateway open() {
-        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        requireOpen();
         return operations;
+    }
+
+    private void requireOpen() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
     }
 
     @Override
@@ -223,6 +247,8 @@ public final class Polymarket implements AutoCloseable {
             streamingGateway.close();
             rtds.close();
             rtdsGateway.close();
+            // Every Rfq shares the root's runtime, so releasing them is releasing that.
+            rfqByGateway.clear();
             runtime.close();
         }
     }
