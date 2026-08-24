@@ -450,4 +450,25 @@ class TradingTest {
             assertInstanceOf(SubmissionOutcome.Unknown.class, outcome, body);
         }
     }
+
+    @Test
+    @DisplayName("TC-TR-023: transport loss after the order is on the wire is sent exactly once")
+    void transportLossStillSubmitsExactlyOnce() throws Exception {
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
+        URI host = server.url("/").uri();
+        PolymarketConfig config = PolymarketConfig.defaults()
+                .clobHost(host).gammaHost(host).dataHost(host).geoblockHost(host);
+
+        SubmissionOutcome outcome;
+        SignedOrder order = signedOrder();
+        try (Polymarket sdk = Polymarket.with(config, new HttpRuntime(Duration.ofSeconds(2),
+                Duration.ofSeconds(5), new ReadRetryPolicy(5, Duration.ZERO, Duration.ZERO),
+                d -> {
+                }), authority(), FIXED)) {
+            outcome = sdk.trading().submit(order, OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+        }
+
+        assertInstanceOf(SubmissionOutcome.Unknown.class, outcome);
+        assertEquals(1, server.getRequestCount());
+    }
 }

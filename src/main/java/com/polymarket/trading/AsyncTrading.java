@@ -10,10 +10,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import lombok.NonNull;
 
 /**
  * Async decorator over {@link Trading}. Every future completes on the supplied executor and
@@ -24,9 +24,9 @@ public final class AsyncTrading {
     private final Trading trading;
     private final Executor executor;
 
-    private AsyncTrading(Trading trading, Executor executor) {
-        this.trading = Objects.requireNonNull(trading, "trading");
-        this.executor = Objects.requireNonNull(executor, "executor");
+    private AsyncTrading(@NonNull Trading trading, @NonNull Executor executor) {
+        this.trading = trading;
+        this.executor = executor;
     }
 
     public static AsyncTrading wrap(Trading trading) {

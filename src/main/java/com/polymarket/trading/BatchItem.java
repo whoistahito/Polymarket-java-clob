@@ -1,12 +1,7 @@
 package com.polymarket.trading;
 
-import java.util.Objects;
+import lombok.NonNull;
 
 /** One order within a batch submission, paired with its own submission-time attributes. */
-public record BatchItem(SignedOrder order, OrderPlacement placement) {
-
-    public BatchItem {
-        Objects.requireNonNull(order, "order");
-        Objects.requireNonNull(placement, "placement");
-    }
+public record BatchItem(@NonNull SignedOrder order, @NonNull OrderPlacement placement) {
 }

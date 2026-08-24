@@ -15,7 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -120,11 +119,12 @@ public final class Trading {
         if (orderIds.size() != Set.copyOf(orderIds).size()) {
             throw new IllegalArgumentException("order ids must not contain duplicates");
         }
-        orderIds.stream().filter(id -> !ORDER_ID.matcher(id).matches()).findFirst()
-                .ifPresent(id -> {
-                    throw new IllegalArgumentException(
-                            "an order id is a 0x-prefixed hex order hash, got: " + id);
-                });
+        for (String id : orderIds) {
+            if (!ORDER_ID.matcher(id).matches()) {
+                throw new IllegalArgumentException(
+                        "an order id is a 0x-prefixed hex order hash, got: " + id);
+            }
+        }
         return batch.cancel(credentials, accountSigner, orderIds);
     }
 
