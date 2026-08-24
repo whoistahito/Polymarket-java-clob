@@ -2,8 +2,8 @@ package com.polymarket.portfolio;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * Immutable trade filter. The offset budget is small, so {@code from}/{@code to} are how a
@@ -32,32 +32,34 @@ public final class TradeQuery {
         return new TradeQuery(null, List.of(), null, null, null, null);
     }
 
-    public TradeQuery user(String user) {
-        return new TradeQuery(Objects.requireNonNull(user, "user"), conditionIds, side, takerOnly,
+    public TradeQuery user(@NonNull String user) {
+        return new TradeQuery(QueryBoundaries.address(user, "user"), conditionIds, side, takerOnly,
                 from, to);
     }
 
-    public TradeQuery markets(List<String> conditionIds) {
-        return new TradeQuery(user, List.copyOf(conditionIds), side, takerOnly, from, to);
+    public TradeQuery markets(@NonNull List<String> conditionIds) {
+        return new TradeQuery(user, QueryBoundaries.conditionIds(conditionIds), side, takerOnly,
+                from, to);
     }
 
-    public TradeQuery side(Side side) {
-        return new TradeQuery(user, conditionIds, Objects.requireNonNull(side, "side"), takerOnly,
-                from, to);
+    public TradeQuery side(@NonNull Side side) {
+        return new TradeQuery(user, conditionIds, side, takerOnly, from, to);
     }
 
     public TradeQuery takerOnly(boolean takerOnly) {
         return new TradeQuery(user, conditionIds, side, takerOnly, from, to);
     }
 
-    public TradeQuery from(Instant from) {
-        return new TradeQuery(user, conditionIds, side, takerOnly,
-                Objects.requireNonNull(from, "from"), to);
+    public TradeQuery from(@NonNull Instant from) {
+        QueryBoundaries.windowBound(from, "from");
+        QueryBoundaries.orderedWindow(from, to);
+        return new TradeQuery(user, conditionIds, side, takerOnly, from, to);
     }
 
-    public TradeQuery to(Instant to) {
-        return new TradeQuery(user, conditionIds, side, takerOnly, from,
-                Objects.requireNonNull(to, "to"));
+    public TradeQuery to(@NonNull Instant to) {
+        QueryBoundaries.windowBound(to, "to");
+        QueryBoundaries.orderedWindow(from, to);
+        return new TradeQuery(user, conditionIds, side, takerOnly, from, to);
     }
 
     public Optional<String> user() {

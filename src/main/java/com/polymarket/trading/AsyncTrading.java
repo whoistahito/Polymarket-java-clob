@@ -66,6 +66,13 @@ public final class AsyncTrading {
         return io(() -> trading.reconcile(credentials, address, orderId, tradeIds, timeout, pollInterval));
     }
 
+    public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,
+            String address, String orderId, String rfqId, List<String> tradeIds, Duration timeout,
+            Duration pollInterval) {
+        return io(() -> trading.reconcile(credentials, address, orderId, rfqId, tradeIds, timeout,
+                pollInterval));
+    }
+
     @FunctionalInterface
     private interface IoSupplier<T> {
         T get() throws IOException;

@@ -1,13 +1,13 @@
 package com.polymarket.portfolio;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * What an activity row records. The raw wire value is kept, so a type added after this
  * release still reads instead of failing the whole page.
  */
-public record ActivityKind(String raw) {
+public record ActivityKind(@NonNull String raw) {
 
     /** The types the Data API documented on 2026-08-16. */
     public enum Known {
@@ -15,12 +15,8 @@ public record ActivityKind(String raw) {
         MAKER_REBATE, TAKER_REBATE, REFERRAL_REWARD
     }
 
-    public ActivityKind {
-        Objects.requireNonNull(raw, "raw");
-    }
-
-    public static ActivityKind of(Known known) {
-        return new ActivityKind(Objects.requireNonNull(known, "known").name());
+    public static ActivityKind of(@NonNull Known known) {
+        return new ActivityKind(known.name());
     }
 
     public Optional<Known> known() {

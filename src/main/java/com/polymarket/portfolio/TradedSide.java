@@ -1,17 +1,13 @@
 package com.polymarket.portfolio;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * The side a server row reported. The raw value is kept so a value this release does not
  * know cannot break the whole read.
  */
-public record TradedSide(String raw) {
-
-    public TradedSide {
-        Objects.requireNonNull(raw, "raw");
-    }
+public record TradedSide(@NonNull String raw) {
 
     public Optional<Side> known() {
         for (Side side : Side.values()) {

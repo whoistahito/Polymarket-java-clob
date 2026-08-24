@@ -2,8 +2,8 @@ package com.polymarket.portfolio;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Immutable position filter. Unset fields are never sent, so the server's defaults apply. */
 public final class PositionQuery {
@@ -26,21 +26,19 @@ public final class PositionQuery {
     }
 
     /** The Data API rejects a position read without a user, so it is required here. */
-    public static PositionQuery forUser(String user) {
-        Objects.requireNonNull(user, "user");
-        if (user.isBlank()) throw new IllegalArgumentException("user must not be blank");
-        return new PositionQuery(user, List.of(), null, null, null, null);
+    public static PositionQuery forUser(@NonNull String user) {
+        return new PositionQuery(QueryBoundaries.address(user, "user"), List.of(), null, null,
+                null, null);
     }
 
-    public PositionQuery markets(List<String> conditionIds) {
-        return new PositionQuery(user, List.copyOf(conditionIds), sizeThreshold, redeemable,
-                mergeable, includeArchived);
+    public PositionQuery markets(@NonNull List<String> conditionIds) {
+        return new PositionQuery(user, QueryBoundaries.conditionIds(conditionIds), sizeThreshold,
+                redeemable, mergeable, includeArchived);
     }
 
-    public PositionQuery sizeThreshold(BigDecimal sizeThreshold) {
-        return new PositionQuery(user, conditionIds,
-                Objects.requireNonNull(sizeThreshold, "sizeThreshold"), redeemable, mergeable,
-                includeArchived);
+    public PositionQuery sizeThreshold(@NonNull BigDecimal sizeThreshold) {
+        return new PositionQuery(user, conditionIds, QueryBoundaries.threshold(sizeThreshold),
+                redeemable, mergeable, includeArchived);
     }
 
     public PositionQuery redeemable(boolean redeemable) {
