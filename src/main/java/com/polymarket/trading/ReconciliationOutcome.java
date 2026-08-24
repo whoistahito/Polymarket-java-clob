@@ -1,36 +1,46 @@
 package com.polymarket.trading;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Settlement disposition for one accepted submission's trade IDs. */
 public sealed interface ReconciliationOutcome {
 
-    /** Every requested trade reached a terminal state with none failed. */
-    record Confirmed(List<SettledTrade> trades) implements ReconciliationOutcome {
+    /** Every requested trade confirmed with its transaction hash and none failed. */
+    record Confirmed(@NonNull List<SettledTrade> trades) implements ReconciliationOutcome {
         public Confirmed {
             trades = List.copyOf(trades);
         }
     }
 
     /** At least one requested trade reached FAILED. */
-    record Failed(List<SettledTrade> trades) implements ReconciliationOutcome {
+    record Failed(@NonNull List<SettledTrade> trades) implements ReconciliationOutcome {
         public Failed {
             trades = List.copyOf(trades);
         }
     }
 
     /**
-     * The local deadline passed before every trade reached a terminal state. Not a failure —
-     * the order, and RFQ ID where a Combo request produced one, may still settle later.
+     * The server's own records contradict themselves or each other. Distinct from
+     * {@link Failed}: nothing here says the trade failed, only that it cannot be believed.
      */
-    record Pending(String orderId, List<String> tradeIds, Optional<String> rfqId)
+    record Inconsistent(@NonNull List<SettledTrade> trades, @NonNull List<String> contradictions)
             implements ReconciliationOutcome {
+        public Inconsistent {
+            trades = List.copyOf(trades);
+            contradictions = List.copyOf(contradictions);
+        }
+    }
+
+    /**
+     * The local deadline passed before every trade settled. Not a failure — the order, and the
+     * RFQ ID where a Combo request produced one, may still settle later.
+     */
+    record Pending(@NonNull String orderId, @NonNull List<String> tradeIds,
+            @NonNull Optional<String> rfqId) implements ReconciliationOutcome {
         public Pending {
-            Objects.requireNonNull(orderId, "orderId");
             tradeIds = List.copyOf(tradeIds);
-            Objects.requireNonNull(rfqId, "rfqId");
         }
     }
 }
