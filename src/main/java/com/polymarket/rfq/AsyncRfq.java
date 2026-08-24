@@ -4,15 +4,14 @@ import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
 import com.polymarket.trading.OrderSigner;
-import com.polymarket.trading.Side;
 import com.polymarket.trading.SigningContext;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import lombok.NonNull;
 
 /**
  * Async decorator over {@link Rfq}. Every future completes on the supplied executor and carries
@@ -23,9 +22,9 @@ public final class AsyncRfq {
     private final Rfq rfq;
     private final Executor executor;
 
-    private AsyncRfq(Rfq rfq, Executor executor) {
-        this.rfq = Objects.requireNonNull(rfq, "rfq");
-        this.executor = Objects.requireNonNull(executor, "executor");
+    private AsyncRfq(@NonNull Rfq rfq, @NonNull Executor executor) {
+        this.rfq = rfq;
+        this.executor = executor;
     }
 
     public static AsyncRfq wrap(Rfq rfq) {
@@ -46,15 +45,17 @@ public final class AsyncRfq {
         return io(() -> rfq.status(rfqId, accountCredentials, address));
     }
 
-    public CompletableFuture<RfqOutcome> waitForQuote(String rfqId, ApiCredentials accountCredentials,
-            String address, Duration timeout, Duration pollInterval) {
-        return io(() -> rfq.waitForQuote(rfqId, accountCredentials, address, timeout, pollInterval));
+    public CompletableFuture<RfqOutcome> awaitSettlement(String rfqId,
+            ApiCredentials accountCredentials, String accountSigner, Duration timeout,
+            Duration pollInterval) {
+        return io(() -> rfq.awaitSettlement(
+                rfqId, accountCredentials, accountSigner, timeout, pollInterval));
     }
 
-    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote, Side side, OrderSigner signer,
+    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote, OrderSigner signer,
             SigningContext context, ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
         return CompletableFuture.supplyAsync(() -> rfq.accept(
-                quote, side, signer, context, accountCredentials, builderCredentials), executor);
+                quote, signer, context, accountCredentials, builderCredentials), executor);
     }
 
     @FunctionalInterface

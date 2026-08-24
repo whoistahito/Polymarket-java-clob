@@ -15,6 +15,7 @@ import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
+import com.polymarket.trading.Side;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -113,6 +114,43 @@ class RfqTest {
         assertTrue(body.contains("\"leg_position_ids\":[\"111\",\"222\"]"), body);
     }
 
+    private static final String TRADING_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
+
+    @Test
+    @DisplayName("TC-RQ-015: a Deposit Wallet request carries the Trading Wallet in both address fields")
+    void depositWalletRequestCarriesTradingWalletInBothAddressFields() throws Exception {
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
+
+        rfq(FIXED).request(buyRequest(),
+                SigningIdentity.depositWallet(TRADING_WALLET, SIGNER.address()),
+                ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RecordedRequest request = server.takeRequest();
+        String body = request.getBody().readUtf8();
+        assertTrue(body.contains("\"signer_address\":\"" + TRADING_WALLET + "\""), body);
+        assertTrue(body.contains("\"maker_address\":\"" + TRADING_WALLET + "\""), body);
+        assertTrue(body.contains("\"signature_type\":3"), body);
+        assertEquals(SIGNER.address(), request.getHeader("POLY_ADDRESS"));
+    }
+
+    @Test
+    @DisplayName("TC-RQ-016: a Proxy Wallet request keeps the Account Signer in signer_address")
+    void proxyWalletRequestKeepsAccountSignerInSignerAddress() throws Exception {
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
+
+        rfq(FIXED).request(buyRequest(),
+                SigningIdentity.proxyWallet(TRADING_WALLET, SIGNER.address()),
+                ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RecordedRequest request = server.takeRequest();
+        String body = request.getBody().readUtf8();
+        assertTrue(body.contains("\"signer_address\":\"" + SIGNER.address() + "\""), body);
+        assertTrue(body.contains("\"maker_address\":\"" + TRADING_WALLET + "\""), body);
+        assertEquals(SIGNER.address(), request.getHeader("POLY_ADDRESS"));
+    }
+
     @Test
     @DisplayName("TC-RQ-003: fewer than 2 or more than 50 legs is rejected before sending")
     void legCountIsValidatedBeforeSending() {
@@ -124,29 +162,93 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-004: an awaiting-acceptance status with a quote is Quoted")
-    void quotedStatusCarriesQuoteFields() throws Exception {
-        enqueue("""
-                {"rfq_id":"rfq-1","status":"AWAITING_REQUESTER_ACCEPTANCE",
-                 "leg_position_ids":["111","222"],
-                 "quote":{"quote_id":"quote-1","combo_position_id":"333",
-                          "maker_amount_e6":"966191","taker_amount_e6":"1932381",
-                          "expires_at":1773890818000,"builder_code":"0xbuilder"}}""");
+    @DisplayName("TC-RQ-004: a status read before acceptance is NotYetAccepted, not a generic failure")
+    void statusReadBeforeAcceptanceIsNotYetAccepted() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(409).setBody("""
+                {"error":"rfq has not been accepted"}"""));
 
         RfqOutcome outcome = rfq(FIXED).status("rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address());
 
-        RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class, outcome);
-        assertEquals("quote-1", quoted.quoteId());
-        assertEquals(new PositionId("333"), quoted.comboPositionId());
-        assertEquals(966191L, quoted.makerAmountBaseUnits());
-        assertEquals(1932381L, quoted.takerAmountBaseUnits());
-        assertEquals("0xbuilder", quoted.builderCode());
-        assertEquals(List.of(new PositionId("111"), new PositionId("222")), quoted.legs());
-        assertEquals(Instant.ofEpochMilli(1773890818000L), quoted.expiresAt());
-
+        RfqOutcome.NotYetAccepted notYet =
+                assertInstanceOf(RfqOutcome.NotYetAccepted.class, outcome);
+        assertEquals("rfq-1", notYet.rfqId());
         RecordedRequest request = server.takeRequest();
         assertEquals("GET", request.getMethod());
         assertEquals("/v1/builder/rfq/requests/rfq-1", request.getPath());
+        assertEquals(null, request.getHeader("POLY_BUILDER_API_KEY"));
+    }
+
+    /**
+     * Shaped from builder-gateway.json: expires_at and builder_code are TOP LEVEL, the position
+     * IDs live under request, and the quote carries all six pinned fields.
+     */
+    private static final String OFFICIAL_CREATE_RESPONSE = """
+            {"rfq_id":"rfq-1",
+             "status":"AWAITING_REQUESTER_ACCEPTANCE",
+             "expires_at":1773890765500,
+             "builder_code":"0xbuilder",
+             "request":{"rfq_id":"rfq-1","maker_address":"0xmaker","requestor_public_id":"pub-1",
+                        "leg_position_ids":["111","222"],"condition_id":"0xcond",
+                        "yes_position_id":"333","no_position_id":"444","direction":"SELL",
+                        "side":"YES","requested_size":{"unit":"shares","value_e6":"1932381"},
+                        "created_at":1773890758000},
+             "quote":{"quote_id":"quote-1","blended_price_e6":"500000",
+                      "maker_amount_e6":"966191","taker_amount_e6":"1932381",
+                      "total_required_e6":"1932381","net_receive_e6":"950000"}}""";
+
+    @Test
+    @DisplayName("TC-RQ-017: the official create response maps top-level expiry and builder attribution")
+    void officialCreateResponseMapsTopLevelExpiryAndBuilderCode() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE);
+
+        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+                SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class, outcome);
+        assertEquals(Instant.ofEpochMilli(1773890765500L), quoted.expiresAt());
+        assertEquals("0xbuilder", quoted.builderCode());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-018: the Combo position and legs come from the request block, not the top level")
+    void comboPositionAndLegsComeFromTheRequestBlock() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE);
+
+        RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
+                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                        ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
+
+        assertEquals(new PositionId("333"), quoted.comboPositionId());
+        assertEquals(List.of(new PositionId("111"), new PositionId("222")), quoted.legs());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-019: every pinned Quote amount is mapped, including total_required and net_receive")
+    void everyQuoteAmountIsMapped() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE);
+
+        RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
+                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                        ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
+
+        assertEquals("quote-1", quoted.quoteId());
+        assertEquals(500000L, quoted.amounts().blendedPriceBaseUnits());
+        assertEquals(966191L, quoted.amounts().makerAmountBaseUnits());
+        assertEquals(1932381L, quoted.amounts().takerAmountBaseUnits());
+        assertEquals(1932381L, quoted.amounts().totalRequiredBaseUnits());
+        assertEquals(950000L, quoted.amounts().netReceiveBaseUnits());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-020: a valid Quote retains the request's own direction")
+    void quoteRetainsTheRequestDirection() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE);
+
+        RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
+                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                        ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
+
+        assertEquals(Side.SELL, quoted.direction());
     }
 
     @Test
@@ -187,7 +289,7 @@ class RfqTest {
         assertEquals("SOME_NEW_STATE_2027", unknown.rawStatus());
     }
 
-    /** Advances a fixed step on every read so waitForQuote reaches its deadline with no real sleep. */
+    /** Advances a fixed step on every read so awaitSettlement reaches its deadline with no real sleep. */
     private static final class SteppingClock extends Clock {
         private Instant now;
         private final Duration step;
@@ -216,21 +318,21 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-008: waitForQuote polls through Waiting and resolves once a quote lands")
-    void waitForQuoteResolvesOnceQuoted() throws Exception {
+    @DisplayName("TC-RQ-008: awaitSettlement polls the post-acceptance state machine to a terminal answer")
+    void awaitSettlementPollsToATerminalAnswer() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
         enqueue("""
-                {"rfq_id":"rfq-1","status":"AWAITING_REQUESTER_ACCEPTANCE","leg_position_ids":["111"],
-                 "quote":{"quote_id":"quote-1","combo_position_id":"333","maker_amount_e6":"1",
-                          "taker_amount_e6":"1","expires_at":1773890818000,"builder_code":"0xbuilder"}}""");
+                {"rfq_id":"rfq-1","status":"EXECUTING"}""");
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}""");
 
         RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
-                Duration.ofSeconds(1))).waitForQuote(
+                Duration.ofSeconds(1))).awaitSettlement(
                 "rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address(), Duration.ofDays(1), Duration.ZERO);
 
-        assertInstanceOf(RfqOutcome.Quoted.class, outcome);
-        assertEquals(2, server.getRequestCount());
+        assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
+        assertEquals(3, server.getRequestCount());
     }
 
     @Test
@@ -240,7 +342,7 @@ class RfqTest {
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
         RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
-                Duration.ofHours(1))).waitForQuote(
+                Duration.ofHours(1))).awaitSettlement(
                 "rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address(), Duration.ofSeconds(1), Duration.ZERO);
 
         RfqOutcome.Pending pending = assertInstanceOf(RfqOutcome.Pending.class, outcome);
@@ -267,10 +369,16 @@ class RfqTest {
 
     private static final String BUILDER_CODE = "0x" + "b".repeat(64);
 
+    /** Amounts pinned in builder-gateway.json's acceptRequestBody example. */
     private RfqOutcome.Quoted quotedFixture(Instant expiresAt) {
-        return new RfqOutcome.Quoted("rfq-1", "quote-1", new PositionId("333"),
+        return quotedFixture(expiresAt, Side.BUY);
+    }
+
+    private RfqOutcome.Quoted quotedFixture(Instant expiresAt, Side direction) {
+        return new RfqOutcome.Quoted("rfq-1", "quote-1", direction, new PositionId("333"),
                 List.of(new PositionId("111"), new PositionId("222")),
-                966191L, 1932381L, expiresAt, BUILDER_CODE);
+                new QuoteAmounts(500000L, 966191L, 1932381L, 966191L, 1932381L),
+                expiresAt, BUILDER_CODE);
     }
 
     private com.polymarket.trading.SigningContext acceptContext() {
@@ -284,7 +392,7 @@ class RfqTest {
         RfqOutcome.Quoted expired = quotedFixture(FIXED.instant().minusSeconds(1));
 
         assertThrows(IllegalArgumentException.class, () -> rfq(FIXED).accept(expired,
-                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
         assertEquals(0, server.getRequestCount());
     }
@@ -296,7 +404,7 @@ class RfqTest {
                 {"rfq_id":"rfq-1","status":"EXECUTING"}""");
         RfqOutcome.Quoted quote = quotedFixture(FIXED.instant().plusSeconds(60));
 
-        RfqOutcome outcome = rfq(FIXED).accept(quote, com.polymarket.trading.Side.BUY,
+        RfqOutcome outcome = rfq(FIXED).accept(quote,
                 new com.polymarket.internal.trading.Eip712OrderSigner(), acceptContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
@@ -322,7 +430,7 @@ class RfqTest {
                 {"rfq_id":"rfq-1","status":"FILLED"}""");
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Confirmed confirmed = assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
@@ -336,7 +444,7 @@ class RfqTest {
                 okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                com.polymarket.trading.Side.BUY, new com.polymarket.internal.trading.Eip712OrderSigner(),
+                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);

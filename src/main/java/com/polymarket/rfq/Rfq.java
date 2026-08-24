@@ -18,7 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import lombok.NonNull;
 
-/** The Combo requester flow: create a quote request, then read or wait for its status. */
+/** The Combo requester flow: discover legs, request a Quote, accept it, then follow settlement. */
 public final class Rfq {
 
     private final RfqDirectory directory;
@@ -26,7 +26,7 @@ public final class Rfq {
     private final Clock clock;
     private final Sleeper sleeper;
 
-    /** Injected so {@link #waitForQuote} can be tested without a real wait. */
+    /** Injected so {@link #awaitSettlement} can be tested without a real wait. */
     @FunctionalInterface
     public interface Sleeper {
         void sleep(Duration duration) throws InterruptedException;
@@ -50,27 +50,33 @@ public final class Rfq {
         return catalog.comboMarkets(query);
     }
 
-    public RfqOutcome request(RfqRequest request, SigningIdentity identity,
-            ApiCredentials accountCredentials, BuilderCredentials builderCredentials) throws IOException {
+    /** The Quote arrives inline on this response; there is no quote to poll for afterwards. */
+    public RfqOutcome request(@NonNull RfqRequest request, @NonNull SigningIdentity identity,
+            @NonNull ApiCredentials accountCredentials,
+            @NonNull BuilderCredentials builderCredentials) throws IOException {
         return directory.request(request, identity, accountCredentials, builderCredentials);
     }
 
-    public RfqOutcome status(String rfqId, ApiCredentials accountCredentials, String address)
-            throws IOException {
-        return directory.status(rfqId, accountCredentials, address);
+    /**
+     * Officially valid only after acceptance: before that the gateway answers HTTP 409, which
+     * surfaces as {@link RfqOutcome.NotYetAccepted}.
+     */
+    public RfqOutcome status(@NonNull String rfqId, @NonNull ApiCredentials accountCredentials,
+            @NonNull String accountSigner) throws IOException {
+        return directory.status(rfqId, accountCredentials, accountSigner);
     }
 
     /**
-     * Polls status until a quote is ready or a terminal-without-fill state is reached, or
-     * {@code timeout} elapses. A timeout is {@link RfqOutcome.Pending}, never a reported failure.
+     * Polls status after acceptance until settlement resolves or {@code timeout} elapses. A
+     * local timeout is {@link RfqOutcome.Pending} — never a reported failure.
      */
-    public RfqOutcome waitForQuote(@NonNull String rfqId, ApiCredentials accountCredentials,
-            String address, @NonNull Duration timeout, @NonNull Duration pollInterval)
-            throws IOException {
+    public RfqOutcome awaitSettlement(@NonNull String rfqId,
+            @NonNull ApiCredentials accountCredentials, @NonNull String accountSigner,
+            @NonNull Duration timeout, @NonNull Duration pollInterval) throws IOException {
         Instant deadline = clock.instant().plus(timeout);
 
         while (true) {
-            RfqOutcome outcome = status(rfqId, accountCredentials, address);
+            RfqOutcome outcome = status(rfqId, accountCredentials, accountSigner);
             if (!(outcome instanceof RfqOutcome.Waiting)) {
                 return outcome;
             }
@@ -81,7 +87,7 @@ public final class Rfq {
                 sleeper.sleep(pollInterval);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new IOException("interrupted while waiting for an RFQ quote", e);
+                throw new IOException("interrupted while following an RFQ to settlement", e);
             }
         }
     }
@@ -91,29 +97,32 @@ public final class Rfq {
             new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false);
 
     /**
-     * Signs the quote's combo position through the V3 path and accepts it. Rejects an expired
-     * quote before sending — {@code side} must match the direction the original request used.
+     * Signs the Quote's Combo position through the V3 path and accepts it. Direction, amounts,
+     * Combo position and deadline all come from the Quote, so no caller can contradict it.
      */
-    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull Side side,
-            @NonNull OrderSigner signer, @NonNull SigningContext context,
-            ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
+    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull OrderSigner signer,
+            @NonNull SigningContext context, @NonNull ApiCredentials accountCredentials,
+            @NonNull BuilderCredentials builderCredentials) {
         if (!clock.instant().isBefore(quote.expiresAt())) {
             throw new IllegalArgumentException(
                     "quote " + quote.quoteId() + " expired at " + quote.expiresAt());
         }
+        Side direction = quote.direction();
         PusdAmount pusdLeg;
         ShareQuantity shareLeg;
-        if (side == Side.BUY) {
-            pusdLeg = baseUnitsToPusd(quote.makerAmountBaseUnits());
-            shareLeg = baseUnitsToShares(quote.takerAmountBaseUnits());
+        // makerAmount is always maker_amount_e6 and takerAmount always taker_amount_e6, so the
+        // legs swap roles with the direction rather than the amounts changing.
+        if (direction == Side.BUY) {
+            pusdLeg = baseUnitsToPusd(quote.amounts().makerAmountBaseUnits());
+            shareLeg = baseUnitsToShares(quote.amounts().takerAmountBaseUnits());
         } else {
-            shareLeg = baseUnitsToShares(quote.makerAmountBaseUnits());
-            pusdLeg = baseUnitsToPusd(quote.takerAmountBaseUnits());
+            shareLeg = baseUnitsToShares(quote.amounts().makerAmountBaseUnits());
+            pusdLeg = baseUnitsToPusd(quote.amounts().takerAmountBaseUnits());
         }
         // Official: "order.builder must equal the returned builder_code."
-        SignedOrder signedOrder = signer.sign(quote.comboPositionId(), side, pusdLeg, shareLeg,
+        SignedOrder signedOrder = signer.sign(quote.comboPositionId(), direction, pusdLeg, shareLeg,
                 V3_RULES, context.withBuilder(quote.builderCode()));
-        return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder,
+        return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder, context.identity(),
                 accountCredentials, builderCredentials);
     }
 
