@@ -1,19 +1,16 @@
 package com.polymarket.social;
 
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
-/** One reaction left on a comment. */
-public record Reaction(String id, Optional<String> commentId, Optional<String> reactionType,
-        Optional<String> icon, Optional<String> userAddress, Optional<Instant> createdAt) {
-
-    public Reaction {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(commentId, "commentId");
-        Objects.requireNonNull(reactionType, "reactionType");
-        Objects.requireNonNull(icon, "icon");
-        Objects.requireNonNull(userAddress, "userAddress");
-        Objects.requireNonNull(createdAt, "createdAt");
-    }
+/** One reaction left on a comment, including the reacting profile Gamma nests when it has one. */
+public record Reaction(
+        @NonNull String id,
+        @NonNull Optional<String> commentId,
+        @NonNull Optional<String> reactionType,
+        @NonNull Optional<String> icon,
+        @NonNull Optional<String> userAddress,
+        @NonNull Optional<Instant> createdAt,
+        @NonNull Optional<CommentAuthor> author) {
 }

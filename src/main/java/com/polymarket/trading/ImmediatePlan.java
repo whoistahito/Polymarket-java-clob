@@ -3,8 +3,8 @@ package com.polymarket.trading;
 import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * What walking live depth produced. Insufficient depth is a business outcome, not an
@@ -17,28 +17,17 @@ public sealed interface ImmediatePlan {
      * {@code protectedPrice} is the least crossing price that still fills.
      */
     record Executable(
-            Price protectedPrice,
-            ShareQuantity shares,
-            PusdAmount cost,
-            PusdAmount fee,
+            @NonNull Price protectedPrice,
+            @NonNull ShareQuantity shares,
+            @NonNull PusdAmount cost,
+            @NonNull PusdAmount fee,
             boolean partial)
             implements ImmediatePlan {
 
-        public Executable {
-            Objects.requireNonNull(protectedPrice, "protectedPrice");
-            Objects.requireNonNull(shares, "shares");
-            Objects.requireNonNull(cost, "cost");
-            Objects.requireNonNull(fee, "fee");
-        }
     }
 
     /** FOK could not be filled, or the book had nothing eligible. */
-    record InsufficientDepth(PusdAmount available, Optional<ShareQuantity> availableShares)
-            implements ImmediatePlan {
-
-        public InsufficientDepth {
-            Objects.requireNonNull(available, "available");
-            Objects.requireNonNull(availableShares, "availableShares");
-        }
+    record InsufficientDepth(@NonNull PusdAmount available,
+            @NonNull Optional<ShareQuantity> availableShares) implements ImmediatePlan {
     }
 }

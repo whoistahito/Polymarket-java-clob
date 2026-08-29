@@ -13,7 +13,7 @@ import com.polymarket.trading.SignedOrder;
 import com.polymarket.trading.SigningContext;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.util.Objects;
+import lombok.NonNull;
 import org.web3j.crypto.Hash;
 import org.web3j.utils.Numeric;
 
@@ -59,14 +59,14 @@ public final class Eip712OrderSigner implements OrderSigner {
             Hash.sha3(DEPOSIT_WALLET_VERSION.getBytes(StandardCharsets.UTF_8));
 
     @Override
-    public SignedOrder sign(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context) {
-        Objects.requireNonNull(asset, "asset");
-        Objects.requireNonNull(side, "side");
-        Objects.requireNonNull(pusdLeg, "pusdLeg");
-        Objects.requireNonNull(shareLeg, "shareLeg");
-        Objects.requireNonNull(rules, "rules");
-        Objects.requireNonNull(context, "context");
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
+            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+            @NonNull SigningContext context) {
+        if (pusdLeg.isZero() || shareLeg.isZero()) {
+            throw new IllegalArgumentException("an order leg worth nothing cannot be signed: "
+                    + pusdLeg + " pUSD for " + shareLeg + " shares");
+        }
+        rules.requireAtLeastMinimum(shareLeg);
 
         String version = switch (asset) {
             case TokenId ignored -> "2";
@@ -87,18 +87,21 @@ public final class Eip712OrderSigner implements OrderSigner {
         SigningIdentity identity = context.identity();
 
         byte[] domainHash = domainHash(version, verifyingContract);
-        byte[] structHash = orderStructHash(context.salt(), identity.maker(), identity.signer(),
+        byte[] structHash = orderStructHash(context.salt(), identity.tradingWallet(), identity.accountSigner(),
                 asset.value(), makerAmount, takerAmount, side, identity.signatureType(),
                 timestamp, metadata, builder);
 
-        byte[] digest = identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE
-                ? depositWalletDigest(domainHash, structHash, identity.maker())
+        boolean depositWallet = identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE;
+        byte[] digest = depositWallet
+                ? depositWalletDigest(domainHash, structHash, identity.tradingWallet())
                 : eip712Digest(domainHash, structHash);
 
-        String signature = context.localSigner().sign(digest);
+        String inner = context.localSigner().sign(digest);
+        String signature = depositWallet
+                ? erc7739Envelope(inner, domainHash, structHash) : inner;
 
-        return new SignedOrder(context.salt(), identity.maker(),
-                identity.signer(), asset, side, identity.signatureType(), makerAmount, takerAmount,
+        return new SignedOrder(context.salt(), identity.tradingWallet(),
+                identity.accountSigner(), asset, side, identity.signatureType(), makerAmount, takerAmount,
                 timestamp, metadata, builder, signature);
     }
 
@@ -172,6 +175,29 @@ public final class Eip712OrderSigner implements OrderSigner {
         // trailing salt field is bytes32(0); buf is already zero-filled there
         byte[] typedDataSignStructHash = Hash.sha3(tuple);
         return eip712Digest(exchangeDomainHash, typedDataSignStructHash);
+    }
+
+    /**
+     * Official {@code wrapDepositWalletSignature}: the exchange's ERC-1271 check verifies
+     * innerSignature || appDomainSeparator || contentsHash || contentsDescr || uint16(length).
+     */
+    private static String erc7739Envelope(String innerSignature, byte[] exchangeDomainHash,
+            byte[] orderStructHash) {
+        byte[] descriptor = ORDER_TYPE_STRING.getBytes(StandardCharsets.UTF_8);
+        byte[] inner = Numeric.hexStringToByteArray(innerSignature);
+        byte[] envelope = new byte[inner.length + 32 + 32 + descriptor.length + 2];
+        int offset = 0;
+        System.arraycopy(inner, 0, envelope, offset, inner.length);
+        offset += inner.length;
+        System.arraycopy(exchangeDomainHash, 0, envelope, offset, 32);
+        offset += 32;
+        System.arraycopy(orderStructHash, 0, envelope, offset, 32);
+        offset += 32;
+        System.arraycopy(descriptor, 0, envelope, offset, descriptor.length);
+        offset += descriptor.length;
+        envelope[offset] = (byte) (descriptor.length >>> 8);
+        envelope[offset + 1] = (byte) descriptor.length;
+        return Numeric.toHexString(envelope);
     }
 
     private static void copyPadded(BigInteger value, byte[] buf, int offset) {

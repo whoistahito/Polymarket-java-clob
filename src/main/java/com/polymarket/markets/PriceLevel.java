@@ -1,12 +1,8 @@
 package com.polymarket.markets;
 
-import java.util.Objects;
+import lombok.NonNull;
 
 /** One resting level of the order book. */
-public record PriceLevel(Price price, ShareQuantity size) {
+public record PriceLevel(@NonNull Price price, @NonNull ShareQuantity size) {
 
-    public PriceLevel {
-        Objects.requireNonNull(price, "price");
-        Objects.requireNonNull(size, "size");
-    }
 }

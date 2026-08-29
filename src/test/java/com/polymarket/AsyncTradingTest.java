@@ -149,7 +149,8 @@ class AsyncTradingTest {
 
         try (Polymarket sdk = sdk()) {
             CompletableFuture<?> future = AsyncTrading.wrap(sdk.trading())
-                    .reconcile(CREDENTIALS, SIGNER.address(), "order-1", java.util.List.of("t1"),
+                    .reconcile(CREDENTIALS, SigningIdentity.eoa(SIGNER.address()), "order-1",
+                            java.util.List.of("t1"),
                             Duration.ofSeconds(1), Duration.ZERO);
             ExecutionException e = assertThrows(ExecutionException.class, future::get);
             assertInstanceOf(UncheckedIOException.class, e.getCause());

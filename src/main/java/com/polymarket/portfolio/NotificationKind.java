@@ -1,7 +1,7 @@
 package com.polymarket.portfolio;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * What a notification announces. The raw numeric code is kept, so a type added after this
@@ -29,8 +29,8 @@ public record NotificationKind(int code) {
         }
     }
 
-    public static NotificationKind of(Known known) {
-        return new NotificationKind(Objects.requireNonNull(known, "known").code());
+    public static NotificationKind of(@NonNull Known known) {
+        return new NotificationKind(known.code());
     }
 
     public Optional<Known> known() {

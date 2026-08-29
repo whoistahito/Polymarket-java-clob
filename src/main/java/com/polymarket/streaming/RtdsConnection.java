@@ -1,24 +1,16 @@
 package com.polymarket.streaming;
 
-import java.util.List;
-
 /**
- * The single live RTDS socket, reconnecting transparently across however many physical sockets it
- * takes. Each subscribe/unsubscribe call sends only its delta; the full state is resent on open.
+ * The single live RTDS socket, reconnecting transparently. The connection owns the ordering rule:
+ * nothing reaches the wire before this generation's initial frame.
  */
 public interface RtdsConnection extends AutoCloseable {
 
-    void subscribeBinance(List<String> symbols);
-
-    void unsubscribeBinance(List<String> symbols);
-
-    void subscribeChainlink(List<String> symbols);
-
-    void unsubscribeChainlink(List<String> symbols);
-
-    void subscribeComments(List<CommentSubscription> subscriptions);
-
-    void unsubscribeComments(List<CommentSubscription> subscriptions);
+    /**
+     * Publishes the current Authoritative Subscription. Before the initial frame goes out the new
+     * subjects are folded into it; afterwards only the delta travels as a dynamic update.
+     */
+    void subscription(RtdsSubscriptions current);
 
     /** Idempotent: stops the socket, any pending reconnect, and the heartbeat. */
     @Override

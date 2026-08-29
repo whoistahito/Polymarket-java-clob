@@ -8,7 +8,6 @@ import com.polymarket.streaming.RtdsTransport;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 import okhttp3.OkHttpClient;
 
 /**
@@ -56,15 +55,26 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
     }
 
     @Override
-    public RtdsConnection connect(Supplier<RtdsSubscriptions> stateSupplier, RtdsEventSink sink) {
-        return new RtdsChannelConnection(okHttp, scheduler, mapper, url, stateSupplier, sink, pingIntervalMs,
+    public RtdsConnection connect(RtdsSubscriptions subscriptions, RtdsEventSink sink) {
+        return new RtdsChannelConnection(okHttp, scheduler, mapper, url, subscriptions, sink, pingIntervalMs,
                 reconnectDelayMs, maxReconnectDelayMs, stableConnectionMs, maxReconnectAttempts);
+    }
+
+    /** True once every owned resource - scheduler, dispatcher and connection pool - is released. */
+    public boolean isClosed() {
+        return scheduler.isShutdown() && okHttp.dispatcher().executorService().isShutdown();
+    }
+
+    public int connectionPoolSize() {
+        return okHttp.connectionPool().connectionCount();
     }
 
     /** Shuts down the shared scheduler and HTTP dispatcher. The connection closes its own socket. */
     @Override
     public void close() {
         scheduler.shutdownNow();
+        // Cancel first: an open socket holds its connection, so evicting before it releases leaks one.
+        okHttp.dispatcher().cancelAll();
         okHttp.dispatcher().executorService().shutdown();
         okHttp.connectionPool().evictAll();
     }

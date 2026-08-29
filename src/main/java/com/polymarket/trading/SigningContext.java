@@ -3,30 +3,32 @@ package com.polymarket.trading;
 import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningIdentity;
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * Everything about who signs and when, explicit and immutable so identical inputs always
- * produce identical signed output. {@code localSigner} must be the key behind {@code identity.signer()}.
+ * produce identical signed output. {@code localSigner} must be the key behind {@code identity.accountSigner()}.
  */
 public record SigningContext(
-        SigningIdentity identity,
-        PrivateKeySigner localSigner,
+        @NonNull SigningIdentity identity,
+        @NonNull PrivateKeySigner localSigner,
         long salt,
-        Instant timestamp,
-        Optional<String> metadata,
-        Optional<String> builder) {
+        @NonNull Instant timestamp,
+        @NonNull Optional<String> metadata,
+        @NonNull Optional<String> builder) {
 
     public SigningContext {
-        Objects.requireNonNull(identity, "identity");
-        Objects.requireNonNull(localSigner, "localSigner");
-        Objects.requireNonNull(timestamp, "timestamp");
-        Objects.requireNonNull(metadata, "metadata");
-        Objects.requireNonNull(builder, "builder");
-        if (!localSigner.address().equalsIgnoreCase(identity.signer())) {
+        // salt and timestamp are uint256 on the wire; a negative would encode as a wrapped value.
+        if (salt < 0) {
+            throw new IllegalArgumentException("salt must be unsigned, got: " + salt);
+        }
+        if (timestamp.getEpochSecond() < 0) {
+            throw new IllegalArgumentException("timestamp must be unsigned, got: " + timestamp);
+        }
+        if (!localSigner.address().equalsIgnoreCase(identity.accountSigner())) {
             throw new IllegalArgumentException("localSigner address " + localSigner.address()
-                    + " is not identity.signer() " + identity.signer());
+                    + " is not identity.accountSigner() " + identity.accountSigner());
         }
     }
 

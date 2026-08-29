@@ -1,7 +1,7 @@
 package com.polymarket.builders;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * A CLOB builder-trades pagination cursor. It travels in the documented {@code next_cursor}
@@ -23,8 +23,7 @@ public final class BuilderCursor {
         return new BuilderCursor(FIRST_PAGE);
     }
 
-    public static BuilderCursor of(String value) {
-        Objects.requireNonNull(value, "value");
+    public static BuilderCursor of(@NonNull String value) {
         if (value.isBlank()) throw new IllegalArgumentException("cursor must not be blank");
         if (LAST_PAGE.equals(value)) {
             throw new IllegalArgumentException("LTE= is the end of the walk, not a page to request");
@@ -33,8 +32,7 @@ public final class BuilderCursor {
     }
 
     /** Empty when the server ended the walk, said nothing, or handed back the cursor just sent. */
-    public static Optional<BuilderCursor> next(BuilderCursor sent, String raw) {
-        Objects.requireNonNull(sent, "sent");
+    public static Optional<BuilderCursor> next(@NonNull BuilderCursor sent, String raw) {
         if (raw == null || raw.isBlank() || LAST_PAGE.equals(raw) || sent.value.equals(raw)) {
             return Optional.empty();
         }

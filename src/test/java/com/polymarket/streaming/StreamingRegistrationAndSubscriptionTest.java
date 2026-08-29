@@ -241,4 +241,112 @@ class StreamingRegistrationAndSubscriptionTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> streaming.subscribeMarket(List.of()));
     }
+
+    @Test
+    @DisplayName("TC-SR-011 concurrent subscribes cannot send an update ahead of the initial market frame")
+    void concurrentSubscribesCannotOvertakeTheInitialFrame() throws Exception {
+        int threads = 8;
+        List<String> frames = startCapturingServer();
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        for (int i = 0; i < threads; i++) {
+            String assetId = "tok" + i;
+            Thread t = new Thread(() -> {
+                try {
+                    start.await();
+                    streaming.subscribeMarket(List.of(assetId));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    done.countDown();
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        }
+        start.countDown();
+        assertTrue(done.await(10, TimeUnit.SECONDS), "every subscribing thread must finish");
+
+        List<JsonNode> sent = awaitSubscriptionFrames(frames, 1);
+        assertTrue(sent.get(0).path("initial_dump").asBoolean(),
+                "the first frame on the wire must be the initial dump, not an update: " + frames);
+        assertEquals(1, sent.stream().filter(f -> f.path("initial_dump").asBoolean()).count(),
+                "exactly one initial dump: " + frames);
+
+        List<String> onTheWire = new java.util.ArrayList<>();
+        sent.forEach(f -> f.get("assets_ids").forEach(n -> onTheWire.add(n.asText())));
+        assertEquals(streaming.subscribedAssetIds().size(), onTheWire.size(),
+                "no asset may be requested twice: " + frames);
+        assertEquals(new java.util.HashSet<>(streaming.subscribedAssetIds()), new java.util.HashSet<>(onTheWire));
+    }
+
+
+    @Test
+    @DisplayName("TC-SR-012 requesting custom market events sets the documented flag on the initial frame")
+    void customMarketEventsRideTheInitialFrame() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+
+        streaming.enableCustomMarketEvents();
+        streaming.subscribeMarket(List.of("tokA"));
+        List<JsonNode> sent = awaitSubscriptionFrames(frames, 1);
+
+        JsonNode initial = sent.get(0);
+        assertTrue(initial.get("custom_feature_enabled").asBoolean());
+        List<String> documented = StreamProtocol.fieldsOf("marketChannel", "subscriptionRequestFields");
+        initial.fieldNames().forEachRemaining(name ->
+                assertTrue(documented.contains(name), name + " is not a documented request field: " + initial));
+    }
+
+    @Test
+    @DisplayName("TC-SR-013 a subscribe landing while the channel is reconnecting joins the restored frame")
+    void subscribeDuringReconnectJoinsTheRestoredFrame() throws Exception {
+        List<String> first = new CopyOnWriteArrayList<>();
+        List<String> second = new CopyOnWriteArrayList<>();
+        CountDownLatch dropped = new CountDownLatch(1);
+        CountDownLatch reopened = new CountDownLatch(1);
+
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onMessage(WebSocket ws, String text) {
+                first.add(text);
+                ws.close(1000, "server drop");
+                dropped.countDown();
+            }
+        }));
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onOpen(WebSocket ws, okhttp3.Response response) { reopened.countDown(); }
+            @Override public void onMessage(WebSocket ws, String text) { second.add(text); }
+        }));
+        server.start();
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).reconnectDelayMs(2_000).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+        streaming.subscribeMarket(List.of("tokA"));
+        assertTrue(dropped.await(20, TimeUnit.SECONDS), "the first socket must drop");
+        streaming.subscribeMarket(List.of("tokB")); // lands while no socket exists
+
+        assertTrue(reopened.await(30, TimeUnit.SECONDS), "the channel must reconnect");
+        List<JsonNode> restored = awaitSubscriptionFrames(second, 1);
+        assertEquals(1, restored.size(), "exactly one frame restores the Authoritative Subscription: " + second);
+        assertTrue(restored.get(0).path("initial_dump").asBoolean());
+        List<String> ids = new java.util.ArrayList<>();
+        restored.get(0).get("assets_ids").forEach(n -> ids.add(n.asText()));
+        assertEquals(List.of("tokA", "tokB"), ids);
+    }
+
+    /** Waits for the wire to settle, then returns every non-heartbeat frame parsed, in order. */
+    private static List<JsonNode> awaitSubscriptionFrames(List<String> frames, int atLeast) throws Exception {
+        for (int i = 0; i < 100 && frames.size() < atLeast; i++) Thread.sleep(50);
+        Thread.sleep(300);
+        List<JsonNode> parsed = new java.util.ArrayList<>();
+        for (String frame : frames) {
+            if (!"PING".equals(frame)) parsed.add(MAPPER.readTree(frame));
+        }
+        return parsed;
+    }
 }

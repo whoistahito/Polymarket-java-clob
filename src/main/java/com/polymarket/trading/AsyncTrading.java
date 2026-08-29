@@ -1,6 +1,7 @@
 package com.polymarket.trading;
 
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PusdAmount;
@@ -9,10 +10,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import lombok.NonNull;
 
 /**
  * Async decorator over {@link Trading}. Every future completes on the supplied executor and
@@ -23,9 +24,9 @@ public final class AsyncTrading {
     private final Trading trading;
     private final Executor executor;
 
-    private AsyncTrading(Trading trading, Executor executor) {
-        this.trading = Objects.requireNonNull(trading, "trading");
-        this.executor = Objects.requireNonNull(executor, "executor");
+    private AsyncTrading(@NonNull Trading trading, @NonNull Executor executor) {
+        this.trading = trading;
+        this.executor = executor;
     }
 
     public static AsyncTrading wrap(Trading trading) {
@@ -46,10 +47,15 @@ public final class AsyncTrading {
         return CompletableFuture.supplyAsync(() -> trading.submit(order, placement), executor);
     }
 
-    public CompletableFuture<SubmissionOutcome> place(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context, OrderPlacement placement) {
+    public CompletableFuture<SubmissionOutcome> submit(SignedOrder order, OrderPlacement placement,
+            OrderIntent intent) {
+        return CompletableFuture.supplyAsync(() -> trading.submit(order, placement, intent), executor);
+    }
+
+    public CompletableFuture<SubmissionOutcome> place(OrderExecution execution,
+            SigningContext context, ApiCredentials credentials) {
         return CompletableFuture.supplyAsync(
-                () -> trading.place(asset, side, pusdLeg, shareLeg, rules, context, placement), executor);
+                () -> trading.place(execution, context, credentials), executor);
     }
 
     public CompletableFuture<BatchSubmissionOutcome> submitBatch(List<BatchItem> items) {
@@ -58,12 +64,22 @@ public final class AsyncTrading {
 
     public CompletableFuture<CancellationOutcome> cancel(ApiCredentials credentials, String address,
             List<String> orderIds) {
-        return io(() -> trading.cancel(credentials, address, orderIds));
+        return CompletableFuture.supplyAsync(
+                () -> trading.cancel(credentials, address, orderIds), executor);
     }
 
     public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,
-            String address, String orderId, List<String> tradeIds, Duration timeout, Duration pollInterval) {
-        return io(() -> trading.reconcile(credentials, address, orderId, tradeIds, timeout, pollInterval));
+            SigningIdentity identity, String orderId, List<String> tradeIds, Duration timeout,
+            Duration pollInterval) {
+        return io(() -> trading.reconcile(credentials, identity, orderId, tradeIds, timeout,
+                pollInterval));
+    }
+
+    public CompletableFuture<ReconciliationOutcome> reconcile(ApiCredentials credentials,
+            SigningIdentity identity, String orderId, String rfqId, List<String> tradeIds,
+            Duration timeout, Duration pollInterval) {
+        return io(() -> trading.reconcile(credentials, identity, orderId, rfqId, tradeIds, timeout,
+                pollInterval));
     }
 
     @FunctionalInterface

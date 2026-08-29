@@ -2,7 +2,7 @@ package com.polymarket.authentication;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Objects;
+import lombok.NonNull;
 
 /**
  * Deliberate API-key lifecycle operations. Each call fails before sending when the
@@ -13,21 +13,21 @@ public final class Authentication {
     private final SigningAuthority authority;
     private final ApiKeyDirectory directory;
 
-    public Authentication(SigningAuthority authority, ApiKeyDirectory directory) {
-        this.authority = Objects.requireNonNull(authority, "authority");
-        this.directory = Objects.requireNonNull(directory, "directory");
+    public Authentication(@NonNull SigningAuthority authority, @NonNull ApiKeyDirectory directory) {
+        this.authority = authority;
+        this.directory = directory;
     }
 
     public ApiCredentials createApiKey() throws IOException {
-        return directory.create(authority.requireLocalSigner("createApiKey"));
+        return directory.create(authority.requireAccountSignerKey("createApiKey"));
     }
 
     public ApiCredentials deriveApiKey() throws IOException {
-        return directory.derive(authority.requireLocalSigner("deriveApiKey"));
+        return directory.derive(authority.requireAccountSignerKey("deriveApiKey"));
     }
 
     public List<String> apiKeys() throws IOException {
-        return directory.list(authority.requireLocalSigner("apiKeys"));
+        return directory.list(authority.requireAccountSignerKey("apiKeys"));
     }
 
     public ApiKeyValidation validate() throws IOException {
@@ -41,6 +41,6 @@ public final class Authentication {
     }
 
     private String signingAddress(String operation) {
-        return authority.requireSigningAddress(operation);
+        return authority.requireAccountSigner(operation);
     }
 }

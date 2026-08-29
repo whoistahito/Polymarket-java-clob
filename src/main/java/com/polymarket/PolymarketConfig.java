@@ -2,7 +2,6 @@ package com.polymarket;
 
 import java.net.URI;
 import java.time.Duration;
-import java.util.Objects;
 
 /**
  * SDK-owned network configuration. Exposes only JDK types, so a transport-library
@@ -14,21 +13,26 @@ public final class PolymarketConfig {
     private static final URI DEFAULT_GAMMA = URI.create("https://gamma-api.polymarket.com");
     private static final URI DEFAULT_DATA = URI.create("https://data-api.polymarket.com");
     private static final URI DEFAULT_GEOBLOCK = URI.create("https://polymarket.com");
+    private static final URI DEFAULT_COMBO_MARKETS =
+            URI.create("https://combos-rfq-api.polymarket.com");
 
     private final URI clobHost;
     private final URI gammaHost;
     private final URI dataHost;
     private final URI geoblockHost;
+    private final URI comboMarketsHost;
     private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final ReadRetryPolicy readRetryPolicy;
 
     private PolymarketConfig(URI clobHost, URI gammaHost, URI dataHost, URI geoblockHost,
-            Duration connectTimeout, Duration requestTimeout, ReadRetryPolicy readRetryPolicy) {
+            URI comboMarketsHost, Duration connectTimeout, Duration requestTimeout,
+            ReadRetryPolicy readRetryPolicy) {
         this.clobHost = clobHost;
         this.gammaHost = gammaHost;
         this.dataHost = dataHost;
         this.geoblockHost = geoblockHost;
+        this.comboMarketsHost = comboMarketsHost;
         this.connectTimeout = connectTimeout;
         this.requestTimeout = requestTimeout;
         this.readRetryPolicy = readRetryPolicy;
@@ -36,7 +40,8 @@ public final class PolymarketConfig {
 
     public static PolymarketConfig defaults() {
         return new PolymarketConfig(DEFAULT_CLOB, DEFAULT_GAMMA, DEFAULT_DATA, DEFAULT_GEOBLOCK,
-                Duration.ofSeconds(10), Duration.ofSeconds(30), ReadRetryPolicy.defaults());
+                DEFAULT_COMBO_MARKETS, Duration.ofSeconds(10), Duration.ofSeconds(30),
+                ReadRetryPolicy.defaults());
     }
 
     public URI clobHost() {
@@ -55,6 +60,11 @@ public final class PolymarketConfig {
         return geoblockHost;
     }
 
+    /** The Combo markets catalog; separate from the per-builder RFQ gateway host. */
+    public URI comboMarketsHost() {
+        return comboMarketsHost;
+    }
+
     public Duration connectTimeout() {
         return connectTimeout;
     }
@@ -69,40 +79,45 @@ public final class PolymarketConfig {
 
     public PolymarketConfig clobHost(URI host) {
         return new PolymarketConfig(require(host), gammaHost, dataHost, geoblockHost,
-                connectTimeout, requestTimeout, readRetryPolicy);
+                comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
     public PolymarketConfig gammaHost(URI host) {
         return new PolymarketConfig(clobHost, require(host), dataHost, geoblockHost,
-                connectTimeout, requestTimeout, readRetryPolicy);
+                comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
     public PolymarketConfig dataHost(URI host) {
         return new PolymarketConfig(clobHost, gammaHost, require(host), geoblockHost,
-                connectTimeout, requestTimeout, readRetryPolicy);
+                comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
     public PolymarketConfig geoblockHost(URI host) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, require(host),
+                comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
+    }
+
+    public PolymarketConfig comboMarketsHost(URI host) {
+        return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost, require(host),
                 connectTimeout, requestTimeout, readRetryPolicy);
     }
 
     public PolymarketConfig connectTimeout(Duration timeout) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                require(timeout), requestTimeout, readRetryPolicy);
+                comboMarketsHost, require(timeout), requestTimeout, readRetryPolicy);
     }
 
     public PolymarketConfig requestTimeout(Duration timeout) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                connectTimeout, require(timeout), readRetryPolicy);
+                comboMarketsHost, connectTimeout, require(timeout), readRetryPolicy);
     }
 
     public PolymarketConfig readRetryPolicy(ReadRetryPolicy policy) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                connectTimeout, requestTimeout, require(policy));
+                comboMarketsHost, connectTimeout, requestTimeout, require(policy));
     }
 
     private static <T> T require(T value) {
-        return Objects.requireNonNull(value);
+        return value;
     }
 }

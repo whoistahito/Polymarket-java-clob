@@ -13,14 +13,17 @@ public interface RfqDirectory {
     RfqOutcome request(RfqRequest request, SigningIdentity identity,
             ApiCredentials accountCredentials, BuilderCredentials builderCredentials) throws IOException;
 
-    RfqOutcome status(String rfqId, ApiCredentials accountCredentials, String address)
+    /** Officially answerable only after acceptance; before that the gateway returns HTTP 409. */
+    RfqOutcome status(String rfqId, ApiCredentials accountCredentials, String accountSigner)
             throws IOException;
 
     /**
-     * Executes exactly once. Connection loss or a generic failure never throws — it returns
-     * {@link RfqOutcome.Unknown} carrying {@code rfqId} so the caller can poll status instead
-     * of re-sending the acceptance.
+     * Executes exactly once. {@code identity} authenticates the account — the Signed Order's own
+     * addresses never decide who signs the headers. Connection loss or a generic failure never
+     * throws: it returns {@link RfqOutcome.Unknown} carrying {@code rfqId} so the caller polls
+     * status instead of re-sending the acceptance.
      */
     RfqOutcome accept(String rfqId, String quoteId, SignedOrder signedOrder,
-            ApiCredentials accountCredentials, BuilderCredentials builderCredentials);
+            SigningIdentity identity, ApiCredentials accountCredentials,
+            BuilderCredentials builderCredentials);
 }

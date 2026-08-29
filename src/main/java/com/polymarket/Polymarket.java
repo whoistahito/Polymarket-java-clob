@@ -3,7 +3,9 @@ package com.polymarket;
 import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.Authentication;
 import com.polymarket.authentication.SigningAuthority;
+import com.polymarket.builders.Builders;
 import com.polymarket.internal.authentication.AuthenticationGateway;
+import com.polymarket.internal.builders.BuildersGateway;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.markets.MarketsGateway;
 import com.polymarket.internal.markets.OrderBookGateway;
@@ -11,6 +13,10 @@ import com.polymarket.internal.operations.HeartbeatGateway;
 import com.polymarket.internal.operations.OperationsGateway;
 import com.polymarket.internal.portfolio.PortfolioGateway;
 import com.polymarket.internal.rewards.RewardsGateway;
+import com.polymarket.internal.rfq.ComboMarketGateway;
+import com.polymarket.internal.rfq.RfqGateway;
+import com.polymarket.internal.social.SocialGateway;
+import com.polymarket.internal.streaming.RtdsGateway;
 import com.polymarket.internal.streaming.StreamingGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.internal.trading.TradeReaderGateway;
@@ -22,14 +28,20 @@ import com.polymarket.operations.ServerTime;
 import com.polymarket.operations.ServiceHealth;
 import com.polymarket.portfolio.Portfolio;
 import com.polymarket.rewards.Rewards;
+import com.polymarket.rfq.Rfq;
+import com.polymarket.social.Social;
+import com.polymarket.streaming.Rtds;
 import com.polymarket.streaming.Streaming;
 import com.polymarket.trading.Trading;
 import java.io.IOException;
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.NonNull;
 
 /**
  * Entry point to the Polymarket SDK. Construction needs no credentials and performs no
@@ -46,10 +58,18 @@ public final class Polymarket implements AutoCloseable {
     private final OrderBooks orderBooks;
     private final Portfolio portfolio;
     private final Rewards rewards;
+    private final Builders builders;
+    private final Social social;
     private final Trading trading;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
+    private final RtdsGateway rtdsGateway;
+    private final Rtds rtds;
     private final HeartbeatGateway heartbeat;
+    private final Clock clock;
+    // One Rfq per Builder Gateway host: the host is issued per builder onboarding, so the root
+    // cannot know it up front, but it still owns every capability it hands out.
+    private final Map<URI, Rfq> rfqByGateway = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private Polymarket(PolymarketConfig config, HttpRuntime runtime, SigningAuthority authority,
@@ -64,12 +84,17 @@ public final class Polymarket implements AutoCloseable {
         this.orderBooks = new OrderBooks(new OrderBookGateway(config, runtime));
         this.portfolio = new Portfolio(authority, new PortfolioGateway(config, runtime, clock));
         this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
+        this.builders = new Builders(authority, new BuildersGateway(config, runtime, clock));
+        this.social = new Social(new SocialGateway(config, runtime));
         TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
         this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
         this.streamingGateway = new StreamingGateway();
         this.streaming = new Streaming(streamingGateway, authority);
+        this.rtdsGateway = new RtdsGateway();
+        this.rtds = new Rtds(rtdsGateway);
         this.heartbeat = new HeartbeatGateway(config, runtime, clock);
+        this.clock = clock;
     }
 
     public static Polymarket withDefaults() {
@@ -80,8 +105,8 @@ public final class Polymarket implements AutoCloseable {
         return with(config, SigningAuthority.none());
     }
 
-    public static Polymarket with(PolymarketConfig config, SigningAuthority authority) {
-        Objects.requireNonNull(config, "config");
+    public static Polymarket with(@NonNull PolymarketConfig config,
+            @NonNull SigningAuthority authority) {
         return new Polymarket(config, new HttpRuntime(config.connectTimeout(),
                 config.requestTimeout(), config.readRetryPolicy()), authority, Clock.systemUTC());
     }
@@ -91,10 +116,9 @@ public final class Polymarket implements AutoCloseable {
         return with(config, runtime, SigningAuthority.none(), Clock.systemUTC());
     }
 
-    static Polymarket with(PolymarketConfig config, HttpRuntime runtime,
-            SigningAuthority authority, Clock clock) {
-        return new Polymarket(Objects.requireNonNull(config), Objects.requireNonNull(runtime),
-                Objects.requireNonNull(authority), Objects.requireNonNull(clock));
+    static Polymarket with(@NonNull PolymarketConfig config, @NonNull HttpRuntime runtime,
+            @NonNull SigningAuthority authority, @NonNull Clock clock) {
+        return new Polymarket(config, runtime, authority, clock);
     }
 
     public PolymarketConfig config() {
@@ -131,6 +155,18 @@ public final class Polymarket implements AutoCloseable {
         return rewards;
     }
 
+    /** Builder credential lifecycle and builder-attributed trade reads. Every call needs L2. */
+    public Builders builders() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return builders;
+    }
+
+    /** Public Gamma profiles, comments and profile search. Credential-free. */
+    public Social social() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return social;
+    }
+
     /** V2 token order signing and submission. Signing needs no credentials; submission needs L2. */
     public Trading trading() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
@@ -141,6 +177,21 @@ public final class Polymarket implements AutoCloseable {
     public Streaming streaming() {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         return streaming;
+    }
+
+    /** Real-Time Data Service prices and comments. Unauthenticated; owned and closed by this root. */
+    public Rtds rtds() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        return rtds;
+    }
+
+    /** The Combo requester flow against the Builder Gateway issued during builder onboarding. */
+    public Rfq rfq(@NonNull URI builderGatewayHost) {
+        requireOpen();
+        return rfqByGateway.computeIfAbsent(builderGatewayHost, host -> new Rfq(
+                new RfqGateway(host, runtime, clock),
+                new ComboMarketGateway(config.comboMarketsHost(), runtime),
+                clock));
     }
 
     public ServerTime serverTime() throws IOException {
@@ -165,7 +216,7 @@ public final class Polymarket implements AutoCloseable {
     public void startHeartbeat(Duration interval) {
         if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         ApiCredentials credentials = authority.requireApiCredentials("heartbeat");
-        String address = authority.requireSigningAddress("heartbeat");
+        String address = authority.requireAccountSigner("heartbeat");
         heartbeat.start(interval, credentials, address);
     }
 
@@ -180,8 +231,12 @@ public final class Polymarket implements AutoCloseable {
     }
 
     private OperationsGateway open() {
-        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
+        requireOpen();
         return operations;
+    }
+
+    private void requireOpen() {
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
     }
 
     @Override
@@ -190,6 +245,10 @@ public final class Polymarket implements AutoCloseable {
             heartbeat.close();
             streaming.close();
             streamingGateway.close();
+            rtds.close();
+            rtdsGateway.close();
+            // Every Rfq shares the root's runtime, so releasing them is releasing that.
+            rfqByGateway.clear();
             runtime.close();
         }
     }

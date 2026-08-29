@@ -2,6 +2,7 @@ package com.polymarket.trading;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.markets.MarketRules;
@@ -89,6 +90,8 @@ class ImmediatePlannerTest {
             ImmediatePlan.InsufficientDepth insufficient =
                     assertInstanceOf(ImmediatePlan.InsufficientDepth.class, plan);
             assertEquals(PusdAmount.of("31.6"), insufficient.available());
+            assertEquals(ShareQuantity.of("60"), insufficient.availableShares().orElseThrow(),
+                    "an all-or-nothing shortfall still reports what the book could have filled");
         }
 
         @Test
@@ -104,18 +107,36 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-006: a fee-aware budget leaves room for the fee")
+        @DisplayName("TC-DP-006: a fee-aware budget is spent on the nonlinear official fee")
         void feeAwareBudgetReservesTheFee() {
-            // 100 bps on a 4.00 budget leaves 3.960396 spendable; at 0.50 that is 7.920792 shares.
+            // Crypto taker rate 0.07. At 0.50 the fee is 0.07 x 0.50 x 0.50 = 0.0175 per share,
+            // so 5.175 pUSD buys exactly the ten shares resting at 0.50 and nothing more.
+            PusdAmount budget = PusdAmount.of("5.175");
             ImmediatePlan plan = ImmediatePlanner.plan(
-                    ImmediateBuy.of(ASSET, PusdAmount.of("4"), ExecutionPolicy.FAK)
-                            .withFeeRate(FeeRate.ofBasisPoints(100)), book());
+                    ImmediateBuy.of(ASSET, budget, ExecutionPolicy.FAK)
+                            .withFeeRate(FeeRate.of("0.07")), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
+            assertEquals(ShareQuantity.of("10"), executable.shares());
+            assertEquals(PusdAmount.of("5"), executable.cost());
+            assertEquals(PusdAmount.of("0.175"), executable.fee());
+            assertEquals(Price.of("0.50"), executable.protectedPrice(),
+                    "the fee must not be funded by crossing into the next level");
             assertTrue(executable.cost().value().add(executable.fee().value())
-                            .compareTo(PusdAmount.of("4").value()) <= 0,
+                            .compareTo(budget.value()) <= 0,
                     "order value plus fee must stay inside the budget");
-            assertEquals(ShareQuantity.of("7.920792"), executable.shares());
+        }
+
+        @Test
+        @DisplayName("TC-DP-007a: the same budget without a fee rate buys strictly more")
+        void aFeeFreeBudgetBuysMore() {
+            // 5.175 clears the 0.50 level for 5.00 and spends the last 0.175 at 0.52.
+            ImmediatePlan plan = ImmediatePlanner.plan(
+                    ImmediateBuy.of(ASSET, PusdAmount.of("5.175"), ExecutionPolicy.FAK), book());
+
+            ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
+            assertEquals(ShareQuantity.of("10.336538"), executable.shares());
+            assertEquals(PusdAmount.of("0"), executable.fee());
         }
     }
 
@@ -168,6 +189,46 @@ class ImmediatePlannerTest {
             ImmediatePlan.InsufficientDepth insufficient =
                     assertInstanceOf(ImmediatePlan.InsufficientDepth.class, plan);
             assertEquals(ShareQuantity.of("60"), insufficient.availableShares().orElseThrow());
+        }
+    }
+
+    @Nested
+    @DisplayName("book identity and minimum")
+    class BookGuards {
+
+        @Test
+        @DisplayName("TC-DP-012: a book for a different asset cannot plan this intent")
+        void rejectsABookForAnotherAsset() {
+            ImmediateBuy buy = ImmediateBuy.of(new TokenId("999"), PusdAmount.of("4"),
+                    ExecutionPolicy.FAK);
+
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> ImmediatePlanner.plan(buy, book()));
+
+            assertTrue(e.getMessage().contains("999") && e.getMessage().contains("12345"),
+                    e.getMessage());
+        }
+
+        @Test
+        @DisplayName("TC-DP-013: a SELL below the book minimum is rejected, never planned")
+        void rejectsASellBelowTheBookMinimum() {
+            // The book publishes min_order_size 5 shares.
+            ImmediateSell sell = ImmediateSell.of(ASSET, ShareQuantity.of("4.999999"),
+                    ExecutionPolicy.FAK);
+
+            assertThrows(IllegalArgumentException.class, () -> ImmediatePlanner.plan(sell, book()));
+        }
+
+        @Test
+        @DisplayName("TC-DP-014: a walk that cannot reach the book minimum is insufficient depth")
+        void aSubMinimumWalkIsInsufficientDepth() {
+            // 1.00 pUSD at 0.50 buys 2 shares, under the book's 5-share minimum.
+            ImmediatePlan plan = ImmediatePlanner.plan(
+                    ImmediateBuy.of(ASSET, PusdAmount.of("1"), ExecutionPolicy.FAK), book());
+
+            ImmediatePlan.InsufficientDepth insufficient =
+                    assertInstanceOf(ImmediatePlan.InsufficientDepth.class, plan);
+            assertEquals(ShareQuantity.of("2"), insufficient.availableShares().orElseThrow());
         }
     }
 

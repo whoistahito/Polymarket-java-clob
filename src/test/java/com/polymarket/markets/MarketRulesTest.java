@@ -47,6 +47,40 @@ class MarketRulesTest {
         }
 
         @Test
+        @DisplayName("TC-MR-011: 0 and 1 are settled outcomes, not order prices")
+        void rejectsTheUniversalBounds() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> rules().requireWithinBounds(Price.of("0")));
+            assertThrows(IllegalArgumentException.class,
+                    () -> rules().requireWithinBounds(Price.of("1")));
+        }
+
+        @Test
+        @DisplayName("TC-MR-012: the market-specific bounds run from one tick to one tick below certainty")
+        void enforcesMarketSpecificBounds() {
+            MarketRules coarse = new MarketRules(TickSize.of("0.1"), ShareQuantity.of("5"), false);
+
+            assertEquals(Price.of("0.1"), coarse.requireWithinBounds(Price.of("0.1")));
+            assertEquals(Price.of("0.9"), coarse.requireWithinBounds(Price.of("0.9")));
+            // 0.05 is inside (0, 1) but below the coarsest grid's first tradeable price.
+            assertThrows(IllegalArgumentException.class,
+                    () -> coarse.requireWithinBounds(Price.of("0.05")));
+            assertThrows(IllegalArgumentException.class,
+                    () -> coarse.requireWithinBounds(Price.of("0.95")));
+        }
+
+        @Test
+        @DisplayName("TC-MR-013: the pUSD leg is encoded at the grid's documented amount decimals")
+        void notionalUsesTheDocumentedAmountPrecision() {
+            // Official: round the amount up to amount decimals + 4, then down to amount decimals.
+            // A 0.01 market carries 4 amount decimals, so 0.52 x 21.538461 = 11.19999972 -> 11.1999.
+            assertEquals(PusdAmount.of("11.1999"),
+                    rules().notional(Price.of("0.52"), ShareQuantity.of("21.538461")));
+            assertEquals(PusdAmount.of("5.2"),
+                    rules().notional(Price.of("0.52"), ShareQuantity.of("10")));
+        }
+
+        @Test
         @DisplayName("TC-MR-004: the minimum is expressed in shares, not notional")
         void minimumIsInShares() {
             // Gamma publishes a USDC notional minimum; it must never reach signing.

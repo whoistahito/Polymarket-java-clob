@@ -1,7 +1,7 @@
 package com.polymarket.markets;
 
 import java.math.BigDecimal;
-import java.util.Objects;
+import lombok.NonNull;
 
 /**
  * A probability price in [0, 1], exact. Order bounds and the tick grid belong to
@@ -16,12 +16,11 @@ public final class Price implements Comparable<Price> {
         this.value = value;
     }
 
-    public static Price of(String value) {
-        return of(new BigDecimal(Objects.requireNonNull(value, "value")));
+    public static Price of(@NonNull String value) {
+        return of(new BigDecimal(value));
     }
 
-    public static Price of(BigDecimal value) {
-        Objects.requireNonNull(value, "value");
+    public static Price of(@NonNull BigDecimal value) {
         if (value.signum() < 0 || value.compareTo(ONE) > 0) {
             throw new IllegalArgumentException("price must be within [0, 1], got " + value);
         }

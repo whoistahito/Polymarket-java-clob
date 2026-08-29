@@ -12,4 +12,13 @@ public sealed interface OrderIntent
     AssetId asset();
 
     Side side();
+
+    /** The wire order type this intent asks for; submission derives it rather than restating it. */
+    OrderType orderType();
+
+    /** True only for an intent that refuses to take liquidity. */
+    boolean postOnly();
+
+    /** Wire expiration in unix seconds; 0 for every type but GTD. */
+    long expirationSeconds();
 }

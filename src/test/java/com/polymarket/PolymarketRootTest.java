@@ -1,6 +1,8 @@
 package com.polymarket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -154,6 +156,71 @@ class PolymarketRootTest {
         sdk.close();
         assertThrows(IllegalStateException.class, sdk::serverTime);
         assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-PR-010: RTDS is reached and closed through the root, never constructed by hand")
+    void rtdsIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.streaming.Rtds rtds = sdk.rtds();
+        assertSame(rtds, sdk.rtds(), "the root must own one RTDS capability, not hand out new ones");
+        assertFalse(rtds.isClosed());
+
+        sdk.close();
+
+        assertTrue(rtds.isClosed(), "closing the root must close the RTDS capability");
+        assertThrows(IllegalStateException.class, sdk::rtds);
+    }
+
+    @Test
+    @DisplayName("TC-PR-011: Builders is reached through the root, never by constructing a gateway")
+    void buildersAreOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.builders.Builders builders = sdk.builders();
+        assertSame(builders, sdk.builders(), "the root must own one Builders capability");
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, sdk::builders);
+    }
+
+    @Test
+    @DisplayName("TC-PR-012: Social is reached through the root, never by constructing a gateway")
+    void socialIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        com.polymarket.social.Social social = sdk.social();
+        assertSame(social, sdk.social(), "the root must own one Social capability");
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, sdk::social);
+    }
+
+    @Test
+    @DisplayName("TC-PR-013: RFQ is reached through the root at a caller-supplied gateway host")
+    void rfqIsOwnedByTheRoot() {
+        Polymarket sdk = sdk();
+        URI gateway = URI.create("https://gateway.example");
+
+        com.polymarket.rfq.Rfq rfq = sdk.rfq(gateway);
+
+        assertSame(rfq, sdk.rfq(gateway), "the root must own one RFQ capability per gateway host");
+        assertNotNull(sdk.rfq(URI.create("https://other.example")));
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class, () -> sdk.rfq(gateway));
+    }
+
+    @Test
+    @DisplayName("TC-PR-014: the Combo markets catalog host is configured, never hardcoded internally")
+    void comboMarketsHostIsConfigurable() {
+        assertEquals(URI.create("https://combos-rfq-api.polymarket.com"),
+                PolymarketConfig.defaults().comboMarketsHost());
+        assertEquals(URI.create("https://elsewhere.example"),
+                PolymarketConfig.defaults()
+                        .comboMarketsHost(URI.create("https://elsewhere.example"))
+                        .comboMarketsHost());
     }
 
     private PolymarketConfig config() {

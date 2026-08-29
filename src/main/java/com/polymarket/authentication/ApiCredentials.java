@@ -1,14 +1,24 @@
 package com.polymarket.authentication;
 
-import java.util.Objects;
+import lombok.NonNull;
 
-/** L2 API credentials, separate from local signing authority. All three parts are secret. */
-public record ApiCredentials(String key, String secret, String passphrase) {
+/**
+ * L2 API Credentials, separate from any Account Signer key. All three parts are secret, and a
+ * blank part cannot exist: half-built credentials would authenticate nothing.
+ */
+public record ApiCredentials(@NonNull String key, @NonNull String secret,
+        @NonNull String passphrase) {
 
     public ApiCredentials {
-        Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(secret, "secret");
-        Objects.requireNonNull(passphrase, "passphrase");
+        requirePresent(key, "key");
+        requirePresent(secret, "secret");
+        requirePresent(passphrase, "passphrase");
+    }
+
+    private static void requirePresent(String value, String field) {
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("API credential " + field + " must not be blank");
+        }
     }
 
     @Override

@@ -1,7 +1,7 @@
 package com.polymarket.social;
 
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Immutable filter for profile search. A blank query would match the whole directory, so reject it. */
 public final class SearchQuery {
@@ -10,15 +10,14 @@ public final class SearchQuery {
     private final Integer limitPerType;
     private final Integer page;
 
-    private SearchQuery(String q, Integer limitPerType, Integer page) {
-        Objects.requireNonNull(q, "q");
+    private SearchQuery(@NonNull String q, Integer limitPerType, Integer page) {
         if (q.isBlank()) throw new IllegalArgumentException("q must not be blank");
         this.q = q;
         this.limitPerType = limitPerType;
         this.page = page;
     }
 
-    public static SearchQuery of(String q) {
+    public static SearchQuery of(@NonNull String q) {
         return new SearchQuery(q, null, null);
     }
 

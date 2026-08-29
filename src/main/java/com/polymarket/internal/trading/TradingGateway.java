@@ -110,6 +110,11 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
 
     /** Classifies one order-response object; reused for both a single body and each batch element. */
     private static SubmissionOutcome classifyOrderNode(JsonNode node, int httpStatus) {
+        // Anything that is not a documented order object states nothing, so it cannot be a rejection.
+        if (!isOrderResponse(node)) {
+            return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
+                    "success response is not a documented order object", Optional.empty());
+        }
         String errorMsg = blankToNull(node.path("errorMsg").asText(null));
         boolean success = node.path("success").asBoolean(false);
 
@@ -134,10 +139,15 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
                     Optional.of(httpStatus), "success without an order status", Optional.empty());
         }
 
-        List<String> tradeIds = new ArrayList<>();
-        node.path("tradeIDs").forEach(t -> tradeIds.add(t.asText()));
-        return new SubmissionOutcome.Accepted(orderId, status, tradeIds,
-                textField(node, "makingAmount"), textField(node, "takingAmount"));
+        // clob-openapi.yaml SendOrderResponse: transactionsHashes is documented on a match.
+        return new SubmissionOutcome.Accepted(orderId, status, texts(node, "tradeIDs"),
+                texts(node, "transactionsHashes"), textField(node, "makingAmount"),
+                textField(node, "takingAmount"));
+    }
+
+    /** clob-openapi.yaml SendOrderResponse: an object whose required {@code success} is a boolean. */
+    private static boolean isOrderResponse(JsonNode node) {
+        return node.isObject() && node.path("success").isBoolean();
     }
 
     @Override
@@ -167,44 +177,58 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
             return new BatchSubmissionOutcome.Indeterminate(
                     "batch response did not carry one result per submitted order", Optional.empty());
         }
+        // One malformed element makes the whole batch unattributable: no per-item guess is invented.
+        for (int i = 0; i < array.size(); i++) {
+            if (!isOrderResponse(array.get(i))) {
+                return new BatchSubmissionOutcome.Indeterminate("batch result " + i
+                        + " is not a documented order object", Optional.empty());
+            }
+        }
         List<SubmissionOutcome> perItem = new ArrayList<>();
         array.forEach(node -> perItem.add(classifyOrderNode(node, outcome.status())));
         return new BatchSubmissionOutcome.Completed(perItem);
     }
 
     @Override
-    public CancellationOutcome cancel(ApiCredentials credentials, String address, List<String> orderIds)
-            throws IOException {
+    public CancellationOutcome cancel(ApiCredentials credentials, String address,
+            List<String> orderIds) {
         String body;
         try {
             body = json.writeValueAsString(orderIds);
         } catch (IOException e) {
             throw new IllegalStateException("could not serialize order ids", e);
         }
-        HttpOutcome outcome = runtime.delete(config.clobHost(), ORDERS_PATH,
-                l2Headers(credentials, address, "DELETE", ORDERS_PATH, body), body);
+        HttpOutcome outcome;
+        try {
+            outcome = runtime.delete(config.clobHost(), ORDERS_PATH,
+                    l2Headers(credentials, address, "DELETE", ORDERS_PATH, body), body);
+        } catch (IOException e) {
+            return new CancellationOutcome.Uncertain(
+                    Optional.empty(), transportMessage(e), Optional.of(e));
+        }
         if (!outcome.successful()) {
-            throw new IOException("could not cancel orders: HTTP " + outcome.status()
-                    + " " + errorMessage(outcome.body()));
+            return new CancellationOutcome.Uncertain(Optional.of(outcome.status()),
+                    errorMessage(outcome.body()), Optional.empty());
         }
         JsonNode node = tryParse(outcome.body());
+        // clob-openapi.yaml CancelOrdersResponse requires both fields; without them nothing is stated.
+        if (node == null || !node.isObject() || !node.path("canceled").isArray()
+                || !node.path("not_canceled").isObject()) {
+            return new CancellationOutcome.Uncertain(Optional.of(outcome.status()),
+                    "cancellation response is not a documented CancelOrdersResponse", Optional.empty());
+        }
+
         List<String> canceled = new ArrayList<>();
-        if (node != null) {
-            node.path("canceled").forEach(c -> canceled.add(c.asText()));
-        }
+        node.path("canceled").forEach(c -> canceled.add(c.asText()));
         Map<String, String> notCanceled = new LinkedHashMap<>();
-        if (node != null && node.has("not_canceled")) {
-            node.path("not_canceled").fields()
-                    .forEachRemaining(e -> notCanceled.put(e.getKey(), e.getValue().asText()));
-        }
-        // Any requested ID the server did not confirm is not-canceled, even without a server reason.
-        Set<String> confirmed = new LinkedHashSet<>(canceled);
-        for (String id : orderIds) {
-            if (!confirmed.contains(id)) {
-                notCanceled.putIfAbsent(id, "not confirmed canceled");
-            }
-        }
-        return new CancellationOutcome(canceled, notCanceled);
+        node.path("not_canceled").fields()
+                .forEachRemaining(e -> notCanceled.put(e.getKey(), e.getValue().asText()));
+
+        // An ID the server stated nothing about is unaccounted for, not a refusal it never made.
+        Set<String> stated = new LinkedHashSet<>(canceled);
+        stated.addAll(notCanceled.keySet());
+        List<String> unaccounted = orderIds.stream().filter(id -> !stated.contains(id)).toList();
+        return new CancellationOutcome.Completed(canceled, notCanceled, unaccounted);
     }
 
     private String batchWireBody(List<BatchItem> items) {
@@ -294,6 +318,12 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         if (message == null) return false;
         String normalized = message.toLowerCase(Locale.ROOT);
         return RETRYABLE_ERRORS.stream().anyMatch(normalized::contains);
+    }
+
+    private static List<String> texts(JsonNode node, String field) {
+        List<String> values = new ArrayList<>();
+        node.path(field).forEach(v -> values.add(v.asText()));
+        return values;
     }
 
     private static Optional<String> textField(JsonNode node, String field) {

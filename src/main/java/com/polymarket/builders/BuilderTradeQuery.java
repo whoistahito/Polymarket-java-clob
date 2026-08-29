@@ -1,35 +1,68 @@
 package com.polymarket.builders;
 
-import java.util.Objects;
+import java.time.Instant;
 import java.util.Optional;
+import java.util.regex.Pattern;
+import lombok.NonNull;
 
-/** Optional filter for a builder trades read; every field narrows, none is required. */
+/**
+ * Filter for a builder trades read. The Builder code is required — the CLOB rejects a read
+ * without one and never defaults to the caller's own code; every other field only narrows.
+ */
 public final class BuilderTradeQuery {
 
+    // Documented shape of a Builder code: ^0x[a-fA-F0-9]{64}$ (GET /builder/trades).
+    private static final Pattern BUILDER_CODE = Pattern.compile("^0x[a-fA-F0-9]{64}$");
+
+    private final String builderCode;
     private final String id;
     private final String market;
     private final String assetId;
+    private final Instant before;
+    private final Instant after;
 
-    private BuilderTradeQuery(String id, String market, String assetId) {
+    private BuilderTradeQuery(String builderCode, String id, String market, String assetId,
+            Instant before, Instant after) {
+        this.builderCode = builderCode;
         this.id = id;
         this.market = market;
         this.assetId = assetId;
+        this.before = before;
+        this.after = after;
     }
 
-    public static BuilderTradeQuery create() {
-        return new BuilderTradeQuery(null, null, null);
+    public static BuilderTradeQuery forBuilder(@NonNull String builderCode) {
+        if (!BUILDER_CODE.matcher(builderCode).matches()) {
+            throw new IllegalArgumentException(
+                    "builderCode must be 32 hex bytes, as 0x + 64 hex digits");
+        }
+        return new BuilderTradeQuery(builderCode, null, null, null, null, null);
     }
 
-    public BuilderTradeQuery id(String id) {
-        return new BuilderTradeQuery(Objects.requireNonNull(id, "id"), market, assetId);
+    public BuilderTradeQuery id(@NonNull String id) {
+        return new BuilderTradeQuery(builderCode, id, market, assetId, before, after);
     }
 
-    public BuilderTradeQuery market(String market) {
-        return new BuilderTradeQuery(id, Objects.requireNonNull(market, "market"), assetId);
+    public BuilderTradeQuery market(@NonNull String market) {
+        return new BuilderTradeQuery(builderCode, id, market, assetId, before, after);
     }
 
-    public BuilderTradeQuery assetId(String assetId) {
-        return new BuilderTradeQuery(id, market, Objects.requireNonNull(assetId, "assetId"));
+    public BuilderTradeQuery assetId(@NonNull String assetId) {
+        return new BuilderTradeQuery(builderCode, id, market, assetId, before, after);
+    }
+
+    /** Upper bound of the match-time window; it travels as unix seconds, not an ISO instant. */
+    public BuilderTradeQuery before(@NonNull Instant before) {
+        return new BuilderTradeQuery(builderCode, id, market, assetId, before, after);
+    }
+
+    /** Lower bound of the match-time window; it travels as unix seconds, not an ISO instant. */
+    public BuilderTradeQuery after(@NonNull Instant after) {
+        return new BuilderTradeQuery(builderCode, id, market, assetId, before, after);
+    }
+
+    public String builderCode() {
+        return builderCode;
     }
 
     public Optional<String> id() {
@@ -42,5 +75,13 @@ public final class BuilderTradeQuery {
 
     public Optional<String> assetId() {
         return Optional.ofNullable(assetId);
+    }
+
+    public Optional<Instant> before() {
+        return Optional.ofNullable(before);
+    }
+
+    public Optional<Instant> after() {
+        return Optional.ofNullable(after);
     }
 }

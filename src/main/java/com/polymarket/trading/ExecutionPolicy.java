@@ -5,5 +5,10 @@ public enum ExecutionPolicy {
     /** Fill completely or not at all. */
     FOK,
     /** Fill what is available and cancel the rest. */
-    FAK
+    FAK;
+
+    /** The wire order type this policy asks for. */
+    public OrderType orderType() {
+        return this == FOK ? OrderType.FOK : OrderType.FAK;
+    }
 }

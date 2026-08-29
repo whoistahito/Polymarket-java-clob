@@ -22,10 +22,10 @@
         <slf4j.version>2.0.12</slf4j.version>
         <logback.version>1.4.14</logback.version>
         <junit.version>5.11.2</junit.version>
-        <mockito.version>5.14.2</mockito.version>
         <lombok.version>1.18.36</lombok.version>
         <archunit.version>1.3.0</archunit.version>
         <kotlin.version>1.9.10</kotlin.version>
+        <okio.version>3.6.0</okio.version>
         <enforcer.version>3.5.0</enforcer.version>
     </properties>
 
@@ -77,6 +77,12 @@
             <artifactId>okhttp</artifactId>
             <version>${okhttp.version}</version>
         </dependency>
+        <!-- OkHttp's own signatures name okio types, so it is a compile-classpath requirement. -->
+        <dependency>
+            <groupId>com.squareup.okio</groupId>
+            <artifactId>okio-jvm</artifactId>
+            <version>${okio.version}</version>
+        </dependency>
 
         <!-- JSON Processing -->
         <dependency>
@@ -85,8 +91,8 @@
             <version>${jackson.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
             <version>${jackson.version}</version>
         </dependency>
 
@@ -94,6 +100,11 @@
         <dependency>
             <groupId>org.web3j</groupId>
             <artifactId>crypto</artifactId>
+            <version>${web3j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.web3j</groupId>
+            <artifactId>utils</artifactId>
             <version>${web3j.version}</version>
         </dependency>
 
@@ -113,20 +124,20 @@
         <!-- Testing: the junit-jupiter aggregator already brings api, engine and params. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>junit-jupiter-api</artifactId>
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>${mockito.version}</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <version>${mockito.version}</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -135,6 +146,7 @@
             <version>${okhttp.version}</version>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit</artifactId>
@@ -172,6 +184,22 @@
                             <rules>
                                 <dependencyConvergence/>
                                 <banDuplicatePomDependencyVersions/>
+                                <!-- Scoped to what ships: logback stays legal at test scope. -->
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>ch.qos.logback:*:*:*:compile</exclude>
+                                        <exclude>ch.qos.logback:*:*:*:runtime</exclude>
+                                        <exclude>org.apache.logging.log4j:*</exclude>
+                                        <exclude>org.slf4j:slf4j-simple</exclude>
+                                        <exclude>org.slf4j:slf4j-jdk14</exclude>
+                                        <exclude>org.slf4j:slf4j-log4j12</exclude>
+                                        <exclude>org.web3j:core</exclude>
+                                        <exclude>org.web3j:hosted-providers</exclude>
+                                        <exclude>org.bouncycastle:bcprov-jdk15on</exclude>
+                                        <exclude>org.bouncycastle:bcprov-jdk15to18</exclude>
+                                    </excludes>
+                                </bannedDependencies>
                                 <requireMavenVersion>
                                     <version>[3.6.3,)</version>
                                 </requireMavenVersion>
@@ -179,6 +207,35 @@
                                     <version>[21,)</version>
                                 </requireJavaVersion>
                             </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Dependency Plugin: the declared graph must match the APIs actually used -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.7.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-declared-dependencies</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>analyze-only</goal>
+                        </goals>
+                        <configuration>
+                            <failOnWarning>true</failOnWarning>
+                            <ignoreNonCompile>false</ignoreNonCompile>
+                            <!-- Both are loaded by ServiceLoader at test runtime, so no class references them. -->
+                            <ignoredUnusedDeclaredDependencies>
+                                <dep>org.junit.jupiter:junit-jupiter-engine</dep>
+                                <dep>ch.qos.logback:logback-classic</dep>
+                            </ignoredUnusedDeclaredDependencies>
+                            <!-- Only tests name an okio type, but OkHttp needs it to compile main. -->
+                            <ignoredNonTestScopedDependencies>
+                                <dep>com.squareup.okio:okio-jvm</dep>
+                            </ignoredNonTestScopedDependencies>
                         </configuration>
                     </execution>
                 </executions>

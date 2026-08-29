@@ -1,12 +1,10 @@
 package com.polymarket.streaming;
 
-import java.util.function.Supplier;
-
 /**
- * Domain-declared port for the RTDS WebSocket transport. {@code stateSupplier} is polled on every
- * open and reopen, so a reconnect needs no state outside {@link Rtds}'s authoritative sets.
+ * Domain-declared port for the RTDS WebSocket transport. The Authoritative Subscription travels
+ * with the connect call, so the initial frame is complete however late the socket opens.
  */
 public interface RtdsTransport {
 
-    RtdsConnection connect(Supplier<RtdsSubscriptions> stateSupplier, RtdsEventSink sink);
+    RtdsConnection connect(RtdsSubscriptions subscriptions, RtdsEventSink sink);
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.social.SocialGateway;
@@ -12,9 +13,11 @@ import com.polymarket.social.CommentPage;
 import com.polymarket.social.CommentQuery;
 import com.polymarket.social.ParentEntityType;
 import com.polymarket.social.Profile;
+import com.polymarket.social.Reaction;
 import com.polymarket.social.SearchQuery;
 import com.polymarket.social.Social;
 import com.polymarket.social.SocialSearchResults;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -226,7 +229,7 @@ class SocialTest {
                 SearchQuery.of("election").limitPerType(5).page(2));
 
         var profile = results.profiles().get(0);
-        assertEquals("p1", profile.id().orElseThrow());
+        assertEquals("p1", profile.id());
         assertEquals("Bob", profile.name().orElseThrow());
         assertEquals("bob42", profile.pseudonym().orElseThrow());
         assertEquals(true, profile.displayUsernamePublic().orElseThrow());
@@ -303,6 +306,129 @@ class SocialTest {
         assertThrows(IllegalArgumentException.class,
                 () -> social.commentsByUserAddress(" ", CommentPage.limit(10)));
         assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-SO-015: a reaction maps its documented identifiers from Gamma's own casing")
+    void reactionIdentifiersMapFromGammasOwnFieldCasing() throws Exception {
+        // The documented reaction payload: id, commentID, reactionType, icon, userAddress, createdAt.
+        enqueue("""
+                [{"id":"c-1","reactions":[{"id":"8675309","commentID":1763355,
+                  "reactionType":"HEART","icon":"❤️",
+                  "userAddress":"0xce533188d53a16ed580fd5121dedf166d3482677",
+                  "createdAt":"2025-07-25T14:50:04.120000Z"}]}]""");
+
+        Reaction reaction = social().commentsById("c-1").get(0).reactions().get(0);
+
+        assertEquals("8675309", reaction.id());
+        assertEquals("1763355", reaction.commentId().orElseThrow());
+        assertEquals("HEART", reaction.reactionType().orElseThrow());
+        assertEquals("❤️", reaction.icon().orElseThrow());
+        assertEquals("0xce533188d53a16ed580fd5121dedf166d3482677",
+                reaction.userAddress().orElseThrow());
+        assertEquals(java.time.Instant.parse("2025-07-25T14:50:04.120000Z"),
+                reaction.createdAt().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-SO-016: a reaction's nested profile is preserved when present and absent when not")
+    void nestedReactionProfileIsPreservedWhenPresent() throws Exception {
+        enqueue("""
+                [{"id":"c-1","reactions":[
+                  {"id":"r-1","commentID":1763355,"reactionType":"HEART",
+                   "profile":{"name":"salted.caramel","pseudonym":"Adored-Disparity",
+                     "displayUsernamePublic":true,
+                     "baseAddress":"0xce533188d53a16ed580fd5121dedf166d3482677",
+                     "proxyWallet":"0x4ca749dcfa93c87e5ee23e2d21ff4422c7a4c1ee"}},
+                  {"id":"r-2","commentID":1763355,"reactionType":"HEART"}]}]""");
+
+        List<Reaction> reactions = social().commentsById("c-1").get(0).reactions();
+
+        var author = reactions.get(0).author().orElseThrow();
+        assertEquals("salted.caramel", author.name().orElseThrow());
+        assertEquals("Adored-Disparity", author.pseudonym().orElseThrow());
+        assertEquals(true, author.displayUsernamePublic().orElseThrow());
+        assertEquals("0xce533188d53a16ed580fd5121dedf166d3482677",
+                author.baseAddress().orElseThrow());
+        assertEquals("0x4ca749dcfa93c87e5ee23e2d21ff4422c7a4c1ee",
+                author.proxyWallet().orElseThrow());
+
+        assertEquals(Optional.empty(), reactions.get(1).author());
+    }
+
+    @Test
+    @DisplayName("TC-SO-017: a social read whose identity is missing or blank fails explicitly")
+    void aMissingOrBlankRequiredIdentityFailsTheRead() throws Exception {
+        Social social = social();
+
+        enqueue("[{\"body\":\"a comment nobody can name\"}]");
+        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+
+        enqueue("[{\"id\":\" \",\"body\":\"a blank id is no id\"}]");
+        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+
+        enqueue("[{\"id\":\"c-1\",\"reactions\":[{\"reactionType\":\"HEART\"}]}]");
+        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+
+        enqueue("{\"proxyWallet\":\"0xProxy\",\"users\":[{\"creator\":true}]}");
+        assertThrows(IOException.class, () -> social.profile("0xProxy"));
+
+        enqueue("{\"profiles\":[{\"name\":\"Bob\"}]}");
+        assertThrows(IOException.class, () -> social.search(SearchQuery.of("bob")));
+    }
+
+    @Test
+    @DisplayName("TC-SO-018: an identified comment keeps every optional field absent, never blank")
+    void anIdentifiedCommentKeepsOptionalFieldsAbsent() throws Exception {
+        enqueue("[{\"id\":\"c-1\",\"body\":\"\",\"userAddress\":null,\"reactions\":[]}]");
+
+        Comment comment = social().commentsById("c-1").get(0);
+
+        assertEquals("c-1", comment.id());
+        assertEquals(Optional.empty(), comment.body());
+        assertEquals(Optional.empty(), comment.userAddress());
+        assertEquals(Optional.empty(), comment.reactionCount());
+        assertEquals(List.of(), comment.reactions());
+    }
+
+    @Test
+    @DisplayName("TC-SO-019: an undocumented parent entity type stays readable as the text Gamma sent")
+    void anUndocumentedParentEntityTypeStaysReadable() throws Exception {
+        enqueue("""
+                [{"id":"c-1","body":"hi","parentEntityType":"SomeFutureKind",
+                  "parentEntityID":18396}]""");
+
+        Comment comment = social().commentsById("c-1").get(0);
+
+        assertEquals(Optional.empty(), comment.parentEntityType());
+        assertEquals("SomeFutureKind", comment.parentEntityTypeText().orElseThrow());
+        assertEquals("18396", comment.parentEntityId().orElseThrow());
+        assertEquals("hi", comment.body().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-SO-020: every comment read is caller-bounded — no read walks Gamma unbounded")
+    void everyCommentReadIsCallerBounded() throws Exception {
+        for (Method method : Social.class.getDeclaredMethods()) {
+            if (!List.class.isAssignableFrom(method.getReturnType())) continue;
+            List<Class<?>> parameters = List.of(method.getParameterTypes());
+            assertTrue(
+                    parameters.contains(CommentQuery.class) || parameters.contains(CommentPage.class)
+                            || method.getName().equals("commentsById"),
+                    "Social." + method.getName() + " reads comments without a caller-supplied bound");
+        }
+
+        enqueue("[]");
+        enqueue("[]");
+        enqueue("[]");
+        Social social = social();
+        social.comments(CommentQuery.limit(20));
+        social.commentsByUserAddress("0x5668", CommentPage.limit(10));
+        social.commentsById("c-1");
+
+        assertTrue(server.takeRequest().getPath().contains("limit=20"));
+        assertTrue(server.takeRequest().getPath().contains("limit=10"));
+        assertEquals("/comments/c-1", server.takeRequest().getPath());
     }
 
     /** Walks every type reachable from the model and rejects escape hatches. */

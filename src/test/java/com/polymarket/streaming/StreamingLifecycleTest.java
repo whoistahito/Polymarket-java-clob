@@ -154,7 +154,7 @@ class StreamingLifecycleTest {
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).reconnectDelayMs(50).build();
         streaming = new Streaming(gateway,
-                SigningAuthority.apiOnly(new ApiCredentials("key", "secret", "pass")));
+                SigningAuthority.apiCredentials(new ApiCredentials("key", "secret", "pass"), "0x" + "a".repeat(40)));
         streaming.subscribeMarket(List.of("tokA"));
         streaming.subscribeUser(List.of("0xm1"));
 
@@ -233,6 +233,72 @@ class StreamingLifecycleTest {
         streaming = new Streaming(gateway, SigningAuthority.none());
         streaming.close();
         Assertions.assertDoesNotThrow(streaming::close);
+    }
+
+
+    @Test
+    @DisplayName("TC-SL-010 closing is terminal — a later subscribe cannot reopen either channel")
+    void closingIsTerminal() throws Exception {
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
+        server.start();
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(new ApiCredentials("k", "cw==", "p"), "0x" + "a".repeat(40)));
+        streaming.subscribeMarket(List.of("tokA"));
+        for (int i = 0; i < 100 && server.getRequestCount() < 1; i++) Thread.sleep(50);
+        streaming.close();
+        int handshakes = server.getRequestCount();
+
+        Assertions.assertThrows(IllegalStateException.class, () -> streaming.subscribeMarket(List.of("tokB")));
+        Assertions.assertThrows(IllegalStateException.class, () -> streaming.subscribeUser(List.of("0xm")));
+        Assertions.assertThrows(IllegalStateException.class, streaming::enableCustomMarketEvents);
+
+        Thread.sleep(500);
+        assertEquals(handshakes, server.getRequestCount(), "a closed capability must open no further socket");
+        assertTrue(streaming.isClosed());
+    }
+
+    @Test
+    @DisplayName("TC-SL-011 callback and heartbeat work stop when the capability closes")
+    void callbackAndHeartbeatWorkStopOnClose() throws Exception {
+        List<String> pings = new CopyOnWriteArrayList<>();
+        List<BookEvent> books = new CopyOnWriteArrayList<>();
+        CountDownLatch twoPings = new CountDownLatch(2);
+        String book = """
+            {"event_type":"book","asset_id":"tokA","market":"0xm","timestamp":"1",
+             "bids":[],"asks":[],"hash":"h"}
+            """;
+
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onMessage(WebSocket ws, String text) {
+                if ("PING".equals(text)) {
+                    pings.add(text);
+                    twoPings.countDown();
+                }
+            }
+
+            @Override public void onClosing(WebSocket ws, int code, String reason) {
+                ws.send(book); // still in flight when the client asked to close
+                ws.close(code, reason);
+            }
+        }));
+        server.start();
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).pingIntervalMs(100).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+        streaming.onBookUpdate(List.of("tokA"), books::add);
+        streaming.subscribeMarket(List.of("tokA"));
+        assertTrue(twoPings.await(15, TimeUnit.SECONDS), "the heartbeat must be running first");
+
+        streaming.close();
+        int pingsAtClose = pings.size();
+        Thread.sleep(800);
+
+        assertEquals(pingsAtClose, pings.size(), "no heartbeat may outlive close: " + pings);
+        assertEquals(List.of(), books, "no callback may run after close");
     }
 
     @Test

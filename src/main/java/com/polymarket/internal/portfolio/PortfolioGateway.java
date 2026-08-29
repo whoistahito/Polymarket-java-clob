@@ -9,10 +9,22 @@ import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.portfolio.ActivityKind;
 import com.polymarket.portfolio.ActivityQuery;
 import com.polymarket.portfolio.ActivityRecord;
+import com.polymarket.portfolio.AssetType;
+import com.polymarket.portfolio.BalanceSnapshot;
+import com.polymarket.portfolio.ComboLegSnapshot;
+import com.polymarket.portfolio.ComboPositionQuery;
+import com.polymarket.portfolio.ComboPositionSnapshot;
+import com.polymarket.portfolio.ComboStatus;
 import com.polymarket.portfolio.MarketReference;
 import com.polymarket.portfolio.Notification;
 import com.polymarket.portfolio.NotificationKind;
 import com.polymarket.portfolio.NotificationPayload;
+import com.polymarket.portfolio.OpenOrder;
+import com.polymarket.portfolio.OpenOrderPage;
+import com.polymarket.portfolio.OpenOrderQuery;
+import com.polymarket.portfolio.OrderCursor;
+import com.polymarket.portfolio.OrderLifetime;
+import com.polymarket.portfolio.OrderStatus;
 import com.polymarket.portfolio.PageCursor;
 import com.polymarket.portfolio.PortfolioLedger;
 import com.polymarket.portfolio.PortfolioPage;
@@ -29,6 +41,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,13 +56,16 @@ public final class PortfolioGateway implements PortfolioLedger {
     private static final int MAX_POSITIONS_LIMIT = 500;
     private static final int MAX_POSITIONS_OFFSET = 10_000;
 
-    // protocol/constraints.json pagination: /trades limit <= 500, offset <= 1000.
-    private static final int MAX_TRADES_LIMIT = 500;
-    private static final int MAX_TRADES_OFFSET = 1_000;
+    // constraints.json pagination.dataApi: the 2025-08-26 changelog's 500/1000 is stale.
+    private static final int MAX_TRADES_LIMIT = 10_000;
+    private static final int MAX_TRADES_OFFSET = 10_000;
 
-    // /activity shares that pinned page contract; the live spec is looser, so this is the safe floor.
     private static final int MAX_ACTIVITY_LIMIT = 500;
-    private static final int MAX_ACTIVITY_OFFSET = 1_000;
+    private static final int MAX_ACTIVITY_OFFSET = 5_000;
+
+    // data-openapi.yaml GET /v1/positions/combos: limit <= 1000, offset <= 100000.
+    private static final int MAX_COMBOS_LIMIT = 1_000;
+    private static final int MAX_COMBOS_OFFSET = 100_000;
 
     private final PolymarketConfig config;
     private final HttpRuntime runtime;
@@ -128,18 +144,156 @@ public final class PortfolioGateway implements PortfolioLedger {
     }
 
     @Override
+    public PortfolioPage<ComboPositionSnapshot> comboPositions(ComboPositionQuery query,
+            PageCursor cursor) throws IOException {
+        requireWithin(cursor, MAX_COMBOS_LIMIT, MAX_COMBOS_OFFSET, "/v1/positions/combos");
+        QueryString params = new QueryString();
+        params.add("user", query.user());
+        if (!query.statuses().isEmpty()) {
+            params.add("status", query.statuses().stream().map(Enum::name)
+                    .collect(Collectors.joining(",")));
+        }
+        if (!query.comboConditionIds().isEmpty()) {
+            params.add("market_id", String.join(",", query.comboConditionIds()));
+        }
+        params.add("limit", String.valueOf(cursor.limit()));
+        params.add("offset", String.valueOf(cursor.offset()));
+
+        Instant observedAt = clock.instant();
+        JsonNode body = read("/v1/positions/combos" + params);
+        List<ComboPositionSnapshot> combos = new ArrayList<>();
+        body.path("combos").forEach(node -> combos.add(comboPosition(node, observedAt)));
+        // This feed states exhaustion outright, so page fullness is never guessed at.
+        if (!body.path("pagination").path("has_more").asBoolean(false)) {
+            return PortfolioPage.lastPage(combos);
+        }
+        PageCursor next = cursor.next();
+        return next.offset() > MAX_COMBOS_OFFSET
+                ? PortfolioPage.atPaginationLimit(combos)
+                : PortfolioPage.withNext(combos, next);
+    }
+
+    private static ComboPositionSnapshot comboPosition(JsonNode node, Instant observedAt) {
+        List<ComboLegSnapshot> legs = new ArrayList<>();
+        node.path("legs").forEach(leg -> legs.add(comboLeg(leg)));
+        return new ComboPositionSnapshot(
+                required(node, "combo_condition_id"),
+                required(node, "combo_position_id"),
+                text(node, "user_address"),
+                requiredDecimal(node, "shares_balance"),
+                new ComboStatus(required(node, "status")),
+                decimal(node, "entry_avg_price_usdc"),
+                decimal(node, "entry_cost_usdc"),
+                decimal(node, "realized_payout_usdc"),
+                decimal(node, "total_cost_usdc"),
+                decimal(node, "gross_entry_cost_usdc"),
+                decimal(node, "entry_fees_usdc"),
+                instant(node, "first_entry_at"),
+                instant(node, "resolved_at"),
+                instant(node, "updated_at"),
+                legs,
+                observedAt);
+    }
+
+    private static ComboLegSnapshot comboLeg(JsonNode node) {
+        return new ComboLegSnapshot(
+                node.path("leg_index").asInt(),
+                required(node, "leg_position_id"),
+                text(node, "leg_condition_id"),
+                integer(node, "leg_outcome_index"),
+                text(node, "leg_outcome_label"),
+                new ComboStatus(required(node, "leg_status")),
+                instant(node, "leg_resolved_at"),
+                decimal(node, "leg_current_price"));
+    }
+
+    @Override
+    public OpenOrderPage openOrders(ApiCredentials credentials, String address,
+            OpenOrderQuery query, OrderCursor cursor) throws IOException {
+        QueryString params = new QueryString();
+        query.orderId().ifPresent(v -> params.add("id", v));
+        query.conditionId().ifPresent(v -> params.add("market", v));
+        query.assetId().ifPresent(v -> params.add("asset_id", v));
+        params.add("next_cursor", cursor.value());
+
+        String path = "/data/orders" + params;
+        JsonNode body = readL2(credentials, address, path, "open order");
+        List<OpenOrder> orders = new ArrayList<>();
+        body.path("data").forEach(node -> orders.add(openOrder(node)));
+        return new OpenOrderPage(orders,
+                OrderCursor.next(cursor, text(body, "next_cursor").orElse(null)),
+                body.path("limit").asInt(), body.path("count").asInt());
+    }
+
+    private static OpenOrder openOrder(JsonNode node) {
+        return new OpenOrder(
+                required(node, "id"),
+                new OrderStatus(required(node, "status")),
+                text(node, "owner"),
+                text(node, "maker_address"),
+                required(node, "market"),
+                required(node, "asset_id"),
+                new TradedSide(required(node, "side")),
+                requiredDecimal(node, "original_size"),
+                requiredDecimal(node, "size_matched"),
+                requiredDecimal(node, "price"),
+                text(node, "outcome"),
+                new OrderLifetime(required(node, "order_type")),
+                // "0" is the documented GTC value: no expiry, not an epoch.
+                decimal(node, "expiration").filter(v -> v.signum() > 0)
+                        .map(v -> Instant.ofEpochSecond(v.longValueExact())),
+                associatedTradeIds(node),
+                requiredInstant(node, "created_at"));
+    }
+
+    private static List<String> associatedTradeIds(JsonNode node) {
+        List<String> ids = new ArrayList<>();
+        node.path("associate_trades").forEach(id -> ids.add(id.asText()));
+        return ids;
+    }
+
+    @Override
+    public BalanceSnapshot balance(ApiCredentials credentials, String address, AssetType assetType,
+            Optional<String> tokenId, int signatureType) throws IOException {
+        QueryString params = new QueryString();
+        params.add("asset_type", assetType.name());
+        tokenId.ifPresent(v -> params.add("token_id", v));
+        params.add("signature_type", String.valueOf(signatureType));
+
+        String path = "/balance-allowance" + params;
+        Instant observedAt = clock.instant();
+        JsonNode body = readL2(credentials, address, path, "balance");
+        Map<String, BigDecimal> allowances = new LinkedHashMap<>();
+        body.path("allowances").fields().forEachRemaining(
+                entry -> allowances.put(entry.getKey(), fixedMath(entry.getValue().asText())));
+        return new BalanceSnapshot(assetType, tokenId,
+                fixedMath(required(body, "balance")), allowances, observedAt);
+    }
+
+    /** clob-openapi.yaml documents balances and allowances as 6-decimal fixed math (pUSD). */
+    private static BigDecimal fixedMath(String wireValue) {
+        return new BigDecimal(wireValue).movePointLeft(6);
+    }
+
+    @Override
     public List<Notification> notifications(ApiCredentials credentials, String address,
             int signatureType) throws IOException {
         // The L2 signature covers the path INCLUDING the query string.
         String path = "/notifications?signature_type=" + signatureType;
+        List<Notification> notifications = new ArrayList<>();
+        readL2(credentials, address, path, "notifications")
+                .forEach(node -> notifications.add(notification(node)));
+        return List.copyOf(notifications);
+    }
+
+    private JsonNode readL2(ApiCredentials credentials, String address, String path, String what)
+            throws IOException {
         HttpOutcome outcome = runtime.get(config.clobHost(), path, L2Attestation.headers(
                 credentials, address, clock.instant().getEpochSecond(), "GET", path, null));
         if (!outcome.successful()) {
-            throw new IOException("notifications read failed with HTTP " + outcome.status());
+            throw new IOException(what + " read failed with HTTP " + outcome.status());
         }
-        List<Notification> notifications = new ArrayList<>();
-        runtime.parse(outcome.body()).forEach(node -> notifications.add(notification(node)));
-        return List.copyOf(notifications);
+        return runtime.parse(outcome.body());
     }
 
     private static Notification notification(JsonNode node) {

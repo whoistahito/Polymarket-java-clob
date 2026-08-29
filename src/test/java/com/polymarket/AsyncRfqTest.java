@@ -9,6 +9,7 @@ import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
 import com.polymarket.internal.http.HttpRuntime;
+import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
@@ -59,9 +60,11 @@ class AsyncRfqTest {
 
     private Rfq rfq() {
         URI host = server.url("/").uri();
-        return new Rfq(new RfqGateway(host, new HttpRuntime(Duration.ofSeconds(2),
-                Duration.ofSeconds(5), ReadRetryPolicy.none(), d -> {
-                }), FIXED), FIXED);
+        HttpRuntime runtime = new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
+                ReadRetryPolicy.none(), d -> {
+                });
+        return new Rfq(new RfqGateway(host, runtime, FIXED),
+                new ComboMarketGateway(host, runtime), FIXED);
     }
 
     private static final class CountingExecutor implements Executor {

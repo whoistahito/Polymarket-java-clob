@@ -1,8 +1,8 @@
 package com.polymarket.portfolio;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import lombok.NonNull;
 
 /**
  * One page of a portfolio read. Continuation is the caller's decision: nothing here walks
@@ -14,8 +14,8 @@ public final class PortfolioPage<T> {
     private final PageCursor nextCursor;
     private final boolean complete;
 
-    private PortfolioPage(List<T> items, PageCursor nextCursor, boolean complete) {
-        this.items = List.copyOf(Objects.requireNonNull(items, "items"));
+    private PortfolioPage(@NonNull List<T> items, PageCursor nextCursor, boolean complete) {
+        this.items = List.copyOf(items);
         this.nextCursor = nextCursor;
         this.complete = complete;
     }
@@ -25,8 +25,8 @@ public final class PortfolioPage<T> {
         return new PortfolioPage<>(items, null, true);
     }
 
-    public static <T> PortfolioPage<T> withNext(List<T> items, PageCursor next) {
-        return new PortfolioPage<>(items, Objects.requireNonNull(next, "next"), false);
+    public static <T> PortfolioPage<T> withNext(List<T> items, @NonNull PageCursor next) {
+        return new PortfolioPage<>(items, next, false);
     }
 
     /** A full page that cannot be continued: the endpoint's documented offset budget is spent. */

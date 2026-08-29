@@ -1,11 +1,11 @@
 package com.polymarket.authentication;
 
-import java.util.Objects;
+import lombok.NonNull;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.Sign;
 
 /**
- * Local signing authority. Holds the private key and derives its address offline;
+ * An Account Signer's local key. Holds the private key and derives its address offline;
  * {@code toString} never discloses the key.
  */
 public final class PrivateKeySigner {
@@ -18,8 +18,7 @@ public final class PrivateKeySigner {
         this.address = address;
     }
 
-    public static PrivateKeySigner of(String hexPrivateKey) {
-        Objects.requireNonNull(hexPrivateKey, "hexPrivateKey");
+    public static PrivateKeySigner of(@NonNull String hexPrivateKey) {
         String normalized = hexPrivateKey.startsWith("0x") || hexPrivateKey.startsWith("0X")
                 ? hexPrivateKey.substring(2) : hexPrivateKey;
         if (!normalized.matches("(?i)[0-9a-f]{64}")) {

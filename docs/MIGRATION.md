@@ -91,14 +91,14 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `client.createOrder(UserOrder, CreateOrderOptions)` | `sdk.trading().sign(assetId, side, pusdLeg, shareLeg, rules, SigningContext)` |
 | `client.createMarketOrder(UserMarketOrder, ..)` | `ImmediatePlanner` over a live book → `ImmediateBuy`/`ImmediateSell`, then `sign` |
 | `client.postOrder(SignedOrder, OrderType)` / `postOrder(Map)` / `postOrder(PostOrderPayload)` | `sdk.trading().submit(signedOrder, OrderPlacement.of(credentials, OrderType.GTC))` |
-| `client.createAndPostOrder(..)` | `sdk.trading().place(asset, side, pusdLeg, shareLeg, rules, context, placement)` |
+| `client.createAndPostOrder(..)` | `sdk.trading().place(orderExecution, context, credentials)` — the Order Intent carries Maker-Only and GTD, so no placement is restated |
 | `client.submitOrder(..)` → `OrderSubmission` | `SubmissionOutcome` (sealed: `Accepted`/`Rejected`/`Unknown`) — the separate throwing `postOrder` is gone |
 | `client.postOrders(..)` / `createAndPostOrders(..)` | `sdk.trading().submitBatch(List<BatchItem>)` → `BatchSubmissionOutcome`; the 15-order limit is checked before anything is sent and a batch is never silently split |
-| `client.cancelOrder(id)` / `cancelOrders(ids)` (raw maps) | `sdk.trading().cancel(credentials, address, List.of(ids))` → `CancellationOutcome` |
+| `client.cancelOrder(id)` / `cancelOrders(ids)` (raw maps) | `sdk.trading().cancel(credentials, accountSigner, List.of(ids))` → sealed `CancellationOutcome` (`Completed`/`Uncertain`); it no longer throws on transport loss |
 | `client.cancelAll()` / `cancelMarketOrders(..)` | Removed — an unbounded write whose per-order result cannot be reported |
 | `client.getOrder(id)` / `getOpenOrders(..)` / `getOpenOrdersPaginated(..)` | Removed |
 | `client.getTrades(..)` / `getTradesPaginated(..)` | `sdk.portfolio().trades(TradeQuery[, PageCursor])`; for settling one order use `sdk.trading().reconcile(..)` |
-| (1.0 read `transactionHash` off the post response) | `sdk.trading().reconcile(credentials, address, orderId, tradeIds, timeout, pollInterval)` → `ReconciliationOutcome` — hashes now arrive late |
+| (1.0 read `transactionHash` off the post response) | `sdk.trading().reconcile(credentials, identity, orderId, tradeIds, timeout, pollInterval)` → `ReconciliationOutcome` — hashes now arrive late, and the `SigningIdentity` separates the Account Signer header from the Trading Wallet filter |
 | `client.isOrderScoring(..)` / `areOrdersScoring(..)` | Removed |
 | `client.getBalanceAllowance(..)` / `updateBalanceAllowance(..)` | Removed |
 | `client.calculateMarketPrice(..)` | `ImmediatePlanner` — pure depth walking with a caller-supplied protection bound |
@@ -160,8 +160,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `client.getBuilderTrades(..)` | `Builders.trades([BuilderTradeQuery][, BuilderCursor])` |
 | `model.BuilderApiKey`, `BuilderApiKeyResponse`, `BuilderTrade` | `BuilderCredentials` (redacted), `BuilderCredentialSummary`, `BuilderCredentialRevocation`, `BuilderTrade`, `BuilderTradePage` |
 
-`Builders` is not on the `Polymarket` root — build it with
-`new Builders(authority, new BuildersGateway(config, runtime, Clock.systemUTC()))`.
+`Builders` is on the `Polymarket` root: `sdk.builders()`.
 
 ## RFQ
 
@@ -171,15 +170,15 @@ only the **requester** flow, over the Builder Gateway (issues #25/#26).
 | 1.0 | 2.0 |
 |---|---|
 | `rfq.createRfqRequest(RfqUserOrder, tickSize)` | `Rfq.request(RfqRequest, SigningIdentity, ..)` → `RfqOutcome` |
-| `rfq.getRfqRequests(..)` | `Rfq.status(rfqId, ..)`, or `Rfq.waitForQuote(..)` for the poll loop |
-| `rfq.getRfqBestQuote(..)` / `getRfqRequesterQuotes(..)` | `RfqOutcome.Quoted` returned by `status`/`waitForQuote` |
-| `rfq.acceptRfqQuote(AcceptQuoteParams)` | `Rfq.accept(quoted, side, signer, ..)` — signs the V3 Combo order and refuses an expired quote before sending |
+| `rfq.getRfqRequests(..)` | `Rfq.status(rfqId, ..)` (valid only after acceptance — before it, the gateway answers 409 as `NotYetAccepted`), or `Rfq.awaitSettlement(..)` for the poll loop |
+| `rfq.getRfqBestQuote(..)` / `getRfqRequesterQuotes(..)` | `RfqOutcome.Quoted`, returned inline on `Rfq.request(..)` — there is no quote to poll for |
+| `rfq.acceptRfqQuote(AcceptQuoteParams)` | `Rfq.accept(quoted, signer, ..)` — the direction comes from the Quote, and an expired quote is refused before sending |
 | `rfq.cancelRfqRequest(..)` / `cancelRfqQuote(..)` / `createRfqQuote(..)` / `getRfqQuoterQuotes(..)` / `approveRfqOrder(..)` / `rfqConfig()` | Removed — maker/quoter behavior is out of scope (issue #1) |
 | `AsyncRfqClient` | `com.polymarket.rfq.AsyncRfq` |
 | `model.RfqRequest`, `RfqQuote`, `RfqUserOrder`, `RfqUserQuote`, `RfqMatchType`, `RfqPaginatedResponse`, `*Params` | `RfqRequest` (sealed `Buy`/`Sell`), `RfqStatus`, `RfqOutcome` (sealed) |
 
-`Rfq` is not on the `Polymarket` root, because the gateway host is issued per builder onboarding:
-`new Rfq(new RfqGateway(gatewayHost, runtime, Clock.systemUTC()), Clock.systemUTC())`.
+`Rfq` is on the `Polymarket` root, but takes the gateway host issued per builder onboarding:
+`sdk.rfq(gatewayHost)`. The root owns each one and closes it with itself.
 
 ## Streaming
 

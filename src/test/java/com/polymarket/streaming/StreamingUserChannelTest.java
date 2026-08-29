@@ -28,6 +28,7 @@ class StreamingUserChannelTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ApiCredentials CREDS = new ApiCredentials("key", "c2VjcmV0", "pass");
+    private static final String ACCOUNT_SIGNER = "0x" + "a".repeat(40);
 
     private MockWebServer server;
     private StreamingGateway gateway;
@@ -66,7 +67,7 @@ class StreamingUserChannelTest {
     void initialFrameCarriesNestedAuth() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         streaming.subscribeUser(List.of("0xm1"));
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
@@ -74,8 +75,10 @@ class StreamingUserChannelTest {
         assertEquals(1, frames.size());
         JsonNode frame = MAPPER.readTree(frames.get(0));
         assertEquals("user", frame.get("type").asText());
-        assertEquals("subscribe", frame.get("operation").asText());
-        assertTrue(frame.get("initial_dump").asBoolean());
+        List<String> actual = new java.util.ArrayList<>();
+        frame.fieldNames().forEachRemaining(actual::add);
+        assertEquals(new java.util.HashSet<>(StreamProtocol.fieldsOf("userChannel", "initialSubscribeWithMarkets")),
+                new java.util.HashSet<>(actual), "only the documented request fields may travel: " + frame);
         JsonNode auth = frame.get("auth");
         assertEquals("key", auth.get("apiKey").asText());
         assertEquals("c2VjcmV0", auth.get("secret").asText());
@@ -90,7 +93,7 @@ class StreamingUserChannelTest {
     void dynamicUpdateDoesNotRepeatCredentials() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         streaming.subscribeUser(List.of("0xm1"));
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
@@ -111,7 +114,7 @@ class StreamingUserChannelTest {
     void emptyFilterStillAuthenticates() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
         // subscribeUser with an empty list still opens the channel (empty filter == "every market").
         streaming.subscribeUser(List.of());
@@ -155,7 +158,7 @@ class StreamingUserChannelTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
         CopyOnWriteArrayList<OrderEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch got = new CountDownLatch(1);
         streaming.onOrder(List.of(), o -> { events.add(o); got.countDown(); });
@@ -220,7 +223,7 @@ class StreamingUserChannelTest {
         server.start();
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
-        streaming = new Streaming(gateway, SigningAuthority.apiOnly(CREDS));
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
         CopyOnWriteArrayList<TradeEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch got = new CountDownLatch(1);
         streaming.onTrade(List.of(), t -> { events.add(t); got.countDown(); });
@@ -250,7 +253,7 @@ class StreamingUserChannelTest {
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
             @Override public void onMessage(WebSocket ws, String text) {
                 ws.send("""
-                    {"event_type":"best_bid_ask","asset_id":"tokA","market":"0xm",
+                    {"event_type":"not_a_documented_event","asset_id":"tokA","market":"0xm",
                      "best_bid":"0.4","best_ask":"0.6","timestamp":"1"}
                     """);
                 ws.send("""
@@ -268,5 +271,104 @@ class StreamingUserChannelTest {
         streaming.subscribeMarket(List.of("tokA"));
 
         assertTrue(got.await(10, TimeUnit.SECONDS), "the book event after the unknown one must still arrive");
+    }
+
+    @Test
+    @DisplayName("TC-SU-007 concurrent user subscribes cannot send an update ahead of the credential frame")
+    void concurrentUserSubscribesCannotOvertakeTheCredentialFrame() throws Exception {
+        int threads = 8;
+        List<String> frames = startCapturingServer();
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
+
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        for (int i = 0; i < threads; i++) {
+            String market = "0xm" + i;
+            Thread t = new Thread(() -> {
+                try {
+                    start.await();
+                    streaming.subscribeUser(List.of(market));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    done.countDown();
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        }
+        start.countDown();
+        assertTrue(done.await(10, TimeUnit.SECONDS), "every subscribing thread must finish");
+
+        List<JsonNode> sent = awaitFrames(frames, 1);
+        assertTrue(sent.get(0).has("auth"),
+                "the first frame on the wire must be the authenticated initial frame: " + frames);
+        assertEquals(1, sent.stream().filter(f -> f.has("auth")).count(), "credentials travel once: " + frames);
+
+        List<String> onTheWire = new java.util.ArrayList<>();
+        sent.forEach(f -> f.get("markets").forEach(n -> onTheWire.add(n.asText())));
+        assertEquals(streaming.subscribedMarkets().size(), onTheWire.size(),
+                "no market may be requested twice: " + frames);
+    }
+
+    @Test
+    @DisplayName("TC-SU-008 a dynamic user update carries only the documented update fields")
+    void dynamicUpdateCarriesOnlyDocumentedFields() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
+
+        streaming.subscribeUser(List.of("0xm1"));
+        for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
+        streaming.subscribeUser(List.of("0xm2"));
+        List<JsonNode> sent = awaitFrames(frames, 2);
+
+        List<String> documented = StreamProtocol.fieldsOf("userChannel", "dynamicSubscribe");
+        List<String> actual = new java.util.ArrayList<>();
+        sent.get(1).fieldNames().forEachRemaining(actual::add);
+        assertEquals(new java.util.HashSet<>(documented), new java.util.HashSet<>(actual),
+                "the update frame must carry exactly the documented fields: " + frames);
+    }
+
+    /** Waits for the wire to settle, then returns every non-heartbeat frame parsed, in order. */
+    private static List<JsonNode> awaitFrames(List<String> frames, int atLeast) throws Exception {
+        for (int i = 0; i < 100 && frames.size() < atLeast; i++) Thread.sleep(50);
+        Thread.sleep(300);
+        List<JsonNode> parsed = new java.util.ArrayList<>();
+        for (String frame : frames) {
+            if (!"PING".equals(frame)) parsed.add(MAPPER.readTree(frame));
+        }
+        return parsed;
+    }
+
+    @Test
+    @DisplayName("TC-SU-009 the pinned documented trade frame preserves maker and bucket identity")
+    void pinnedTradeFramePreservesMakerAndBucketIdentity() throws Exception {
+        JsonNode pinned = StreamProtocol.at("userChannel", "events", "trade");
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onMessage(WebSocket ws, String text) { ws.send(pinned.toString()); }
+        }));
+        server.start();
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
+        CopyOnWriteArrayList<TradeEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch got = new CountDownLatch(1);
+        streaming.onTrade(List.of(), t -> { events.add(t); got.countDown(); });
+        streaming.subscribeUser(List.of());
+
+        assertTrue(got.await(10, TimeUnit.SECONDS));
+        TradeEvent trade = events.get(0);
+        assertEquals(pinned.get("maker_address").asText(), trade.makerAddress().orElseThrow());
+        assertEquals(pinned.get("bucket_index").asInt(), trade.bucketIndex().orElseThrow());
+        assertEquals(pinned.get("match_time").asText(), trade.matchTime().orElseThrow());
+        assertEquals(pinned.get("trader_side").asText(), trade.traderSide().orElseThrow());
+        JsonNode pinnedMaker = pinned.get("maker_orders").get(0);
+        MakerOrder maker = trade.makerOrders().get(0);
+        assertEquals(pinnedMaker.get("maker_address").asText(), maker.makerAddress().orElseThrow());
+        assertEquals(pinnedMaker.get("outcome_index").asInt(), maker.outcomeIndex().orElseThrow());
+        assertEquals(pinnedMaker.get("owner").asText(), maker.owner().orElseThrow());
     }
 }

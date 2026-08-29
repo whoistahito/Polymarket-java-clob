@@ -1,11 +1,11 @@
 package com.polymarket.rfq;
 
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import lombok.NonNull;
 
 /** An RFQ's status as the Builder Gateway sent it; the raw value survives a status this release doesn't know. */
-public record RfqStatus(String raw) {
+public record RfqStatus(@NonNull String raw) {
 
     public enum Known {
         AWAITING_REQUESTER_ACCEPTANCE, AWAITING_MAKER_CONFIRMATION, EXECUTING, MINED, RETRYING,
@@ -16,10 +16,6 @@ public record RfqStatus(String raw) {
             Known.AWAITING_MAKER_CONFIRMATION, Known.EXECUTING, Known.MINED, Known.RETRYING);
     private static final Set<Known> TERMINAL_WITHOUT_FILL =
             Set.of(Known.FAILED, Known.EXPIRED, Known.CANCELED);
-
-    public RfqStatus {
-        Objects.requireNonNull(raw, "raw");
-    }
 
     public Optional<Known> known() {
         for (Known candidate : Known.values()) {

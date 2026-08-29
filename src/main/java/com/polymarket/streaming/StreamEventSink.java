@@ -14,6 +14,12 @@ public interface StreamEventSink {
 
     void onTickSizeChange(TickSizeChangeEvent event);
 
+    void onBestBidAsk(BestBidAskEvent event);
+
+    void onNewMarket(NewMarketEvent event);
+
+    void onMarketResolved(MarketResolvedEvent event);
+
     void onOrder(OrderEvent event);
 
     void onTrade(TradeEvent event);

@@ -35,11 +35,11 @@ network call; it is thread-safe and `AutoCloseable`.
 | **RTDS** | `com.polymarket.streaming.Rtds` | The separate real-time data host: Binance/Chainlink prices, comment and reaction events. |
 | **Builders** | `com.polymarket.builders.Builders` | Builder API keys and builder-attributed trades. Attribution rides `SigningContext.withBuilder(..)`. |
 | **Social** | `com.polymarket.social.Social` | Read-only Gamma profiles, comments and profile search. |
-| **RFQ** | `com.polymarket.rfq.Rfq` | Builder Gateway **requester** flow for V3 Combo orders: request, wait, accept, poll status. |
+| **RFQ** | `com.polymarket.rfq.Rfq` | Builder Gateway **requester** flow for V3 Combo orders: discover Combo legs, request a Quote, accept it, follow settlement. |
 
-`Builders`, `Social`, `Rfq` and `Rtds` are constructed directly rather than hanging off `Polymarket` —
-each needs a host or credential set the root does not own. `AsyncTrading` and `AsyncRfq` wrap the two
-write-heavy capabilities in `CompletableFuture`s.
+Every capability hangs off `Polymarket`, which owns and closes each one. `sdk.rfq(gatewayHost)` takes
+the Builder Gateway host issued during builder onboarding, because the root cannot know it up front.
+`AsyncTrading` and `AsyncRfq` wrap the two write-heavy capabilities in `CompletableFuture`s.
 
 For exactly which endpoints are and are not covered, see [docs/API_COVERAGE.md](docs/API_COVERAGE.md).
 
@@ -75,34 +75,36 @@ import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.OrderBookSnapshot;
-import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TokenId;
-import com.polymarket.trading.OrderPlacement;
-import com.polymarket.trading.OrderType;
+import com.polymarket.trading.LimitOrder;
+import com.polymarket.trading.OrderExecution;
 import com.polymarket.trading.Side;
 import com.polymarket.trading.SigningContext;
 import com.polymarket.trading.SubmissionOutcome;
 import java.time.Instant;
 
-PrivateKeySigner signer = PrivateKeySigner.of(privateKeyHex);
-SigningIdentity identity = SigningIdentity.proxyWallet(depositWallet, signer.address());
+// The Account Signer holds the key. The Trading Wallet holds the funds and is named as maker.
+// For an EOA they are the same address; for Proxy, Safe and Deposit Wallets they are not.
+PrivateKeySigner accountSigner = PrivateKeySigner.of(privateKeyHex);
+SigningIdentity identity = SigningIdentity.proxyWallet(tradingWallet, accountSigner.address());
 ApiCredentials credentials = new ApiCredentials(apiKey, apiSecret, passphrase);
 SigningAuthority authority =
-        SigningAuthority.signing(signer, identity).withApiCredentials(credentials);
+        SigningAuthority.signing(accountSigner, identity).withApiCredentials(credentials);
 
 try (Polymarket sdk = Polymarket.with(PolymarketConfig.defaults(), authority)) {
     TokenId token = new TokenId(tokenId);
     OrderBookSnapshot book = sdk.orderBooks().book(token).orElseThrow();
 
-    SigningContext context = SigningContext.of(identity, signer, salt, Instant.now());
-    SubmissionOutcome outcome = sdk.trading().place(
-            token, Side.BUY,
-            PusdAmount.of("4.20"),          // pUSD leg
-            ShareQuantity.of("10"),         // share leg
-            book.rules(),                   // live tick, minimum and neg-risk
-            context,
-            OrderPlacement.of(credentials, OrderType.GTC));
+    // The Order Intent carries the order type, Maker-Only promise and lifetime, so submission
+    // cannot contradict what was signed.
+    OrderExecution execution = OrderExecution.of(
+            new LimitOrder(token, Side.BUY, Price.of("0.42"), ShareQuantity.of("10")),
+            book.rules());               // live tick, minimum and neg-risk
+
+    SigningContext context = SigningContext.of(identity, accountSigner, salt, Instant.now());
+    SubmissionOutcome outcome = sdk.trading().place(execution, context, credentials);
 
     switch (outcome) {
         case SubmissionOutcome.Accepted a -> System.out.println("live: " + a.orderId());

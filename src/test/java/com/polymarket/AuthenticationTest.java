@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.ApiKeyDeletion;
@@ -14,7 +15,17 @@ import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
+import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.ShareQuantity;
+import com.polymarket.markets.TickSize;
+import com.polymarket.markets.TokenId;
+import com.polymarket.trading.Side;
+import com.polymarket.trading.SignedOrder;
+import com.polymarket.trading.SigningContext;
+import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -38,6 +49,12 @@ class AuthenticationTest {
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     private static final Clock FIXED =
             Clock.fixed(Instant.ofEpochSecond(1773890758L), ZoneOffset.UTC);
+    /** The Account Signer whose key the caller does NOT hold; only its address is known. */
+    private static final String ACCOUNT_SIGNER = "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063";
+    /** Trading Wallet and token from the pinned protocol vectors, never the Account Signer. */
+    private static final String TRADING_WALLET = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+    private static final String TOKEN_ID =
+            "71321045679252212594626385532706912750332728571942532289631379312455583992563";
 
     private MockWebServer server;
 
@@ -107,10 +124,10 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-003: an EOA funds and signs with the same address")
-        void eoaMakerEqualsSigner() {
+        @DisplayName("TC-AU-003: an EOA Trading Wallet is its own Account Signer")
+        void eoaTradingWalletEqualsAccountSigner() {
             SigningIdentity identity = SigningIdentity.eoa("0x" + "b".repeat(40));
-            assertEquals(identity.maker(), identity.signer());
+            assertEquals(identity.tradingWallet(), identity.accountSigner());
         }
 
         @Test
@@ -144,6 +161,20 @@ class AuthenticationTest {
             assertFalse(rendered.contains(creds().key()), "api key leaked");
             assertFalse(rendered.contains(creds().passphrase()), "passphrase leaked");
             assertTrue(rendered.contains(signer().address()), "the public address may be shown");
+        }
+
+        @Test
+        @DisplayName("TC-AU-021: API Credentials paired with an Account Signer disclose the "
+                + "address but never a secret")
+        void pairedCredentialsStayRedacted() {
+            String rendered =
+                    SigningAuthority.apiCredentials(creds(), ACCOUNT_SIGNER).toString();
+
+            assertFalse(rendered.contains(creds().key()), "api key leaked");
+            assertFalse(rendered.contains(creds().secret()), "api secret leaked");
+            assertFalse(rendered.contains(creds().passphrase()), "passphrase leaked");
+            assertFalse(creds().toString().contains(creds().secret()), "api secret leaked");
+            assertTrue(rendered.contains(ACCOUNT_SIGNER), "the Account Signer address may be shown");
         }
 
         @Test
@@ -192,6 +223,116 @@ class AuthenticationTest {
                 assertTrue(sdk.authentication() != null);
             }
             assertEquals(0, server.getRequestCount());
+        }
+    }
+
+    @Nested
+    @DisplayName("API Credentials paired with an Account Signer")
+    class CredentialsWithoutALocalKey {
+
+        @Test
+        @DisplayName("TC-AU-016: API Credentials paired with an Account Signer address drive L2 "
+                + "without a local key")
+        void apiCredentialsPairWithAnAccountSignerAddress() throws Exception {
+            server.enqueue(new MockResponse().setBody("{\"closed_only\":false}"));
+
+            try (Polymarket sdk = sdk(
+                    SigningAuthority.apiCredentials(creds(), ACCOUNT_SIGNER))) {
+                assertTrue(sdk.authentication().validate().valid());
+            }
+
+            RecordedRequest request = server.takeRequest();
+            assertEquals(ACCOUNT_SIGNER, request.getHeader("POLY_ADDRESS"));
+            assertEquals(creds().key(), request.getHeader("POLY_API_KEY"));
+            assertEquals(creds().passphrase(), request.getHeader("POLY_PASSPHRASE"));
+        }
+
+        @Test
+        @DisplayName("TC-AU-017: L1 operations still fail before sending when only credentials "
+                + "and an Account Signer address are held")
+        void l1StillNeedsTheAccountSignersKey() {
+            try (Polymarket sdk = sdk(
+                    SigningAuthority.apiCredentials(creds(), ACCOUNT_SIGNER))) {
+                assertThrows(AuthenticationRequiredException.class,
+                        () -> sdk.authentication().createApiKey());
+            }
+            assertEquals(0, server.getRequestCount(), "nothing may reach the wire");
+        }
+    }
+
+    @Nested
+    @DisplayName("account and wallet authority stay separate")
+    class SeparateAuthority {
+
+        @Test
+        @DisplayName("TC-AU-018: a Proxy Wallet identity authenticates L2 as the Account Signer "
+                + "and names the Trading Wallet as maker")
+        void l2UsesTheAccountSignerAndOrdersUseTheTradingWallet() throws Exception {
+            SigningAuthority authority = SigningAuthority
+                    .signing(signer(), SigningIdentity.proxyWallet(TRADING_WALLET, signer().address()))
+                    .withApiCredentials(creds());
+            server.enqueue(new MockResponse().setBody("{\"closed_only\":false}"));
+
+            SignedOrder order;
+            try (Polymarket sdk = sdk(authority)) {
+                assertTrue(sdk.authentication().validate().valid());
+                order = sdk.trading().sign(new TokenId(TOKEN_ID), Side.BUY,
+                        PusdAmount.of(new BigDecimal("5.20")),
+                        ShareQuantity.of(new BigDecimal("10")),
+                        new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false),
+                        signingContext(authority));
+            }
+
+            assertEquals(signer().address(), server.takeRequest().getHeader("POLY_ADDRESS"),
+                    "L2 headers carry the Account Signer, never the Trading Wallet");
+            assertEquals(TRADING_WALLET, order.maker(),
+                    "the order names the Trading Wallet as maker");
+            assertEquals(signer().address(), order.signer(),
+                    "the Account Signer still authorizes the order");
+        }
+
+        @Test
+        @DisplayName("TC-AU-019: a Deposit Wallet identity names the Trading Wallet and keeps "
+                + "the controlling Account Signer")
+        void depositWalletNamesTheTradingWallet() throws Exception {
+            SigningAuthority authority = SigningAuthority.signing(
+                    signer(), SigningIdentity.depositWallet(TRADING_WALLET, signer().address()));
+
+            SignedOrder order;
+            try (Polymarket sdk = sdk(authority)) {
+                order = sdk.trading().sign(new TokenId(TOKEN_ID), Side.BUY,
+                        PusdAmount.of(new BigDecimal("5.20")),
+                        ShareQuantity.of(new BigDecimal("10")),
+                        new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false),
+                        signingContext(authority));
+            }
+
+            assertEquals(TRADING_WALLET, order.maker());
+            assertEquals(signer().address(), order.signer());
+            assertEquals(3, order.signatureType());
+            // The pinned v2-deposit-wallet signature only reproduces if the ERC-7739 wrapper
+            // domain is the Trading Wallet, so this proves both wallet fields are the wallet's.
+            assertEquals(depositWalletVectorSignature(), order.signature());
+            assertEquals(0, server.getRequestCount(), "signing reaches no network");
+        }
+
+        private SigningContext signingContext(SigningAuthority authority) {
+            return SigningContext.of(authority.requireSigningIdentity("sign"),
+                    authority.accountSignerKey().orElseThrow(),
+                    479249096354L, Instant.ofEpochMilli(1773890758000L));
+        }
+
+        /** Reads the vector pinned from an independent ethers implementation by issue #3. */
+        private String depositWalletVectorSignature() throws Exception {
+            try (InputStream in = getClass().getResourceAsStream("/protocol/signing-vectors.json")) {
+                for (JsonNode vector : new ObjectMapper().readTree(in).path("vectors")) {
+                    if ("v2-deposit-wallet".equals(vector.path("id").asText())) {
+                        // The exchange verifies the whole ERC-7739 envelope, not its inner 65 bytes.
+                        return vector.path("wrappedSignature").asText();
+                    }
+                }
+            }
+            throw new IllegalStateException("no v2-deposit-wallet vector");
         }
     }
 
@@ -272,6 +413,23 @@ class AuthenticationTest {
             assertEquals(creds().key(), request.getHeader("POLY_API_KEY"));
             assertEquals(creds().passphrase(), request.getHeader("POLY_PASSPHRASE"));
             assertEquals(signer().address(), request.getHeader("POLY_ADDRESS"));
+        }
+
+        @Test
+        @DisplayName("TC-AU-020: a 200 whose credential fields are missing or blank is a typed "
+                + "failure, not half-built API Credentials")
+        void incompleteCredentialResponsesAreRejected() {
+            List<String> incomplete = List.of(
+                    "{\"secret\":\"c2VjcmV0\",\"passphrase\":\"pass-1\"}",
+                    "{\"apiKey\":\"key-1\",\"secret\":null,\"passphrase\":\"pass-1\"}",
+                    "{\"apiKey\":\"key-1\",\"secret\":\"c2VjcmV0\",\"passphrase\":\"   \"}");
+            incomplete.forEach(body -> server.enqueue(new MockResponse().setBody(body)));
+
+            try (Polymarket sdk = sdk(localAuthority())) {
+                for (String ignored : incomplete) {
+                    assertThrows(IOException.class, () -> sdk.authentication().createApiKey());
+                }
+            }
         }
 
         @Test
