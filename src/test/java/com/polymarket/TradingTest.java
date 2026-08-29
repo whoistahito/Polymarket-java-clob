@@ -89,7 +89,7 @@ class TradingTest {
         SigningContext context = context();
         try (Polymarket sdk = sdk()) {
             return sdk.trading().sign(new TokenId("123"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
         }
     }
 
@@ -260,7 +260,7 @@ class TradingTest {
         SignedOrder positionOrder;
         try (Polymarket sdk = sdk()) {
             positionOrder = sdk.trading().sign(new PositionId("123"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
         }
 
         try (Polymarket sdk = sdk()) {
@@ -387,7 +387,7 @@ class TradingTest {
     void unrepresentableAmountSendsNothing() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class, () -> sdk.trading().sign(
-                    new TokenId("123"), Side.BUY, PusdAmount.of("5.2"),
+                    new TokenId("123"), Side.BUY, Price.of("0.52"),
                     ShareQuantity.of("10.0000001"), RULES, context()));
         }
         assertEquals(0, server.getRequestCount());

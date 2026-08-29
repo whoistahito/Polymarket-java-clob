@@ -4,7 +4,7 @@ import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
-import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.ShareQuantity;
 import java.io.IOException;
 import java.time.Clock;
@@ -60,10 +60,11 @@ public final class Trading {
         this.sleeper = sleeper;
     }
 
-    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
-            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+    /** Offline and priced: the Market Rule Snapshot is enforced before anything is signed. */
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull Price price,
+            @NonNull ShareQuantity shares, @NonNull MarketRules rules,
             @NonNull SigningContext context) {
-        return signer.sign(asset, side, pusdLeg, shareLeg, rules, context);
+        return signer.sign(asset, side, price, shares, rules, context);
     }
 
     /** Never replayed: one signed order produces exactly one {@code POST /order}. */

@@ -88,7 +88,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 
 | 1.0 | 2.0 |
 |---|---|
-| `client.createOrder(UserOrder, CreateOrderOptions)` | `sdk.trading().sign(assetId, side, pusdLeg, shareLeg, rules, SigningContext)` |
+| `client.createOrder(UserOrder, CreateOrderOptions)` | `sdk.trading().sign(assetId, side, price, shares, rules, SigningContext)` |
 | `client.createMarketOrder(UserMarketOrder, ..)` | `ImmediatePlanner` over a live book → `ImmediateBuy`/`ImmediateSell`, then `sign` |
 | `client.postOrder(SignedOrder, OrderType)` / `postOrder(Map)` / `postOrder(PostOrderPayload)` | `sdk.trading().submit(signedOrder, OrderPlacement.of(credentials, OrderType.GTC))` |
 | `client.createAndPostOrder(..)` | `sdk.trading().place(orderExecution, context, credentials)` — the Order Intent carries Maker-Only and GTD, so no placement is restated |

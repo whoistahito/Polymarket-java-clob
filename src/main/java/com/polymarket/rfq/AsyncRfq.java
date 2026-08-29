@@ -3,7 +3,6 @@ package com.polymarket.rfq;
 import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
-import com.polymarket.trading.OrderSigner;
 import com.polymarket.trading.SigningContext;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -52,7 +51,7 @@ public final class AsyncRfq {
                 rfqId, accountCredentials, accountSigner, timeout, pollInterval));
     }
 
-    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote, OrderSigner signer,
+    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote, ComboQuoteSigner signer,
             SigningContext context, ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
         return CompletableFuture.supplyAsync(() -> rfq.accept(
                 quote, signer, context, accountCredentials, builderCredentials), executor);

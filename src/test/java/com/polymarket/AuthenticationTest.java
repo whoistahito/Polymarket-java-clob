@@ -17,6 +17,7 @@ import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
@@ -279,7 +280,7 @@ class AuthenticationTest {
             try (Polymarket sdk = sdk(authority)) {
                 assertTrue(sdk.authentication().validate().valid());
                 order = sdk.trading().sign(new TokenId(TOKEN_ID), Side.BUY,
-                        PusdAmount.of(new BigDecimal("5.20")),
+                        Price.of(new BigDecimal("0.52")),
                         ShareQuantity.of(new BigDecimal("10")),
                         new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false),
                         signingContext(authority));
@@ -303,7 +304,7 @@ class AuthenticationTest {
             SignedOrder order;
             try (Polymarket sdk = sdk(authority)) {
                 order = sdk.trading().sign(new TokenId(TOKEN_ID), Side.BUY,
-                        PusdAmount.of(new BigDecimal("5.20")),
+                        Price.of(new BigDecimal("0.52")),
                         ShareQuantity.of(new BigDecimal("10")),
                         new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false),
                         signingContext(authority));

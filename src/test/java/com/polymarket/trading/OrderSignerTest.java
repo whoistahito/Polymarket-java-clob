@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.polymarket.authentication.PrivateKeySigner;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.trading.Eip712OrderSigner;
+import com.polymarket.rfq.ComboQuoteSigner;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.Price;
 import com.polymarket.markets.PositionId;
@@ -15,8 +16,10 @@ import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
 import com.polymarket.markets.TokenId;
-import java.util.List;
+import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +33,9 @@ class OrderSignerTest {
     private static final MarketRules RULES =
             new MarketRules(TickSize.of("0.01"), ShareQuantity.of("1"), false);
 
-    private final OrderSigner signer = new Eip712OrderSigner();
+    private final Eip712OrderSigner eip712 = new Eip712OrderSigner();
+    private final OrderSigner signer = eip712;
+    private final ComboQuoteSigner comboSigner = eip712;
 
     @Test
     @DisplayName("TC-OS-001: identical explicit inputs produce identical signed output")
@@ -39,9 +44,9 @@ class OrderSignerTest {
         SigningContext context = SigningContext.of(identity, LOCAL_SIGNER, 42L, Instant.ofEpochSecond(1_800_000_000));
 
         SignedOrder first = signer.sign(new TokenId("123"), Side.BUY,
-                PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
         SignedOrder second = signer.sign(new TokenId("123"), Side.BUY,
-                PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
 
         assertEquals(first, second);
     }
@@ -56,7 +61,7 @@ class OrderSignerTest {
                 .withBuilder(builderCode);
 
         SignedOrder signed = signer.sign(new TokenId("123"), Side.BUY,
-                PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
 
         assertEquals(builderCode, signed.builder());
     }
@@ -69,9 +74,9 @@ class OrderSignerTest {
         SigningContext context = SigningContext.of(identity, LOCAL_SIGNER, 1L, now);
 
         SignedOrder tokenOrder = signer.sign(new TokenId("123"), Side.BUY,
-                PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
         SignedOrder positionOrder = signer.sign(new PositionId("123"), Side.BUY,
-                PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
 
         assertNotEquals(tokenOrder.signature(), positionOrder.signature());
         assertEquals(tokenOrder.timestamp(), positionOrder.timestamp() * 1000,
@@ -112,9 +117,6 @@ class OrderSignerTest {
                             RULES, context));
             assertTrue(priced.getMessage().contains("0.999999"), priced.getMessage());
 
-            assertThrows(IllegalArgumentException.class,
-                    () -> signer.sign(new TokenId("123"), side, PusdAmount.of("0.52"), tooFew,
-                            RULES, context));
         }
     }
 
@@ -150,12 +152,10 @@ class OrderSignerTest {
     void aZeroLegIsRefused() {
         SigningContext context = SigningContext.of(SigningIdentity.eoa(LOCAL_SIGNER.address()),
                 LOCAL_SIGNER, 1L, Instant.ofEpochSecond(1_800_000_000));
-        MarketRules noMinimum = new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0"), false);
-
-        assertThrows(IllegalArgumentException.class, () -> signer.sign(new TokenId("123"),
-                Side.BUY, PusdAmount.of("0"), ShareQuantity.of("10"), noMinimum, context));
-        assertThrows(IllegalArgumentException.class, () -> signer.sign(new TokenId("123"),
-                Side.BUY, PusdAmount.of("5.2"), ShareQuantity.of("0"), noMinimum, context));
+        assertThrows(IllegalArgumentException.class, () -> comboSigner.sign(new PositionId("77"),
+                Side.BUY, PusdAmount.of("0"), ShareQuantity.of("10"), context));
+        assertThrows(IllegalArgumentException.class, () -> comboSigner.sign(new PositionId("77"),
+                Side.BUY, PusdAmount.of("5.2"), ShareQuantity.of("0"), context));
     }
 
     @Test
@@ -176,19 +176,41 @@ class OrderSignerTest {
         for (SigningIdentity identity : List.of(
                 SigningIdentity.proxyWallet(tradingWallet, LOCAL_SIGNER.address()),
                 SigningIdentity.safeWallet(tradingWallet, LOCAL_SIGNER.address()))) {
-            SignedOrder order = signer.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"),
-                    RULES, SigningContext.of(identity, LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
+            SignedOrder order = comboSigner.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"),
+                    SigningContext.of(identity, LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
 
             assertEquals(tradingWallet, order.maker(), "the Trading Wallet holds the position");
             assertEquals(LOCAL_SIGNER.address(), order.signer(), "the Account Signer authorizes it");
             assertNotEquals(order.maker(), order.signer());
         }
 
-        SignedOrder deposit = signer.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"), RULES,
+        SignedOrder deposit = comboSigner.sign(combo, Side.BUY, PusdAmount.of("5"), ShareQuantity.of("10"),
                 SigningContext.of(SigningIdentity.depositWallet(tradingWallet, LOCAL_SIGNER.address()),
                         LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
         assertEquals(tradingWallet, deposit.maker());
         assertEquals(LOCAL_SIGNER.address(), deposit.signer());
+    }
+
+    @Test
+    @DisplayName("TC-OS-013: the public CLOB signing seam is priced, so no leg pair can imply an off-grid price")
+    void theClobSigningSeamIsPricedOnly() {
+        List<Method> seams = Stream.of(OrderSigner.class.getMethods())
+                .filter(m -> m.getName().equals("sign")).toList();
+
+        assertEquals(1, seams.size(),
+                "an unpriced overload lets a caller imply a price the snapshot never saw");
+        assertTrue(List.of(seams.get(0).getParameterTypes()).contains(Price.class),
+                "the signing seam must take the Protected Price it is meant to enforce");
+    }
+
+    @Test
+    @DisplayName("TC-OS-014: the Combo quote seam signs positions only, never a CLOB token")
+    void theComboSeamCannotSignATokenOrder() {
+        for (Method seam : ComboQuoteSigner.class.getMethods()) {
+            if (!seam.getName().equals("sign")) continue;
+            assertEquals(PositionId.class, seam.getParameterTypes()[0],
+                    "a token order has a tick grid, so it must not reach the unpriced Combo seam");
+        }
     }
 
     @Test

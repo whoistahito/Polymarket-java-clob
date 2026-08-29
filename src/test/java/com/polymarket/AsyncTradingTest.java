@@ -11,6 +11,7 @@ import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
@@ -98,7 +99,7 @@ class AsyncTradingTest {
 
         try (Polymarket sdk = sdk()) {
             AsyncTrading async = AsyncTrading.wrap(sdk.trading(), executor);
-            async.sign(new TokenId("123"), Side.BUY, PusdAmount.of("5.2"), ShareQuantity.of("10"),
+            async.sign(new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
                     RULES, context).get();
         }
 
@@ -113,9 +114,9 @@ class AsyncTradingTest {
 
         try (Polymarket sdk = sdk()) {
             SignedOrder sync = sdk.trading().sign(new TokenId("123"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
             SignedOrder async = AsyncTrading.wrap(sdk.trading())
-                    .sign(new TokenId("123"), Side.BUY, PusdAmount.of("5.2"), ShareQuantity.of("10"),
+                    .sign(new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
                             RULES, context)
                     .get();
             assertEquals(sync, async);
@@ -133,7 +134,7 @@ class AsyncTradingTest {
             SigningContext context = SigningContext.of(
                     SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
             SignedOrder order = sdk.trading().sign(new TokenId("123"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
             outcome = AsyncTrading.wrap(sdk.trading())
                     .submit(order, OrderPlacement.of(CREDENTIALS, OrderType.GTC))
                     .get();

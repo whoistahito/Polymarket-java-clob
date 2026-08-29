@@ -9,6 +9,7 @@ import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PositionId;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
@@ -18,6 +19,7 @@ import com.polymarket.trading.SignedOrder;
 import com.polymarket.trading.SigningContext;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -98,8 +100,13 @@ class Eip712OrderSignerVectorTest {
                 .withMetadata(order.get("metadata").asText())
                 .withBuilder(order.get("builder").asText());
 
-        SignedOrder signed = SIGNER.sign(asset, side == 0 ? Side.BUY : Side.SELL,
-                pusdLeg, shareLeg, rules, context);
+        // A V2 token order carries a tick grid, so it is signed through the priced CLOB seam; a V3
+        // Combo quote is priced by its maker, so its exact base-unit legs are signed verbatim.
+        SignedOrder signed = asset instanceof PositionId position
+                ? SIGNER.sign(position, side == 0 ? Side.BUY : Side.SELL, pusdLeg, shareLeg, context)
+                : SIGNER.sign(asset, side == 0 ? Side.BUY : Side.SELL,
+                        Price.of(pusdLeg.value().divide(shareLeg.value(), MathContext.DECIMAL64)),
+                        shareLeg, rules, context);
 
         // A Deposit Wallet is a contract: the exchange's ERC-1271 check verifies the whole
         // ERC-7739 envelope, of which the inner ECDSA signature is only the first 65 bytes.

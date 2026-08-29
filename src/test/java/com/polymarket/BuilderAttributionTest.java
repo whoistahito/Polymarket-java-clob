@@ -89,7 +89,7 @@ class BuilderAttributionTest {
         SignedOrder order;
         try (Polymarket sdk = sdk()) {
             order = sdk.trading().sign(new TokenId("123"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
         }
 
         assertEquals(BUILDER_CODE, order.builder());

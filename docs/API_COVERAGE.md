@@ -65,7 +65,7 @@ reachable through the public API: there is no raw-HTTP escape hatch to work arou
 
 | Operation | Endpoint | Docs | Status |
 |---|---|---|---|
-| `sign(...)` | none — local EIP-712, Exchange V2 for `TokenId`, V3 for `PositionId` | https://docs.polymarket.com/trading/place-orders | Supported (offline) |
+| `sign(asset, side, price, shares, rules, context)` | none — local EIP-712, Exchange V2 for `TokenId`, V3 for `PositionId` | https://docs.polymarket.com/trading/place-orders | Supported (offline) |
 | `submit(...)` / `place(...)` | `POST clob /order` (L2, executed exactly once, never replayed) | https://docs.polymarket.com/api-reference/trade/post-a-new-order | Supported |
 | `submitBatch(...)` | `POST clob /orders` (official limit: 15) | https://docs.polymarket.com/api-reference/trade/post-multiple-orders | Supported |
 | `cancel(...)` | `DELETE clob /orders` (official limit: 1000 ids) | https://docs.polymarket.com/api-reference/trade/cancel-multiple-orders | Supported |

@@ -56,7 +56,7 @@ public record OrderExecution(
     }
 
     public SignedOrder sign(@NonNull OrderSigner signer, @NonNull SigningContext context) {
-        return signer.sign(asset, side, pusdLeg, shares, rules, context);
+        return signer.sign(asset, side, price, shares, rules, context);
     }
 
     public OrderPlacement placement(@NonNull ApiCredentials credentials) {

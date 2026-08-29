@@ -3,10 +3,8 @@ package com.polymarket.rfq;
 import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.builders.BuilderCredentials;
-import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
-import com.polymarket.markets.TickSize;
 import com.polymarket.trading.OrderSigner;
 import com.polymarket.trading.Side;
 import com.polymarket.trading.SignedOrder;
@@ -93,14 +91,11 @@ public final class Rfq {
     }
 
     /** V3 has no neg-risk variant, so the rules passed to {@code signer} only ever supply a grid. */
-    private static final MarketRules V3_RULES =
-            new MarketRules(TickSize.of("0.01"), ShareQuantity.of("0.01"), false);
-
     /**
      * Signs the Quote's Combo position through the V3 path and accepts it. Direction, amounts,
      * Combo position and deadline all come from the Quote, so no caller can contradict it.
      */
-    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull OrderSigner signer,
+    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull ComboQuoteSigner signer,
             @NonNull SigningContext context, @NonNull ApiCredentials accountCredentials,
             @NonNull BuilderCredentials builderCredentials) {
         if (!clock.instant().isBefore(quote.expiresAt())) {
@@ -121,7 +116,7 @@ public final class Rfq {
         }
         // Official: "order.builder must equal the returned builder_code."
         SignedOrder signedOrder = signer.sign(quote.comboPositionId(), direction, pusdLeg, shareLeg,
-                V3_RULES, context.withBuilder(quote.builderCode()));
+                context.withBuilder(quote.builderCode()));
         return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder, context.identity(),
                 accountCredentials, builderCredentials);
     }

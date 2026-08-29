@@ -11,6 +11,7 @@ import com.polymarket.authentication.SigningAuthority;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.markets.MarketRules;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TickSize;
@@ -94,7 +95,7 @@ class OrderBatchTest {
             SigningContext context = SigningContext.of(
                     SigningIdentity.eoa(SIGNER.address()), SIGNER, salt, FIXED.instant());
             SignedOrder order = sdk.trading().sign(new TokenId(tokenId), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, context);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, context);
             return new BatchItem(order, OrderPlacement.of(CREDENTIALS, OrderType.GTC));
         }
     }
@@ -263,7 +264,7 @@ class OrderBatchTest {
         BatchItem second;
         try (Polymarket sdk = sdk()) {
             SignedOrder order = sdk.trading().sign(new TokenId("456"), Side.BUY,
-                    PusdAmount.of("5.2"), ShareQuantity.of("10"), RULES, otherContext);
+                    Price.of("0.52"), ShareQuantity.of("10"), RULES, otherContext);
             second = new BatchItem(order, OrderPlacement.of(CREDENTIALS, OrderType.GTC));
         }
 

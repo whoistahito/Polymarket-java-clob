@@ -4,7 +4,7 @@ import com.polymarket.authentication.ApiCredentials;
 import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
-import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.ShareQuantity;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -37,10 +37,10 @@ public final class AsyncTrading {
         return new AsyncTrading(trading, executor);
     }
 
-    public CompletableFuture<SignedOrder> sign(AssetId asset, Side side, PusdAmount pusdLeg,
-            ShareQuantity shareLeg, MarketRules rules, SigningContext context) {
+    public CompletableFuture<SignedOrder> sign(AssetId asset, Side side, Price price,
+            ShareQuantity shares, MarketRules rules, SigningContext context) {
         return CompletableFuture.supplyAsync(
-                () -> trading.sign(asset, side, pusdLeg, shareLeg, rules, context), executor);
+                () -> trading.sign(asset, side, price, shares, rules, context), executor);
     }
 
     public CompletableFuture<SubmissionOutcome> submit(SignedOrder order, OrderPlacement placement) {

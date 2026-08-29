@@ -4,9 +4,11 @@ import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.AssetId;
 import com.polymarket.markets.MarketRules;
 import com.polymarket.markets.PositionId;
+import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TokenId;
+import com.polymarket.rfq.ComboQuoteSigner;
 import com.polymarket.trading.OrderSigner;
 import com.polymarket.trading.Side;
 import com.polymarket.trading.SignedOrder;
@@ -21,7 +23,7 @@ import org.web3j.utils.Numeric;
  * Ground truth: docs.polymarket.com/trading/place-orders (V2) and /trading/combos/market-makers
  * (V3), pinned byte-for-byte in {@code src/test/resources/protocol/signing-vectors.json}.
  */
-public final class Eip712OrderSigner implements OrderSigner {
+public final class Eip712OrderSigner implements OrderSigner, ComboQuoteSigner {
 
     private static final int CHAIN_ID = 137;
     private static final String EXCHANGE_NAME = "Polymarket CTF Exchange";
@@ -58,22 +60,37 @@ public final class Eip712OrderSigner implements OrderSigner {
     private static final byte[] DEPOSIT_WALLET_VERSION_HASH =
             Hash.sha3(DEPOSIT_WALLET_VERSION.getBytes(StandardCharsets.UTF_8));
 
+    /** CLOB orders: the snapshot is enforced, then the pUSD leg is derived from the priced grid. */
     @Override
-    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull PusdAmount pusdLeg,
-            @NonNull ShareQuantity shareLeg, @NonNull MarketRules rules,
+    public SignedOrder sign(@NonNull AssetId asset, @NonNull Side side, @NonNull Price price,
+            @NonNull ShareQuantity shares, @NonNull MarketRules rules,
             @NonNull SigningContext context) {
+        rules.requireExecutable(price, shares);
+        return sign(asset, side, rules.notional(price, shares), shares,
+                rules.negativeRisk(), context);
+    }
+
+    /** Combo quotes: the Gateway's own base-unit legs, signed verbatim against Exchange V3. */
+    @Override
+    public SignedOrder sign(@NonNull PositionId position, @NonNull Side side,
+            @NonNull PusdAmount pusdLeg, @NonNull ShareQuantity shareLeg,
+            @NonNull SigningContext context) {
+        return sign(position, side, pusdLeg, shareLeg, false, context);
+    }
+
+    private SignedOrder sign(AssetId asset, Side side, PusdAmount pusdLeg, ShareQuantity shareLeg,
+            boolean negativeRisk, SigningContext context) {
         if (pusdLeg.isZero() || shareLeg.isZero()) {
             throw new IllegalArgumentException("an order leg worth nothing cannot be signed: "
                     + pusdLeg + " pUSD for " + shareLeg + " shares");
         }
-        rules.requireAtLeastMinimum(shareLeg);
 
         String version = switch (asset) {
             case TokenId ignored -> "2";
             case PositionId ignored -> "3";
         };
         String verifyingContract = switch (asset) {
-            case TokenId ignored -> rules.negativeRisk() ? NEG_RISK_EXCHANGE_V2 : EXCHANGE_V2;
+            case TokenId ignored -> negativeRisk ? NEG_RISK_EXCHANGE_V2 : EXCHANGE_V2;
             case PositionId ignored -> EXCHANGE_V3;
         };
         long timestamp = asset instanceof TokenId
