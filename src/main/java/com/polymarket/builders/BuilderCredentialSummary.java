@@ -5,8 +5,8 @@ import java.util.Optional;
 import lombok.NonNull;
 
 /** One entry from a builder API-key listing: an identifier and its lifecycle, never a secret. */
-public record BuilderCredentialSummary(
-        @NonNull String key, @NonNull Optional<Instant> createdAt, Optional<Instant> revokedAt) {
+public record BuilderCredentialSummary(@NonNull String key, @NonNull Optional<Instant> createdAt,
+        @NonNull Optional<Instant> revokedAt) {
 
 
     public boolean revoked() {

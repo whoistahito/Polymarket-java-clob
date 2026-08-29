@@ -14,7 +14,7 @@ public interface SocialDirectory {
 
     List<Comment> comments(CommentQuery query) throws IOException;
 
-    List<Comment> commentsById(String id, Optional<Boolean> includePositions) throws IOException;
+    List<Comment> commentsById(String id, CommentPage page, Optional<Boolean> includePositions) throws IOException;
 
     List<Comment> commentsByUserAddress(String address, CommentPage page) throws IOException;
 

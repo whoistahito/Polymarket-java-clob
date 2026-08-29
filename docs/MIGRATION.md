@@ -60,7 +60,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `gamma.sports()` | `sdk.markets().sports()` |
 | `gamma.search(SearchRequest)` | `sdk.markets().search(query)` for events/tags; `Social.search(SearchQuery)` for profiles |
 | `gamma.publicProfile(..)` | `Social.profile(address)` |
-| `gamma.comments(..)` / `commentsById(..)` / `commentsByUserAddress(..)` | `Social.comments(CommentQuery)` / `commentsById(id)` / `commentsByUserAddress(address, page)` |
+| `gamma.comments(..)` / `commentsById(..)` / `commentsByUserAddress(..)` | `Social.comments(CommentQuery)` / `commentsById(id, page)` / `commentsByUserAddress(address, page)` |
 | `gamma.status()` | `sdk.health()` → `List<ServiceHealth>` |
 | `gamma.eventById/eventTags/eventsKeyset/marketBySlug/marketTags/marketsKeyset/seriesById` | Removed |
 | `gamma.tagById/tagBySlug/relatedTagsById/relatedTagsBySlug/tagsRelatedToTagById/tagsRelatedToTagBySlug` | Removed |

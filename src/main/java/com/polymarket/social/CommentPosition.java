@@ -5,6 +5,7 @@ import java.util.Optional;
 import lombok.NonNull;
 
 /** A commenter's holding in the token their comment is attached to, when {@code get_positions} was asked for. */
-public record CommentPosition(@NonNull Optional<String> tokenId, Optional<BigDecimal> positionSize) {
+public record CommentPosition(@NonNull Optional<String> tokenId,
+        @NonNull Optional<BigDecimal> positionSize) {
 
 }

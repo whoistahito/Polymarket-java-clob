@@ -135,7 +135,7 @@ Reached through the root: `sdk.social()`.
 |---|---|---|---|
 | `profile(address)` | `GET gamma /public-profile?address=` | https://docs.polymarket.com/api-reference/profiles/get-public-profile-by-wallet-address | Supported |
 | `comments(CommentQuery)` | `GET gamma /comments` | https://docs.polymarket.com/api-reference/comments/list-comments | Supported |
-| `commentsById(id[, includePositions])` | `GET gamma /comments/{id}` | https://docs.polymarket.com/api-reference/comments/get-comments-by-comment-id | Supported |
+| `commentsById(id, page[, includePositions])` | `GET gamma /comments/{id}` | https://docs.polymarket.com/api-reference/comments/get-comments-by-comment-id | Supported |
 | `commentsByUserAddress(address, page)` | `GET gamma /comments/user_address/{address}` | https://docs.polymarket.com/api-reference/comments/get-comments-by-user-address | Supported |
 | `search(SearchQuery)` | `GET gamma /public-search` — profile matches only | https://docs.polymarket.com/api-reference/search/search-markets-events-and-profiles | Supported |
 | Posting, editing or reacting to comments | — | https://docs.polymarket.com/api-reference/comments/list-comments | Not supported — the capability is read-only by design |

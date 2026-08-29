@@ -9,11 +9,9 @@ import lombok.NonNull;
  * Descriptive discovery figures. {@code minimumOrderNotional} is Gamma's {@code orderMinSize},
  * labelled USDC notional — never the CLOB minimum-share rule that signing must use.
  */
-public record MarketMetadata(
-        @NonNull Optional<BigDecimal> liquidity,
-        Optional<BigDecimal> volume,
-        Optional<BigDecimal> minimumOrderNotional,
-        List<MarketTag> tags) {
+public record MarketMetadata(@NonNull Optional<BigDecimal> liquidity,
+        @NonNull Optional<BigDecimal> volume, @NonNull Optional<BigDecimal> minimumOrderNotional,
+        @NonNull List<MarketTag> tags) {
 
     public MarketMetadata {
         tags = List.copyOf(tags);

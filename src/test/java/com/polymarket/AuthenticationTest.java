@@ -105,7 +105,8 @@ class AuthenticationTest {
             assertThrows(IllegalArgumentException.class, () -> SigningIdentity.eoa("nope"));
             assertThrows(IllegalArgumentException.class,
                     () -> SigningIdentity.depositWallet("0x1234", "0x" + "a".repeat(40)));
-            assertThrows(IllegalArgumentException.class,
+            // An absent address is rejected by the component's own null check, before any parsing.
+            assertThrows(NullPointerException.class,
                     () -> SigningIdentity.safeWallet("0x" + "a".repeat(40), null));
         }
 

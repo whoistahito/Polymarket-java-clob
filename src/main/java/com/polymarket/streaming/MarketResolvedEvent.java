@@ -2,21 +2,16 @@ package com.polymarket.streaming;
 
 import java.util.List;
 import java.util.Optional;
+import lombok.NonNull;
 
 /** Market resolution ({@code event_type: "market_resolved"}); needs {@code custom_feature_enabled}. */
-public record MarketResolvedEvent(
-        String id,
-        String market,
-        List<String> assetIds,
-        String winningAssetId,
-        String winningOutcome,
-        Optional<ParentEventInfo> parentEvent,
-        String timestamp,
-        List<String> tags) {
+public record MarketResolvedEvent(@NonNull String id, @NonNull String market,
+        @NonNull List<String> assetIds, @NonNull String winningAssetId,
+        @NonNull String winningOutcome, @NonNull Optional<ParentEventInfo> parentEvent,
+        @NonNull String timestamp, @NonNull List<String> tags) {
 
     public MarketResolvedEvent {
-        assetIds = assetIds == null ? List.of() : List.copyOf(assetIds);
-        parentEvent = parentEvent == null ? Optional.empty() : parentEvent;
-        tags = tags == null ? List.of() : List.copyOf(tags);
+        assetIds = List.copyOf(assetIds);
+        tags = List.copyOf(tags);
     }
 }

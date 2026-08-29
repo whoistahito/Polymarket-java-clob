@@ -24,13 +24,17 @@ public final class Social {
         return directory.comments(query);
     }
 
-    /** One comment (and its replies, if Gamma nests them) looked up by its own comment id. */
-    public List<Comment> commentsById(String id) throws IOException {
-        return directory.commentsById(requireNotBlank(id, "id"), Optional.empty());
+    /**
+     * One comment and the replies Gamma nests under it. A thread has no documented ceiling, so the
+     * page bound is required here as it is on every other comment read.
+     */
+    public List<Comment> commentsById(String id, @NonNull CommentPage page) throws IOException {
+        return directory.commentsById(requireNotBlank(id, "id"), page, Optional.empty());
     }
 
-    public List<Comment> commentsById(String id, boolean includePositions) throws IOException {
-        return directory.commentsById(requireNotBlank(id, "id"), Optional.of(includePositions));
+    public List<Comment> commentsById(String id, @NonNull CommentPage page,
+            boolean includePositions) throws IOException {
+        return directory.commentsById(requireNotBlank(id, "id"), page, Optional.of(includePositions));
     }
 
     public List<Comment> commentsByUserAddress(String address, @NonNull CommentPage page)

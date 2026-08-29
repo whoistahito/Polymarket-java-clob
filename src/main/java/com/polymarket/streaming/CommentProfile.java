@@ -1,6 +1,8 @@
 package com.polymarket.streaming;
 
+import lombok.NonNull;
+
 /** Author profile embedded in a {@link CommentCreatedEvent}. */
-public record CommentProfile(
-        String baseAddress, boolean displayUsernamePublic, String name, String proxyWallet, String pseudonym) {
+public record CommentProfile(@NonNull String baseAddress, boolean displayUsernamePublic,
+        @NonNull String name, @NonNull String proxyWallet, @NonNull String pseudonym) {
 }

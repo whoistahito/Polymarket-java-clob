@@ -172,14 +172,14 @@ class SocialTest {
                 [{"id":"c1","body":"hi","parentEntityType":"Event","parentEntityID":"18396",
                   "parentCommentID":"42","userAddress":"0xUser"}]""");
 
-        List<Comment> comments = social().commentsById("c1", true);
+        List<Comment> comments = social().commentsById("c1", CommentPage.limit(50), true);
 
         Comment comment = comments.get(0);
         assertEquals("18396", comment.parentEntityId().orElseThrow());
         assertEquals("42", comment.parentCommentId().orElseThrow());
         assertEquals("0xUser", comment.userAddress().orElseThrow());
 
-        assertEquals("/comments/c1?get_positions=true", server.takeRequest().getPath());
+        assertEquals("/comments/c1?limit=50&get_positions=true", server.takeRequest().getPath());
     }
 
     @Test
@@ -187,9 +187,9 @@ class SocialTest {
     void commentsByIdWithoutPositionsSendsNoFlag() throws Exception {
         enqueue("[{\"id\":\"c1\",\"userAddress\":\"0xUser\"}]");
 
-        social().commentsById("c1");
+        social().commentsById("c1", CommentPage.limit(50));
 
-        assertEquals("/comments/c1", server.takeRequest().getPath());
+        assertEquals("/comments/c1?limit=50", server.takeRequest().getPath());
     }
 
     @Test
@@ -265,7 +265,7 @@ class SocialTest {
         assertEquals(Optional.empty(), profile.createdAt());
         assertEquals(List.of(), profile.users());
 
-        Comment comment = social.commentsById("c-1").get(0);
+        Comment comment = social.commentsById("c-1", CommentPage.limit(50)).get(0);
         assertEquals("c-1", comment.id());
         assertEquals(Optional.empty(), comment.body());
         assertEquals(Optional.empty(), comment.parentEntityType());
@@ -278,7 +278,7 @@ class SocialTest {
     void unknownFieldsAreToleratedWithoutRawMaps() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"body\":\"hi\",\"aFieldPolymarketAddedYesterday\":{\"nested\":[1,2]}}]");
 
-        Comment comment = social().commentsById("c-1").get(0);
+        Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
         assertEquals("hi", comment.body().orElseThrow());
 
         Set<Class<?>> visited = new LinkedHashSet<>();
@@ -292,7 +292,7 @@ class SocialTest {
     void unrecognisedParentEntityTypeStaysAbsentRatherThanFailing() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"parentEntityType\":\"SomeFutureKind\"}]");
 
-        Comment comment = social().commentsById("c-1").get(0);
+        Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
 
         assertEquals(Optional.empty(), comment.parentEntityType());
     }
@@ -302,7 +302,7 @@ class SocialTest {
     void blankIdentifiersAreRejected() throws Exception {
         Social social = social();
         assertThrows(IllegalArgumentException.class, () -> social.profile(" "));
-        assertThrows(IllegalArgumentException.class, () -> social.commentsById(" "));
+        assertThrows(IllegalArgumentException.class, () -> social.commentsById(" ", CommentPage.limit(50)));
         assertThrows(IllegalArgumentException.class,
                 () -> social.commentsByUserAddress(" ", CommentPage.limit(10)));
         assertEquals(0, server.getRequestCount());
@@ -318,7 +318,7 @@ class SocialTest {
                   "userAddress":"0xce533188d53a16ed580fd5121dedf166d3482677",
                   "createdAt":"2025-07-25T14:50:04.120000Z"}]}]""");
 
-        Reaction reaction = social().commentsById("c-1").get(0).reactions().get(0);
+        Reaction reaction = social().commentsById("c-1", CommentPage.limit(50)).get(0).reactions().get(0);
 
         assertEquals("8675309", reaction.id());
         assertEquals("1763355", reaction.commentId().orElseThrow());
@@ -342,7 +342,7 @@ class SocialTest {
                      "proxyWallet":"0x4ca749dcfa93c87e5ee23e2d21ff4422c7a4c1ee"}},
                   {"id":"r-2","commentID":1763355,"reactionType":"HEART"}]}]""");
 
-        List<Reaction> reactions = social().commentsById("c-1").get(0).reactions();
+        List<Reaction> reactions = social().commentsById("c-1", CommentPage.limit(50)).get(0).reactions();
 
         var author = reactions.get(0).author().orElseThrow();
         assertEquals("salted.caramel", author.name().orElseThrow());
@@ -362,13 +362,13 @@ class SocialTest {
         Social social = social();
 
         enqueue("[{\"body\":\"a comment nobody can name\"}]");
-        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+        assertThrows(IOException.class, () -> social.commentsById("c-1", CommentPage.limit(50)));
 
         enqueue("[{\"id\":\" \",\"body\":\"a blank id is no id\"}]");
-        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+        assertThrows(IOException.class, () -> social.commentsById("c-1", CommentPage.limit(50)));
 
         enqueue("[{\"id\":\"c-1\",\"reactions\":[{\"reactionType\":\"HEART\"}]}]");
-        assertThrows(IOException.class, () -> social.commentsById("c-1"));
+        assertThrows(IOException.class, () -> social.commentsById("c-1", CommentPage.limit(50)));
 
         enqueue("{\"proxyWallet\":\"0xProxy\",\"users\":[{\"creator\":true}]}");
         assertThrows(IOException.class, () -> social.profile("0xProxy"));
@@ -382,7 +382,7 @@ class SocialTest {
     void anIdentifiedCommentKeepsOptionalFieldsAbsent() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"body\":\"\",\"userAddress\":null,\"reactions\":[]}]");
 
-        Comment comment = social().commentsById("c-1").get(0);
+        Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
 
         assertEquals("c-1", comment.id());
         assertEquals(Optional.empty(), comment.body());
@@ -398,7 +398,7 @@ class SocialTest {
                 [{"id":"c-1","body":"hi","parentEntityType":"SomeFutureKind",
                   "parentEntityID":18396}]""");
 
-        Comment comment = social().commentsById("c-1").get(0);
+        Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
 
         assertEquals(Optional.empty(), comment.parentEntityType());
         assertEquals("SomeFutureKind", comment.parentEntityTypeText().orElseThrow());
@@ -413,8 +413,7 @@ class SocialTest {
             if (!List.class.isAssignableFrom(method.getReturnType())) continue;
             List<Class<?>> parameters = List.of(method.getParameterTypes());
             assertTrue(
-                    parameters.contains(CommentQuery.class) || parameters.contains(CommentPage.class)
-                            || method.getName().equals("commentsById"),
+                    parameters.contains(CommentQuery.class) || parameters.contains(CommentPage.class),
                     "Social." + method.getName() + " reads comments without a caller-supplied bound");
         }
 
@@ -424,11 +423,12 @@ class SocialTest {
         Social social = social();
         social.comments(CommentQuery.limit(20));
         social.commentsByUserAddress("0x5668", CommentPage.limit(10));
-        social.commentsById("c-1");
+        social.commentsById("c-1", CommentPage.limit(5));
 
         assertTrue(server.takeRequest().getPath().contains("limit=20"));
         assertTrue(server.takeRequest().getPath().contains("limit=10"));
-        assertEquals("/comments/c-1", server.takeRequest().getPath());
+        assertEquals("/comments/c-1?limit=5", server.takeRequest().getPath(),
+                "a thread can grow without bound, so its read carries a limit too");
     }
 
     /** Walks every type reachable from the model and rejects escape hatches. */

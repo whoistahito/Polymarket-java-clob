@@ -10,15 +10,10 @@ import lombok.NonNull;
  * One live book read: levels, rules, negative-risk state, hash and time. Sufficient on its
  * own for signing and immediate-order planning, so no second lookup is needed.
  */
-public record OrderBookSnapshot(
-        @NonNull String conditionId,
-        @NonNull AssetId asset,
-        @NonNull Instant observedAt,
-        String hash,
-        @NonNull List<PriceLevel> bids,
-        List<PriceLevel> asks,
-        @NonNull MarketRules rules,
-        Optional<Price> lastTradePrice) {
+public record OrderBookSnapshot(@NonNull String conditionId, @NonNull AssetId asset,
+        @NonNull Instant observedAt, @NonNull String hash, @NonNull List<PriceLevel> bids,
+        @NonNull List<PriceLevel> asks, @NonNull MarketRules rules,
+        @NonNull Optional<Price> lastTradePrice) {
 
     public OrderBookSnapshot {
         // A market that has never traded reports "" on the wire: absent, not zero.

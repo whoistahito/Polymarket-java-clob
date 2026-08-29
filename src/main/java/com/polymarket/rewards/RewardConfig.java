@@ -6,14 +6,9 @@ import java.util.Optional;
 import lombok.NonNull;
 
 /** One reward programme on a market: an asset paid out at a daily rate over a period. */
-public record RewardConfig(
-        @NonNull Optional<Long> id,
-        @NonNull String assetAddress,
-        @NonNull LocalDate startDate,
-        Optional<LocalDate> endDate,
-        @NonNull BigDecimal ratePerDay,
-        Optional<BigDecimal> totalRewards,
-        Optional<BigDecimal> remainingRewards,
-        Optional<Integer> totalDays) {
+public record RewardConfig(@NonNull Optional<Long> id, @NonNull String assetAddress,
+        @NonNull LocalDate startDate, @NonNull Optional<LocalDate> endDate,
+        @NonNull BigDecimal ratePerDay, @NonNull Optional<BigDecimal> totalRewards,
+        @NonNull Optional<BigDecimal> remainingRewards, @NonNull Optional<Integer> totalDays) {
 
 }

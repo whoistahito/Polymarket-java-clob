@@ -1,5 +1,7 @@
 package com.polymarket.authentication;
 
+import lombok.NonNull;
+
 /**
  * Which Trading Wallet an order names and which Account Signer authorizes it. Valid by
  * construction: an identity cannot exist without both addresses and its official signature type.
@@ -42,7 +44,7 @@ public sealed interface SigningIdentity {
     }
 
     /** The Trading Wallet is the Account Signer itself, so both order address fields match. */
-    record Eoa(String accountSigner) implements SigningIdentity {
+    record Eoa(@NonNull String accountSigner) implements SigningIdentity {
         public Eoa {
             accountSigner = Addresses.require(accountSigner, "accountSigner");
         }
@@ -58,7 +60,7 @@ public sealed interface SigningIdentity {
         }
     }
 
-    record ProxyWallet(String tradingWallet, String accountSigner) implements SigningIdentity {
+    record ProxyWallet(@NonNull String tradingWallet, @NonNull String accountSigner) implements SigningIdentity {
         public ProxyWallet {
             tradingWallet = Addresses.require(tradingWallet, "tradingWallet");
             accountSigner = Addresses.require(accountSigner, "accountSigner");
@@ -70,7 +72,7 @@ public sealed interface SigningIdentity {
         }
     }
 
-    record SafeWallet(String tradingWallet, String accountSigner) implements SigningIdentity {
+    record SafeWallet(@NonNull String tradingWallet, @NonNull String accountSigner) implements SigningIdentity {
         public SafeWallet {
             tradingWallet = Addresses.require(tradingWallet, "tradingWallet");
             accountSigner = Addresses.require(accountSigner, "accountSigner");
@@ -86,7 +88,7 @@ public sealed interface SigningIdentity {
      * The Trading Wallet is a smart contract, so it names the order's maker AND the ERC-7739
      * wrapper domain the Account Signer's key signs under.
      */
-    record DepositWallet(String tradingWallet, String accountSigner) implements SigningIdentity {
+    record DepositWallet(@NonNull String tradingWallet, @NonNull String accountSigner) implements SigningIdentity {
         // Official sources conflict: combos/market-makers' identity table puts the wallet in
         // signer_address too, while the pinned v2-deposit-wallet vector keeps the Account Signer.
         public DepositWallet {

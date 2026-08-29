@@ -61,9 +61,13 @@ public final class SocialGateway implements SocialDirectory {
     }
 
     @Override
-    public List<Comment> commentsById(String id, Optional<Boolean> includePositions)
-            throws IOException {
+    public List<Comment> commentsById(String id, CommentPage page,
+            Optional<Boolean> includePositions) throws IOException {
         QueryString params = new QueryString();
+        params.add("limit", String.valueOf(page.limit()));
+        page.offset().ifPresent(v -> params.add("offset", v.toString()));
+        page.order().ifPresent(v -> params.add("order", v));
+        page.ascending().ifPresent(v -> params.add("ascending", v.toString()));
         includePositions.ifPresent(v -> params.add("get_positions", v.toString()));
         return read("/comments/" + encode(id) + params);
     }

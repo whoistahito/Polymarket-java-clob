@@ -1,12 +1,14 @@
 package com.polymarket;
 
 import java.time.Duration;
+import lombok.NonNull;
 
 /**
  * Bounded retry budget for idempotent reads only. Writes are never replayed, so no
  * policy value can enable order resubmission.
  */
-public record ReadRetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff) {
+public record ReadRetryPolicy(int maxAttempts, @NonNull Duration initialBackoff,
+        @NonNull Duration maxBackoff) {
 
     public ReadRetryPolicy {
         if (maxAttempts < 1) {

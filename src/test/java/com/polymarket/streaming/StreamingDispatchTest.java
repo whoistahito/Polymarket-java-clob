@@ -177,7 +177,7 @@ class StreamingDispatchTest {
     void userCallbacksFilteredByMarket() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"order","id":"0x1","market":"0xm1","asset_id":"tokA","side":"BUY",
-             "size_matched":"1","type":"UPDATE"}
+             "price":"0.52","size_matched":"1","type":"UPDATE"}
             """);
         server.enqueue(new MockResponse()); // unused; only one connection is made in this test
 
@@ -196,6 +196,34 @@ class StreamingDispatchTest {
         assertTrue(got.await(10, TimeUnit.SECONDS));
         assertEquals(1, forMarket1.size());
         assertTrue(forMarket2.isEmpty());
+    }
+
+    @Test
+    @DisplayName("TC-SD-009 a frame missing a documented required field is dropped, not half-mapped")
+    void malformedFramesNeverBecomeNullBearingEvents() throws Exception {
+        // The documented order event always carries a price; without one there is no order to report.
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"event_type":"order","id":"0x1","market":"0xm1","asset_id":"tokA","side":"BUY",
+             "size_matched":"1","type":"UPDATE"}
+            """, """
+            {"event_type":"order","id":"0x2","market":"0xm1","asset_id":"tokA","side":"BUY",
+             "price":"0.52","size_matched":"1","type":"UPDATE"}
+            """);
+        server.enqueue(new MockResponse());
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).build();
+        streaming = new Streaming(gateway,
+                SigningAuthority.apiCredentials(new ApiCredentials("key", "secret", "pass"), "0x" + "a".repeat(40)));
+        List<OrderEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch got = new CountDownLatch(1);
+
+        streaming.onOrder(List.of("0xm1"), o -> { seen.add(o); got.countDown(); });
+        streaming.subscribeUser(List.of("0xm1"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(got.await(10, TimeUnit.SECONDS));
+        assertEquals(List.of("0x2"), seen.stream().map(OrderEvent::id).toList(),
+                "the incomplete frame must be dropped rather than delivered with a null price");
     }
 
     @Test

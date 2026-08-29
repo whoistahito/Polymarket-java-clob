@@ -4,12 +4,10 @@ import java.util.Optional;
 import lombok.NonNull;
 
 /** One {@code comments} subscription entry: an event type plus an optional official entity filter. */
-public record CommentSubscription(
-        @NonNull CommentEventType type, Optional<RtdsEntityType> entityType, Optional<Long> entityId) {
+public record CommentSubscription(@NonNull CommentEventType type,
+        @NonNull Optional<RtdsEntityType> entityType, @NonNull Optional<Long> entityId) {
 
     public CommentSubscription {
-        entityType = entityType == null ? Optional.empty() : entityType;
-        entityId = entityId == null ? Optional.empty() : entityId;
         if (entityType.isPresent() != entityId.isPresent()) {
             throw new IllegalArgumentException("entityType and entityId must travel together");
         }
