@@ -327,9 +327,9 @@ class TradingTest {
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
 
         try (Polymarket sdk = sdk()) {
-            sdk.trading().place(OrderExecution.of(new GoodTilDateOrder(new TokenId("123"),
+            sdk.trading().place(OrderExecution.of(GoodTilDateOrder.expiringAt(new TokenId("123"),
                     Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
-                    Instant.ofEpochSecond(1_800_000_000L)), RULES), context(), CREDENTIALS);
+                    Instant.ofEpochSecond(1_800_000_000L), FIXED), RULES), context(), CREDENTIALS);
         }
 
         String body = server.takeRequest().getBody().readUtf8();

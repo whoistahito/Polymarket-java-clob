@@ -13,8 +13,9 @@ import lombok.NonNull;
 public sealed interface ImmediatePlan {
 
     /**
-     * A fillable plan. {@code cost} is spend for a BUY and proceeds for a SELL;
-     * {@code protectedPrice} is the least crossing price that still fills.
+     * A fillable plan. {@code protectedPrice} is the least crossing price that still fills, and
+     * {@code cost} is the pUSD leg the order will carry at it — the most a BUY can spend and the
+     * least a SELL can receive — not the blended value of the walk.
      */
     record Executable(
             @NonNull Price protectedPrice,

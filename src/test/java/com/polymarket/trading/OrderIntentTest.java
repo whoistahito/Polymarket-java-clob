@@ -3,6 +3,7 @@ package com.polymarket.trading;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.markets.Price;
@@ -11,6 +12,7 @@ import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TokenId;
 import java.time.Clock;
 import java.time.Duration;
+import java.lang.reflect.Constructor;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.DisplayName;
@@ -91,6 +93,18 @@ class OrderIntentTest {
                     ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), wanted, CLOCK);
 
             assertEquals(wanted.getEpochSecond() + 60, order.expirationSeconds());
+        }
+
+        @Test
+        @DisplayName("TC-TI-011: there is no construction path that skips the lifetime check")
+        void everyConstructionPathValidatesTheLifetime() {
+            for (Constructor<?> constructor : GoodTilDateOrder.class.getConstructors()) {
+                fail("GoodTilDateOrder exposes a constructor that bypasses the lifetime check: "
+                        + constructor);
+            }
+            assertThrows(IllegalArgumentException.class, () -> GoodTilDateOrder.expiringAt(
+                    ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
+                    NOW.plusSeconds(1), CLOCK));
         }
 
         @Test

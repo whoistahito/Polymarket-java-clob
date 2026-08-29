@@ -26,51 +26,92 @@ public final class ImmediatePlanner {
 
     public static ImmediatePlan plan(@NonNull ImmediateBuy buy, @NonNull OrderBookSnapshot book) {
         requireSameAsset(buy.asset(), book);
-        // The snapshot already sorted asks ascending, so "best first" is just iteration order.
+        MarketRules rules = book.rules();
         Optional<FeeRate> rate = buy.feeRate();
-        BigDecimal remaining = buy.budget().value();
+        // The signed order reprices every share at the protected price, so affordability has to be
+        // measured there too: a blended walk buys shares the repriced leg cannot pay for.
+        BigDecimal available = BigDecimal.ZERO;
         BigDecimal shares = BigDecimal.ZERO;
-        BigDecimal spent = BigDecimal.ZERO;
-        BigDecimal fees = BigDecimal.ZERO;
-        Price worst = null;
+        Price protectedPrice = null;
+        boolean budgetBound = false;
 
+        // The snapshot already sorted asks ascending, so "best first" is just iteration order.
         for (PriceLevel level : eligible(book.asks(), buy.maximumPrice(), true)) {
-            if (remaining.signum() <= 0) break;
-            BigDecimal perShare = costPerShare(level.price(), rate);
-            BigDecimal levelOutlay = perShare.multiply(level.size().value());
-            BigDecimal taken;
-            if (levelOutlay.compareTo(remaining) <= 0) {
-                taken = level.size().value();
-                remaining = remaining.subtract(levelOutlay);
-            } else {
-                // The quoted fee rounds to five decimals, so a partial fill keeps one unit of
-                // headroom and value plus quoted fee still fits the budget.
-                BigDecimal affordable = rate.isPresent()
-                        ? remaining.subtract(FeeRate.SMALLEST_FEE) : remaining;
-                taken = truncate(affordable.divide(perShare, UNIT_SCALE, RoundingMode.DOWN));
-                if (taken.signum() <= 0) break;
-                remaining = BigDecimal.ZERO;
+            available = available.add(level.size().value());
+            BigDecimal affordable = affordableAt(level.price(), buy.budget().value(), rate, rules);
+            BigDecimal candidate = available.min(affordable);
+            if (candidate.compareTo(shares) > 0) {
+                shares = candidate;
+                protectedPrice = level.price();
             }
-            shares = shares.add(taken);
-            spent = spent.add(taken.multiply(level.price().value()));
-            fees = fees.add(feeOn(rate, taken, level.price()));
-            worst = level.price();
+            // Deeper levels cost more per share, so once the budget binds it can only buy less.
+            if (affordable.compareTo(available) <= 0) {
+                budgetBound = true;
+                break;
+            }
         }
 
-        boolean partial = remaining.signum() > 0;
-        ShareQuantity filled = ShareQuantity.of(truncate(shares));
-        if (worst == null || (partial && buy.policy() == ExecutionPolicy.FOK)
-                || belowMinimum(filled, book.rules())) {
+        boolean partial = !budgetBound;
+        ShareQuantity filled = ShareQuantity.of(shares);
+        if (protectedPrice == null || (partial && buy.policy() == ExecutionPolicy.FOK)
+                || belowMinimum(filled, rules)) {
+            // An unfillable report describes the book, so it quotes the walk at its own level
+            // prices rather than the single price an order would have been signed at.
             return new ImmediatePlan.InsufficientDepth(
-                    PusdAmount.of(truncate(spent)), Optional.of(filled));
+                    blendedValue(eligible(book.asks(), buy.maximumPrice(), true), shares, rules),
+                    Optional.of(filled));
         }
-        return new ImmediatePlan.Executable(worst, filled, PusdAmount.of(truncate(spent)),
-                PusdAmount.of(fees.setScale(FeeRate.FEE_DECIMALS, RoundingMode.HALF_UP)), partial);
+        return new ImmediatePlan.Executable(protectedPrice, filled,
+                rules.notional(protectedPrice, filled), quotedFee(rate, filled, protectedPrice),
+                partial);
+    }
+
+    /**
+     * The most shares this budget can carry when every one of them is repriced at {@code price}:
+     * value plus fee at that price, then trimmed until the encoded pUSD leg itself fits.
+     */
+    private static BigDecimal affordableAt(Price price, BigDecimal budget, Optional<FeeRate> rate,
+            MarketRules rules) {
+        BigDecimal candidate = truncate(
+                budget.divide(costPerShare(price, rate), UNIT_SCALE, RoundingMode.DOWN), rules);
+        BigDecimal step = BigDecimal.ONE.movePointLeft(rules.tickSize().sizeDecimals());
+        // Encoding rounds the leg and the fee, so the fit is verified rather than assumed.
+        while (candidate.signum() > 0
+                && authorised(price, candidate, rate, rules).compareTo(budget) > 0) {
+            candidate = candidate.subtract(step);
+        }
+        return candidate.max(BigDecimal.ZERO);
+    }
+
+    private static BigDecimal authorised(Price price, BigDecimal shares, Optional<FeeRate> rate,
+            MarketRules rules) {
+        ShareQuantity quantity = ShareQuantity.of(shares);
+        return rules.notional(price, quantity).value()
+                .add(quotedFee(rate, quantity, price).value());
+    }
+
+    private static PusdAmount quotedFee(Optional<FeeRate> rate, ShareQuantity shares, Price price) {
+        return rate.map(r -> r.feeOn(shares, price)).orElse(PusdAmount.of("0"));
+    }
+
+    /** What the first {@code shares} of this depth are worth at their own level prices. */
+    private static PusdAmount blendedValue(List<PriceLevel> levels, BigDecimal shares,
+            MarketRules rules) {
+        BigDecimal remaining = shares;
+        BigDecimal value = BigDecimal.ZERO;
+        for (PriceLevel level : levels) {
+            if (remaining.signum() <= 0) break;
+            BigDecimal taken = level.size().value().min(remaining);
+            value = value.add(level.price().value().multiply(taken));
+            remaining = remaining.subtract(taken);
+        }
+        return PusdAmount.of(truncate(value, rules));
     }
 
     public static ImmediatePlan plan(@NonNull ImmediateSell sell, @NonNull OrderBookSnapshot book) {
         requireSameAsset(sell.asset(), book);
-        book.rules().requireAtLeastMinimum(sell.size());
+        MarketRules rules = book.rules();
+        rules.requireAtLeastMinimum(sell.size());
         BigDecimal remaining = sell.size().value();
         BigDecimal shares = BigDecimal.ZERO;
         BigDecimal proceeds = BigDecimal.ZERO;
@@ -86,14 +127,14 @@ public final class ImmediatePlanner {
         }
 
         boolean partial = remaining.signum() > 0;
-        ShareQuantity filled = ShareQuantity.of(truncate(shares));
+        ShareQuantity filled = ShareQuantity.of(truncate(shares, rules));
         if (worst == null || (partial && sell.policy() == ExecutionPolicy.FOK)
-                || belowMinimum(filled, book.rules())) {
+                || belowMinimum(filled, rules)) {
             return new ImmediatePlan.InsufficientDepth(
-                    PusdAmount.of(truncate(proceeds)), Optional.of(filled));
+                    PusdAmount.of(truncate(proceeds, rules)), Optional.of(filled));
         }
-        return new ImmediatePlan.Executable(worst, filled,
-                PusdAmount.of(truncate(proceeds)), PusdAmount.of("0"), partial);
+        return new ImmediatePlan.Executable(worst, filled, rules.notional(worst, filled),
+                PusdAmount.of("0"), partial);
     }
 
     /** A book for another asset describes a different market's depth entirely. */
@@ -130,12 +171,9 @@ public final class ImmediatePlanner {
                 .orElse(price.value());
     }
 
-    /** Exact per-level charge; the walk quotes the sum once, at the published five decimals. */
-    private static BigDecimal feeOn(Optional<FeeRate> rate, BigDecimal shares, Price price) {
-        return rate.map(r -> r.exactFeeOn(ShareQuantity.of(shares), price)).orElse(BigDecimal.ZERO);
-    }
-
-    private static BigDecimal truncate(BigDecimal value) {
-        return value.setScale(UNIT_SCALE, RoundingMode.DOWN).stripTrailingZeros();
+    /** The documented size precision for this grid, never a fixed six decimals. */
+    private static BigDecimal truncate(BigDecimal value, MarketRules rules) {
+        return value.setScale(rules.tickSize().sizeDecimals(), RoundingMode.DOWN)
+                .stripTrailingZeros();
     }
 }

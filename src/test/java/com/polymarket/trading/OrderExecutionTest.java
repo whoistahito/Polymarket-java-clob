@@ -113,10 +113,12 @@ class OrderExecutionTest {
             OrderExecution execution = OrderExecution.of(intent, plan, RULES);
 
             assertEquals(Price.of("0.52"), execution.price());
-            assertEquals(ShareQuantity.of("21.538461"), execution.shares());
-            // The walk blends 0.50 and 0.52 into an 11.00 spend; the signed leg must clear the
-            // whole size at 0.52, which is 11.19999972 truncated to the grid's four decimals.
-            assertEquals(PusdAmount.of("11.1999"), execution.pusdLeg());
+            assertEquals(ShareQuantity.of("21.15"), execution.shares());
+            // The whole size clears at 0.52, and that leg is what the budget has to cover: a
+            // blended walk would have signed 21.538461 shares for 11.1999, over the 11.00 asked.
+            assertEquals(PusdAmount.of("10.998"), execution.pusdLeg());
+            assertTrue(execution.pusdLeg().value().compareTo(intent.budget().value()) <= 0,
+                    "the signed leg may never authorise more than the budget");
             assertEquals(OrderType.FAK, execution.orderType());
         }
 
@@ -131,8 +133,9 @@ class OrderExecutionTest {
             OrderExecution execution = OrderExecution.of(intent, plan, RULES);
 
             assertEquals(Price.of("0.48"), execution.price());
-            // 30 at 0.50 plus 10 at 0.48 blends to 19.80; the signed floor is 40 x 0.48.
-            assertEquals(PusdAmount.of("19.8"), plan.cost());
+            // 30 at 0.50 plus 10 at 0.48 blends to 19.80, but the signed floor is 40 x 0.48, and
+            // the plan reports that floor rather than a blend the order does not guarantee.
+            assertEquals(PusdAmount.of("19.2"), plan.cost());
             assertEquals(PusdAmount.of("19.2"), execution.pusdLeg());
             assertEquals(OrderType.FOK, execution.orderType());
         }

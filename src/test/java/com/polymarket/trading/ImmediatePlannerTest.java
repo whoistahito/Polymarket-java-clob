@@ -58,13 +58,14 @@ class ImmediatePlannerTest {
         @Test
         @DisplayName("TC-DP-002: walking into a second level lifts the protected price to it")
         void protectedPriceIsTheWorstLevelTouched() {
-            // 0.50 x 10 = 5.00, then 6.00 more at 0.52 buys 11.538461 shares (truncated).
+            // Every share is repriced at 0.52, so 11.00 pUSD carries 21.15 of them — not the
+            // 21.538461 a blended walk would claim and then be unable to pay for.
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("11"), ExecutionPolicy.FAK), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
             assertEquals(Price.of("0.52"), executable.protectedPrice());
-            assertEquals(ShareQuantity.of("21.538461"), executable.shares());
+            assertEquals(ShareQuantity.of("21.15"), executable.shares());
         }
 
         @Test
@@ -101,8 +102,10 @@ class ImmediatePlannerTest {
                     ImmediateBuy.of(ASSET, PusdAmount.of("50"), ExecutionPolicy.FAK), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
-            assertEquals(PusdAmount.of("31.6"), executable.cost());
             assertEquals(Price.of("0.54"), executable.protectedPrice());
+            // The book is worth 31.60 at its own prices, but the order authorises all 60 shares
+            // at the 0.54 it is signed at.
+            assertEquals(PusdAmount.of("32.4"), executable.cost());
             assertTrue(executable.partial(), "a FAK that could not spend the budget is partial");
         }
 
@@ -130,13 +133,67 @@ class ImmediatePlannerTest {
         @Test
         @DisplayName("TC-DP-007a: the same budget without a fee rate buys strictly more")
         void aFeeFreeBudgetBuysMore() {
-            // 5.175 clears the 0.50 level for 5.00 and spends the last 0.175 at 0.52.
+            // Crossing to 0.52 would reprice all ten shares there and buy only 9.95, so the whole
+            // 0.50 level is the best 5.175 can do — and without a fee it keeps every share of it.
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("5.175"), ExecutionPolicy.FAK), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
-            assertEquals(ShareQuantity.of("10.336538"), executable.shares());
+            assertEquals(ShareQuantity.of("10"), executable.shares());
+            assertEquals(Price.of("0.50"), executable.protectedPrice());
             assertEquals(PusdAmount.of("0"), executable.fee());
+        }
+
+        @Test
+        @DisplayName("TC-DP-015: the pUSD leg an immediate BUY authorises never exceeds its budget")
+        void theAuthorisedSpendStaysInsideTheBudget() {
+            // 10 shares rest at 0.50 and 20 more at 0.52. A blended walk would buy every share the
+            // budget covers at book prices and then reprice all of them at 0.52, spending more than
+            // the caller allowed. The plan must be affordable at the price it is actually signed at.
+            PusdAmount budget = PusdAmount.of("11");
+            MarketRules rules = book().rules();
+
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, budget, ExecutionPolicy.FAK), book()));
+
+            assertEquals(Price.of("0.52"), plan.protectedPrice());
+            assertTrue(rules.notional(plan.protectedPrice(), plan.shares()).value()
+                            .add(plan.fee().value()).compareTo(budget.value()) <= 0,
+                    "signing " + plan.shares() + " at " + plan.protectedPrice()
+                            + " authorises more than the " + budget + " budget");
+            assertEquals(plan.cost(), rules.notional(plan.protectedPrice(), plan.shares()),
+                    "the reported cost is the pUSD leg the order will actually carry");
+        }
+
+        @Test
+        @DisplayName("TC-DP-016: a fee-aware budget also bounds the repriced leg")
+        void theAuthorisedSpendStaysInsideAFeeAwareBudget() {
+            PusdAmount budget = PusdAmount.of("11");
+            FeeRate rate = FeeRate.of("0.07");
+            MarketRules rules = book().rules();
+
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(ImmediateBuy.of(ASSET, budget, ExecutionPolicy.FAK)
+                            .withFeeRate(rate), book()));
+
+            assertTrue(rules.notional(plan.protectedPrice(), plan.shares()).value()
+                            .add(plan.fee().value()).compareTo(budget.value()) <= 0,
+                    "order value plus quoted fee must stay inside the budget");
+        }
+
+        @Test
+        @DisplayName("TC-DP-017: planned shares carry the tick profile's size precision, not six decimals")
+        void plannedSharesFollowTheDocumentedSizePrecision() {
+            // The official "Choose a Price and Size" table gives every documented tick two size
+            // decimals; a six-decimal share count is not a size the exchange accepts.
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("11"), ExecutionPolicy.FAK), book()));
+
+            assertTrue(plan.shares().value().stripTrailingZeros().scale()
+                            <= book().rules().tickSize().sizeDecimals(),
+                    "planned " + plan.shares() + " carries more decimals than the tick allows");
         }
     }
 
@@ -159,13 +216,14 @@ class ImmediatePlannerTest {
         @Test
         @DisplayName("TC-DP-008: a sell crossing two levels protects at the lower one")
         void sellProtectsAtTheLowestLevelTouched() {
-            // 40 shares: 30 at 0.50 (15.00) + 10 at 0.48 (4.80) = 19.80.
+            // 40 shares reach down to 0.48, and the order is signed at that floor: 40 x 0.48.
+            // The walk is worth 19.80 at its own level prices, but 19.20 is what it guarantees.
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateSell.of(ASSET, ShareQuantity.of("40"), ExecutionPolicy.FOK), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
             assertEquals(Price.of("0.48"), executable.protectedPrice());
-            assertEquals(PusdAmount.of("19.8"), executable.cost());
+            assertEquals(PusdAmount.of("19.2"), executable.cost());
         }
 
         @Test

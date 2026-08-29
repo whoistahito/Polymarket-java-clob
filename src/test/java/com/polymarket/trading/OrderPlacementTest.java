@@ -9,7 +9,9 @@ import com.polymarket.markets.Price;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.markets.ShareQuantity;
 import com.polymarket.markets.TokenId;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +22,9 @@ class OrderPlacementTest {
             "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
             "c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldA==", "hex-passphrase");
     private static final TokenId ASSET = new TokenId("123");
+
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.ofEpochSecond(1_799_000_000L), ZoneOffset.UTC);
 
     @Test
     @DisplayName("TC-OP-001: a Maker-Only Order Intent derives a post-only GTC placement")
@@ -50,8 +55,8 @@ class OrderPlacementTest {
     @DisplayName("TC-OP-003: a GTD Order Intent derives its wire expiration, threshold included")
     void goodTilDateIntentDerivesShiftedExpiration() {
         Instant expiresAt = Instant.ofEpochSecond(1_800_000_000L);
-        OrderIntent intent = new GoodTilDateOrder(
-                ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), expiresAt);
+        OrderIntent intent = GoodTilDateOrder.expiringAt(
+                ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), expiresAt, CLOCK);
 
         OrderPlacement placement = OrderPlacement.forIntent(CREDENTIALS, intent);
 
@@ -78,8 +83,8 @@ class OrderPlacementTest {
     void contradictoryPlacementIsRefused() {
         OrderIntent makerOnly = new MakerOnlyLimitOrder(
                 ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
-        OrderIntent gtd = new GoodTilDateOrder(ASSET, Side.BUY, Price.of("0.52"),
-                ShareQuantity.of("10"), Instant.ofEpochSecond(1_800_000_000L));
+        OrderIntent gtd = GoodTilDateOrder.expiringAt(ASSET, Side.BUY, Price.of("0.52"),
+                ShareQuantity.of("10"), Instant.ofEpochSecond(1_800_000_000L), CLOCK);
 
         assertThrows(IllegalArgumentException.class, () -> OrderPlacement
                 .of(CREDENTIALS, OrderType.GTC).requireConsistentWith(makerOnly));
@@ -92,8 +97,8 @@ class OrderPlacementTest {
     @Test
     @DisplayName("TC-OP-006: a placement derived from an Order Intent is consistent with it")
     void derivedPlacementIsConsistent() {
-        OrderIntent gtd = new GoodTilDateOrder(ASSET, Side.BUY, Price.of("0.52"),
-                ShareQuantity.of("10"), Instant.ofEpochSecond(1_800_000_000L));
+        OrderIntent gtd = GoodTilDateOrder.expiringAt(ASSET, Side.BUY, Price.of("0.52"),
+                ShareQuantity.of("10"), Instant.ofEpochSecond(1_800_000_000L), CLOCK);
 
         OrderPlacement.forIntent(CREDENTIALS, gtd).requireConsistentWith(gtd);
     }
