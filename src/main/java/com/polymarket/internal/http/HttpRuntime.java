@@ -7,8 +7,12 @@ import com.polymarket.ReadRetryPolicy;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -28,6 +32,7 @@ public final class HttpRuntime implements AutoCloseable {
     private final ObjectMapper json;
     private final ReadRetryPolicy readRetryPolicy;
     private final Sleeper sleeper;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     /** Injected so backoff tests need no wall-clock sleeps. */
     @FunctionalInterface
@@ -110,6 +115,9 @@ public final class HttpRuntime implements AutoCloseable {
     }
 
     private HttpOutcome execute(Request request) throws IOException {
+        // A capability handed out before close() keeps its reference to this runtime, so the
+        // guard belongs here rather than only on the root's accessors.
+        if (closed.get()) throw new IllegalStateException("Polymarket is closed");
         try (Response response = http.newCall(request).execute()) {
             ResponseBody body = response.body();
             return new HttpOutcome(response.code(), body != null ? body.string() : "",
@@ -132,20 +140,31 @@ public final class HttpRuntime implements AutoCloseable {
         return readRetryPolicy.initialBackoff().multipliedBy(1L << (attempt - 1));
     }
 
-    // ponytail: seconds-form Retry-After only. The HTTP-date form is legal but Polymarket does not
-    // send it; add a date parse here if that ever changes.
+    /** Both legal forms: delay-seconds, and an HTTP-date measured from when this response arrived. */
     private static Duration retryAfterOf(Response response) {
         String header = response.header("Retry-After");
         if (header == null) return null;
+        String value = header.trim();
         try {
-            return Duration.ofSeconds(Long.parseLong(header.trim()));
+            return Duration.ofSeconds(Long.parseLong(value));
         } catch (NumberFormatException notSeconds) {
+            return untilHttpDate(value, Instant.ofEpochMilli(response.receivedResponseAtMillis()));
+        }
+    }
+
+    private static Duration untilHttpDate(String value, Instant receivedAt) {
+        try {
+            Duration wait = Duration.between(receivedAt,
+                    Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(value)));
+            return wait.isNegative() ? Duration.ZERO : wait;
+        } catch (DateTimeParseException notADate) {
             return null;
         }
     }
 
     @Override
     public void close() {
+        closed.set(true);
         http.dispatcher().executorService().shutdown();
         http.connectionPool().evictAll();
     }

@@ -2,6 +2,7 @@ package com.polymarket;
 
 import java.net.URI;
 import java.time.Duration;
+import lombok.NonNull;
 
 /**
  * SDK-owned network configuration. Exposes only JDK types, so a transport-library
@@ -77,47 +78,43 @@ public final class PolymarketConfig {
         return readRetryPolicy;
     }
 
-    public PolymarketConfig clobHost(URI host) {
-        return new PolymarketConfig(require(host), gammaHost, dataHost, geoblockHost,
+    public PolymarketConfig clobHost(@NonNull URI host) {
+        return new PolymarketConfig(host, gammaHost, dataHost, geoblockHost,
                 comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig gammaHost(URI host) {
-        return new PolymarketConfig(clobHost, require(host), dataHost, geoblockHost,
+    public PolymarketConfig gammaHost(@NonNull URI host) {
+        return new PolymarketConfig(clobHost, host, dataHost, geoblockHost,
                 comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig dataHost(URI host) {
-        return new PolymarketConfig(clobHost, gammaHost, require(host), geoblockHost,
+    public PolymarketConfig dataHost(@NonNull URI host) {
+        return new PolymarketConfig(clobHost, gammaHost, host, geoblockHost,
                 comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig geoblockHost(URI host) {
-        return new PolymarketConfig(clobHost, gammaHost, dataHost, require(host),
+    public PolymarketConfig geoblockHost(@NonNull URI host) {
+        return new PolymarketConfig(clobHost, gammaHost, dataHost, host,
                 comboMarketsHost, connectTimeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig comboMarketsHost(URI host) {
-        return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost, require(host),
+    public PolymarketConfig comboMarketsHost(@NonNull URI host) {
+        return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost, host,
                 connectTimeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig connectTimeout(Duration timeout) {
+    public PolymarketConfig connectTimeout(@NonNull Duration timeout) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                comboMarketsHost, require(timeout), requestTimeout, readRetryPolicy);
+                comboMarketsHost, timeout, requestTimeout, readRetryPolicy);
     }
 
-    public PolymarketConfig requestTimeout(Duration timeout) {
+    public PolymarketConfig requestTimeout(@NonNull Duration timeout) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                comboMarketsHost, connectTimeout, require(timeout), readRetryPolicy);
+                comboMarketsHost, connectTimeout, timeout, readRetryPolicy);
     }
 
-    public PolymarketConfig readRetryPolicy(ReadRetryPolicy policy) {
+    public PolymarketConfig readRetryPolicy(@NonNull ReadRetryPolicy policy) {
         return new PolymarketConfig(clobHost, gammaHost, dataHost, geoblockHost,
-                comboMarketsHost, connectTimeout, requestTimeout, require(policy));
-    }
-
-    private static <T> T require(T value) {
-        return value;
+                comboMarketsHost, connectTimeout, requestTimeout, policy);
     }
 }

@@ -223,6 +223,54 @@ class PolymarketRootTest {
                         .comboMarketsHost());
     }
 
+    @Test
+    @DisplayName("TC-PR-015: a capability held across close cannot still reach the wire")
+    void closedRootDisablesCapabilitiesAlreadyHandedOut() {
+        Polymarket sdk = sdk();
+        com.polymarket.markets.Markets markets = sdk.markets();
+
+        sdk.close();
+
+        assertThrows(IllegalStateException.class,
+                () -> markets.market("0x1"),
+                "a capability captured before close must not outlive the root's transport");
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-PR-016: Retry-After in the HTTP-date form is honoured, not ignored")
+    void retryAfterAcceptsTheHttpDateForm() throws Exception {
+        String farFuture = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                .format(java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).plusSeconds(60));
+        server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", farFuture));
+        server.enqueue(new MockResponse().setBody("1773890758"));
+
+        List<Duration> waits = new ArrayList<>();
+        try (Polymarket sdk = Polymarket.with(config(),
+                new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
+                        ReadRetryPolicy.defaults(), waits::add))) {
+            assertEquals(Instant.ofEpochSecond(1773890758L), sdk.serverTime().at());
+        }
+
+        assertEquals(List.of(Duration.ofSeconds(5)), waits,
+                "a date 60 s out must be read as a wait and clamped to the max backoff");
+    }
+
+    @Test
+    @DisplayName("TC-PR-017: configuration mutators reject null instead of storing it")
+    void configurationMutatorsRejectNull() {
+        PolymarketConfig config = PolymarketConfig.defaults();
+
+        assertThrows(NullPointerException.class, () -> config.clobHost(null));
+        assertThrows(NullPointerException.class, () -> config.gammaHost(null));
+        assertThrows(NullPointerException.class, () -> config.dataHost(null));
+        assertThrows(NullPointerException.class, () -> config.geoblockHost(null));
+        assertThrows(NullPointerException.class, () -> config.comboMarketsHost(null));
+        assertThrows(NullPointerException.class, () -> config.connectTimeout(null));
+        assertThrows(NullPointerException.class, () -> config.requestTimeout(null));
+        assertThrows(NullPointerException.class, () -> config.readRetryPolicy(null));
+    }
+
     private PolymarketConfig config() {
         URI host = server.url("/").uri();
         return PolymarketConfig.defaults()
