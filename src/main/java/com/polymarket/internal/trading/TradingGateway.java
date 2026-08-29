@@ -128,15 +128,16 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         if (errorMsg != null) {
             return new SubmissionOutcome.Unknown(Optional.of(httpStatus), errorMsg, Optional.empty());
         }
-        String orderId = blankToNull(node.path("orderID").asText(null));
+        // Both are documented as strings; a number coerced to text is not the id the server meant.
+        String orderId = requiredText(node, "orderID");
         if (orderId == null) {
-            return new SubmissionOutcome.Unknown(
-                    Optional.of(httpStatus), "success without an order id", Optional.empty());
+            return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
+                    "success without a textual order id", Optional.empty());
         }
-        String status = blankToNull(node.path("status").asText(null));
+        String status = requiredText(node, "status");
         if (status == null) {
-            return new SubmissionOutcome.Unknown(
-                    Optional.of(httpStatus), "success without an order status", Optional.empty());
+            return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
+                    "success without a textual order status", Optional.empty());
         }
 
         // clob-openapi.yaml SendOrderResponse: transactionsHashes is documented on a match.
@@ -148,6 +149,12 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
     /** clob-openapi.yaml SendOrderResponse: an object whose required {@code success} is a boolean. */
     private static boolean isOrderResponse(JsonNode node) {
         return node.isObject() && node.path("success").isBoolean();
+    }
+
+    /** A documented string field, present and non-blank; anything else states nothing. */
+    private static String requiredText(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isTextual() ? blankToNull(value.asText()) : null;
     }
 
     @Override

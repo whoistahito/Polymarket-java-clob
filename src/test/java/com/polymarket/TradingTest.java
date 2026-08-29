@@ -452,6 +452,55 @@ class TradingTest {
     }
 
     @Test
+    @DisplayName("TC-TR-024: a hand-built Signed Order that could not have been signed sends nothing")
+    void anInvalidSignedOrderNeverReachesTheWire() {
+        SignedOrder valid = signedOrder();
+
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), "not-an-address",
+                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), valid.signature()), "maker must be an address");
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
+                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                0L, valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), valid.signature()), "an order leg worth nothing is not an order");
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(-1L, valid.maker(),
+                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), valid.signature()), "salt is an unsigned field");
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
+                valid.signer(), valid.asset(), valid.side(), 4,
+                valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), valid.signature()), "4 is not an official signature type");
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
+                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), "  "), "a blank signature authorises nothing");
+
+        assertEquals(0, server.getRequestCount(), "nothing may reach the wire");
+    }
+
+    @Test
+    @DisplayName("TC-TR-025: a success whose order id or status is not text states nothing")
+    void nonTextualOrderIdOrStatusIsUnknown() throws Exception {
+        enqueue(200, """
+                {"success":true,"orderID":12345,"status":"live","tradeIDs":[]}""");
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":7,"tradeIDs":[]}""");
+
+        try (Polymarket sdk = sdk()) {
+            SubmissionOutcome numericId = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            SubmissionOutcome numericStatus = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+
+            assertInstanceOf(SubmissionOutcome.Unknown.class, numericId,
+                    "a numeric order id is not the documented string; it must not become Accepted");
+            assertInstanceOf(SubmissionOutcome.Unknown.class, numericStatus);
+        }
+    }
+
+    @Test
     @DisplayName("TC-TR-023: transport loss after the order is on the wire is sent exactly once")
     void transportLossStillSubmitsExactlyOnce() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));

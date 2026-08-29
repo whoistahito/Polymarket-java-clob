@@ -104,7 +104,7 @@ class RfqAcceptanceTest {
         // A Deposit Wallet order whose signer field is the wallet, as the builders page shows.
         SignedOrder order = new SignedOrder(1L, DEPOSIT_WALLET, DEPOSIT_WALLET,
                 new PositionId("333"), Side.BUY, 3, 966191L, 1932381L, 1773890758L,
-                "0x" + "0".repeat(64), BUILDER_CODE, "0xsig");
+                "0x" + "0".repeat(64), BUILDER_CODE, "0x" + "ab".repeat(65));
 
         gateway().accept("rfq-1", "quote-1", order, depositWallet(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
