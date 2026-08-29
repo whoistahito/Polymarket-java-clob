@@ -35,7 +35,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `client.createApiKey()` / `createApiKey(nonce)` | `sdk.authentication().createApiKey()` — the nonce overload is gone |
 | `client.deriveApiKey()` / `deriveApiKey(nonce)` | `sdk.authentication().deriveApiKey()` |
 | `client.createOrDeriveApiKey()` | Removed — call `createApiKey()` or `deriveApiKey()` deliberately |
-| `client.getApiKeys()` (raw map) | `sdk.authentication().apiKeys()` → `List<String>` |
+| `client.getApiKeys()` (raw map) | `sdk.authentication().apiKeys()` → `List<ApiKey>` (redacted) |
 | `client.deleteApiKey()` (raw map) | `sdk.authentication().deleteApiKey()` → `ApiKeyDeletion` |
 | `client.getClosedOnlyMode()` → `BanStatus` | `sdk.authentication().validate()` → `ApiKeyValidation` |
 | `model.ApiKeyCreds` | `com.polymarket.authentication.ApiCredentials` (record; `toString` fully redacts) |

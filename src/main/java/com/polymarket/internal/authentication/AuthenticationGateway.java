@@ -3,6 +3,7 @@ package com.polymarket.internal.authentication;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.polymarket.PolymarketConfig;
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.ApiKey;
 import com.polymarket.authentication.ApiKeyDirectory;
 import com.polymarket.authentication.ApiKeyDeletion;
 import com.polymarket.authentication.ApiKeyValidation;
@@ -50,13 +51,18 @@ public final class AuthenticationGateway implements ApiKeyDirectory {
     }
 
     @Override
-    public List<String> list(PrivateKeySigner signer) throws IOException {
+    public List<ApiKey> list(PrivateKeySigner signer) throws IOException {
         HttpOutcome outcome = runtime.get(config.clobHost(), API_KEYS_PATH, l1Headers(signer));
         if (!outcome.successful()) {
             throw new IOException("could not list API keys: HTTP " + outcome.status());
         }
-        List<String> keys = new ArrayList<>();
-        runtime.parse(outcome.body()).path("apiKeys").forEach(node -> keys.add(node.asText()));
+        List<ApiKey> keys = new ArrayList<>();
+        for (JsonNode node : runtime.parse(outcome.body()).path("apiKeys")) {
+            if (node.asText().isBlank()) {
+                throw new IOException("the API key listing carries a blank key; none was read");
+            }
+            keys.add(new ApiKey(node.asText()));
+        }
         return List.copyOf(keys);
     }
 

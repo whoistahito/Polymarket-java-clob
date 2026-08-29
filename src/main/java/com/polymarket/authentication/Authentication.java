@@ -26,7 +26,7 @@ public final class Authentication {
         return directory.derive(authority.requireAccountSignerKey("deriveApiKey"));
     }
 
-    public List<String> apiKeys() throws IOException {
+    public List<ApiKey> apiKeys() throws IOException {
         return directory.list(authority.requireAccountSignerKey("apiKeys"));
     }
 

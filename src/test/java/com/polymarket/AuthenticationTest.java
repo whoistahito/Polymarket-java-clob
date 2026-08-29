@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.ApiKey;
 import com.polymarket.authentication.ApiKeyDeletion;
 import com.polymarket.authentication.ApiKeyValidation;
 import com.polymarket.authentication.AuthenticationRequiredException;
@@ -382,9 +383,40 @@ class AuthenticationTest {
             server.enqueue(new MockResponse().setBody("{\"apiKeys\":[\"key-1\",\"key-2\"]}"));
 
             try (Polymarket sdk = sdk(localAuthority())) {
-                assertEquals(List.of("key-1", "key-2"), sdk.authentication().apiKeys());
+                assertEquals(List.of(new ApiKey("key-1"), new ApiKey("key-2")),
+                        sdk.authentication().apiKeys());
             }
             assertEquals("/auth/api-keys", server.takeRequest().getPath());
+        }
+
+        @Test
+        @DisplayName("TC-AU-020: a listed API key redacts itself, so logging the list leaks nothing")
+        void listedApiKeysAreRedacted() throws Exception {
+            server.enqueue(new MockResponse().setBody("{\"apiKeys\":[\"key-1\"]}"));
+
+            try (Polymarket sdk = sdk(localAuthority())) {
+                List<ApiKey> keys = sdk.authentication().apiKeys();
+
+                assertFalse(keys.toString().contains("key-1"),
+                        "a logged listing must not disclose the key");
+                assertEquals("key-1", keys.get(0).value(),
+                        "the caller can still read the key deliberately");
+            }
+            server.takeRequest();
+        }
+
+        @Test
+        @DisplayName("TC-AU-021: a blank listed API key is rejected rather than carried")
+        void blankApiKeysAreRejected() throws Exception {
+            assertThrows(IllegalArgumentException.class, () -> new ApiKey(" "));
+            assertThrows(NullPointerException.class, () -> new ApiKey(null));
+
+            server.enqueue(new MockResponse().setBody("{\"apiKeys\":[\"key-1\",\"\"]}"));
+            try (Polymarket sdk = sdk(localAuthority())) {
+                assertThrows(IOException.class, () -> sdk.authentication().apiKeys(),
+                        "a blank wire entry is a read failure, not a usable key");
+            }
+            server.takeRequest();
         }
 
         @Test

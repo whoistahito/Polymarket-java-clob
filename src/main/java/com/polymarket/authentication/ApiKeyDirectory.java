@@ -13,7 +13,7 @@ public interface ApiKeyDirectory {
 
     ApiCredentials derive(PrivateKeySigner signer) throws IOException;
 
-    List<String> list(PrivateKeySigner signer) throws IOException;
+    List<ApiKey> list(PrivateKeySigner signer) throws IOException;
 
     ApiKeyValidation validate(ApiCredentials credentials, String signingAddress) throws IOException;
 
