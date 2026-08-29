@@ -151,6 +151,26 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         return node.isObject() && node.path("success").isBoolean();
     }
 
+    /**
+     * Why this element cannot carry a per-item outcome, or {@code null} when it can. A successful
+     * element must also carry the documented string id and status: half a batch cannot be attributed.
+     */
+    private static String structuralDefect(JsonNode node) {
+        if (!isOrderResponse(node)) {
+            return "is not a documented order object";
+        }
+        if (!node.path("success").asBoolean(false)) {
+            return null;
+        }
+        if (requiredText(node, "orderID") == null) {
+            return "reports success without a textual order id";
+        }
+        if (requiredText(node, "status") == null) {
+            return "reports success without a textual order status";
+        }
+        return null;
+    }
+
     /** A documented string field, present and non-blank; anything else states nothing. */
     private static String requiredText(JsonNode node, String field) {
         JsonNode value = node.path(field);
@@ -186,9 +206,10 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         }
         // One malformed element makes the whole batch unattributable: no per-item guess is invented.
         for (int i = 0; i < array.size(); i++) {
-            if (!isOrderResponse(array.get(i))) {
-                return new BatchSubmissionOutcome.Indeterminate("batch result " + i
-                        + " is not a documented order object", Optional.empty());
+            String defect = structuralDefect(array.get(i));
+            if (defect != null) {
+                return new BatchSubmissionOutcome.Indeterminate(
+                        "batch result " + i + " " + defect, Optional.empty());
             }
         }
         List<SubmissionOutcome> perItem = new ArrayList<>();
@@ -225,11 +246,26 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
                     "cancellation response is not a documented CancelOrdersResponse", Optional.empty());
         }
 
+        // Documented as an array of order-id strings and a map of id to reason string. A member
+        // that is not text is not an identifier, and coercing one would invent a definitive fact.
         List<String> canceled = new ArrayList<>();
-        node.path("canceled").forEach(c -> canceled.add(c.asText()));
+        for (JsonNode member : node.path("canceled")) {
+            if (!member.isTextual() || member.asText().isBlank()) {
+                return new CancellationOutcome.Uncertain(Optional.of(outcome.status()),
+                        "cancellation response lists a canceled entry that is not an order id",
+                        Optional.empty());
+            }
+            canceled.add(member.asText());
+        }
         Map<String, String> notCanceled = new LinkedHashMap<>();
-        node.path("not_canceled").fields()
-                .forEachRemaining(e -> notCanceled.put(e.getKey(), e.getValue().asText()));
+        for (Map.Entry<String, JsonNode> entry : node.path("not_canceled").properties()) {
+            if (!entry.getValue().isTextual()) {
+                return new CancellationOutcome.Uncertain(Optional.of(outcome.status()),
+                        "cancellation response gives a non-textual reason for " + entry.getKey(),
+                        Optional.empty());
+            }
+            notCanceled.put(entry.getKey(), entry.getValue().asText());
+        }
 
         // An ID the server stated nothing about is unaccounted for, not a refusal it never made.
         Set<String> stated = new LinkedHashSet<>(canceled);

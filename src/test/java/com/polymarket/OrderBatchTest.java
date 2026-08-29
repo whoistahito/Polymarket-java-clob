@@ -307,6 +307,43 @@ class OrderBatchTest {
     }
 
     @Test
+    @DisplayName("TC-BA-021: a successful batch element whose id is not text makes the batch indeterminate")
+    void batchElementWithANonTextualIdIsIndeterminate() throws Exception {
+        // Structurally an order object, but orderID and status are documented as strings. A number
+        // is not the id the server meant, and a batch cannot be half-attributed.
+        for (String malformed : List.of(
+                "{\"success\":true,\"orderID\":456,\"status\":\"live\",\"tradeIDs\":[]}",
+                "{\"success\":true,\"orderID\":\"0xb\",\"status\":7,\"tradeIDs\":[]}")) {
+            enqueue("""
+                    [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
+                     """ + malformed + "]");
+
+            BatchSubmissionOutcome outcome;
+            try (Polymarket sdk = sdk()) {
+                outcome = sdk.trading().submitBatch(List.of(item("123", 1), item("456", 2)));
+            }
+
+            assertInstanceOf(BatchSubmissionOutcome.Indeterminate.class, outcome, malformed);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-BA-022: a cancellation member that is not text is uncertain, never coerced")
+    void malformedCancellationMembersAreUncertain() throws Exception {
+        for (String body : List.of(
+                "{\"canceled\":[123],\"not_canceled\":{}}",
+                "{\"canceled\":[{\"id\":\"" + ID_1 + "\"}],\"not_canceled\":{}}",
+                "{\"canceled\":[],\"not_canceled\":{\"" + ID_1 + "\":404}}")) {
+            enqueue(body);
+            CancellationOutcome outcome;
+            try (Polymarket sdk = sdk()) {
+                outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
+            }
+            assertInstanceOf(CancellationOutcome.Uncertain.class, outcome, body);
+        }
+    }
+
+    @Test
     @DisplayName("TC-BA-013: cancellation transport loss is an explicit uncertain outcome, never thrown")
     void cancellationTransportLossIsUncertain() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
