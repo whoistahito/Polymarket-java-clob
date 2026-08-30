@@ -54,6 +54,8 @@ final class ReadmeExamples {
         // README:trading
         // The Account Signer holds the key. The Trading Wallet holds the funds and is named as maker.
         // For an EOA they are the same address; for Proxy, Safe and Deposit Wallets they are not.
+        // A Deposit Wallet goes further: it is ERC-1271-verified, so it is also the order's signer,
+        // while the Account Signer stays the address every authenticated request is made as.
         PrivateKeySigner accountSigner = PrivateKeySigner.of(privateKeyHex);
         SigningIdentity identity = SigningIdentity.proxyWallet(tradingWallet, accountSigner.address());
         ApiCredentials credentials = new ApiCredentials(apiKey, apiSecret, passphrase);

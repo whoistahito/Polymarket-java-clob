@@ -1,8 +1,10 @@
 # Polymarket Java API Client
 
 An unofficial Java SDK for the [Polymarket](https://polymarket.com) CLOB, Gamma, Data and real-time
-APIs. It is a library — no bots, no entry point — and its signing is proven byte-for-byte against
-Polymarket's published official vectors.
+APIs. It is a library — no bots, no entry point. Its signing is proven byte-for-byte against
+vectors derived from Polymarket's published typed data by an independent signer (ethers v6), never
+against this SDK's own output; the typed data, domains and contract addresses are official, the
+signature bytes are independently derived. See `docs/protocol/SOURCES.md`.
 
 Requires Java 21+.
 
@@ -87,6 +89,8 @@ import java.time.Instant;
 
 // The Account Signer holds the key. The Trading Wallet holds the funds and is named as maker.
 // For an EOA they are the same address; for Proxy, Safe and Deposit Wallets they are not.
+// A Deposit Wallet goes further: it is ERC-1271-verified, so it is also the order's signer,
+// while the Account Signer stays the address every authenticated request is made as.
 PrivateKeySigner accountSigner = PrivateKeySigner.of(privateKeyHex);
 SigningIdentity identity = SigningIdentity.proxyWallet(tradingWallet, accountSigner.address());
 ApiCredentials credentials = new ApiCredentials(apiKey, apiSecret, passphrase);

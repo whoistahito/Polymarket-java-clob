@@ -19,11 +19,11 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `AsyncPolymarketClient.wrap(client)` | `AsyncTrading.wrap(sdk.trading()[, executor])` / `AsyncRfq.wrap(rfq[, executor])` — only trading and RFQ get an async form |
 | `.clobHost(..)`, `.gammaHost(..)`, `.dataHost(..)`, `.maxRetries(..)` | `PolymarketConfig.defaults().clobHost(URI)…readRetryPolicy(ReadRetryPolicy)` — JDK types only |
 | `.privateKey(hex)` / `.credentials(Credentials)` | `SigningAuthority.signing(PrivateKeySigner.of(hex), identity)` — Web3j never appears in a public signature |
-| `.apiCreds(ApiKeyCreds)` | `SigningAuthority.apiOnly(new ApiCredentials(key, secret, passphrase))`, or `.withApiCredentials(..)` |
+| `.apiCreds(ApiKeyCreds)` | `SigningAuthority.apiCredentials(new ApiCredentials(key, secret, passphrase), accountSigner)`, or `.withApiCredentials(..)` |
 | `.signatureType(SignatureType)` + `.funderAddress(addr)` | `SigningIdentity.eoa/proxyWallet/safeWallet/depositWallet(..)` — the identity carries its own official signature type |
 | `.chainId(137)` / `.chainId(Chain)` | Removed — mainnet 137 only |
 | `.useServerTime(boolean)`, `.geoBlockToken(..)`, `.httpClient(HttpClient)` | Removed — see *Removed with no replacement* |
-| `client.getAddress()` / `getFunderAddress()` / `getSignatureType()` | `authority.identity()` → `SigningIdentity.signer()`/`maker()`/`signatureType()` |
+| `client.getAddress()` / `getFunderAddress()` / `getSignatureType()` | `authority.signingIdentity()` → `SigningIdentity.accountSigner()`/`tradingWallet()`/`signatureType()` |
 | `client.hasApiCreds()` / `getApiCreds()` | `authority.apiCredentials()` (an `Optional`) |
 | `client.gamma()` / `client.data()` / `client.rfq()` | `sdk.markets()` + `Social`, `sdk.portfolio()`, `Rfq` — see the sections below |
 | (none — 1.0 had no close) | `Polymarket` is `AutoCloseable`; `close()` stops heartbeats, streams and the HTTP runtime, idempotently |
@@ -96,11 +96,12 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `client.postOrders(..)` / `createAndPostOrders(..)` | `sdk.trading().submitBatch(List<BatchItem>)` → `BatchSubmissionOutcome`; the 15-order limit is checked before anything is sent and a batch is never silently split |
 | `client.cancelOrder(id)` / `cancelOrders(ids)` (raw maps) | `sdk.trading().cancel(credentials, accountSigner, List.of(ids))` → sealed `CancellationOutcome` (`Completed`/`Uncertain`); it no longer throws on transport loss |
 | `client.cancelAll()` / `cancelMarketOrders(..)` | Removed — an unbounded write whose per-order result cannot be reported |
-| `client.getOrder(id)` / `getOpenOrders(..)` / `getOpenOrdersPaginated(..)` | Removed |
+| `client.getOrder(id)` / `getOpenOrders(..)` / `getOpenOrdersPaginated(..)` | `sdk.portfolio().openOrders(OpenOrderQuery[, OrderCursor])` → `OpenOrderPage`, one typed page per call; the single-order read is Removed — read the page filtered to the order you want |
 | `client.getTrades(..)` / `getTradesPaginated(..)` | `sdk.portfolio().trades(TradeQuery[, PageCursor])`; for settling one order use `sdk.trading().reconcile(..)` |
 | (1.0 read `transactionHash` off the post response) | `sdk.trading().reconcile(credentials, identity, orderId, tradeIds, timeout, pollInterval)` → `ReconciliationOutcome` — hashes now arrive late, and the `SigningIdentity` separates the Account Signer header from the Trading Wallet filter |
 | `client.isOrderScoring(..)` / `areOrdersScoring(..)` | Removed |
-| `client.getBalanceAllowance(..)` / `updateBalanceAllowance(..)` | Removed |
+| `client.getBalanceAllowance(..)` | `sdk.portfolio().collateralBalance()` / `conditionalBalance(tokenId)` → `BalanceSnapshot` |
+| `client.updateBalanceAllowance(..)` | Removed — setting an allowance is a Polygon transaction, and 2.0 broadcasts none (issue #7) |
 | `client.calculateMarketPrice(..)` | `ImmediatePlanner` — pure depth walking with a caller-supplied protection bound |
 | `client.resolveVersion()` / `getCachedVersion()` / `clearVersionCache()` / `OrderBuilder.setVersion/getVersion` | Removed — routing is the sealed `AssetId` type: `TokenId` → Exchange V2, `PositionId` → V3 |
 | `client.INITIAL_CURSOR` / `END_CURSOR` constants | `PageCursor` / `RewardCursor` / `BuilderCursor` handle start and end internally |
@@ -120,7 +121,7 @@ Packages deleted whole: `com.polymarket.client`, `com.polymarket.model` (and `.m
 | `util.OrderUtils.buildSignedOrderV2(OrderDataV2, negRisk)` | `sdk.trading().sign(new TokenId(..), ..)` |
 | `util.OrderUtils.exchangeAddress/exchangeAddressV2`, `OrderBuilder.resolveVerifyingContract` | Internal — contract selection follows from the asset type and `rules.negativeRisk()` |
 | `util.OrderUtils.buildV2DomainHash/buildV2StructHash/signPoly1271` | Internal — no public hash or 1271 helpers |
-| `OrderBuilder.getMakerAddress/getSignerAddress/getSignatureTypeValue` | `SigningIdentity.maker()`/`signer()`/`signatureType()` |
+| `OrderBuilder.getMakerAddress/getSignerAddress/getSignatureTypeValue` | `SigningIdentity.tradingWallet()`/`orderSigner()`/`signatureType()` — `orderSigner()` is the Trading Wallet under signature type 3 and the Account Signer otherwise |
 
 ### `util.PriceUtils` — removed, and what replaces each piece
 
@@ -212,7 +213,7 @@ only the **requester** flow, over the Builder Gateway (issues #25/#26).
 | (1.0 had `.geoBlockToken(..)` only) | `sdk.geoblock()` → `GeoblockStatus` |
 | `client.startHeartbeats()` / `startHeartbeats(ms)` | `sdk.startHeartbeat()` / `startHeartbeat(Duration)` |
 | `client.stopHeartbeats()` / `isHeartbeatsActive()` | `sdk.stopHeartbeat()` / `isHeartbeatActive()` |
-| `client.postHeartbeat(id)` | Removed — the id now chains internally. 1.0's first tick sent the literal string `"null"`; 2.0 sends `""`. |
+| `client.postHeartbeat(id)` | Removed — the published `POST /heartbeats` declares no request body and no identifier chain: a successful status is the whole acknowledgement. 1.0's first tick sent the literal string `"null"`; 2.0 sends an empty body. |
 | `client.HttpClient`, `HttpStatusException`, `PolymarketEndpoints` | Internal — no raw HTTP, no public endpoint constants |
 
 ## Removed with no replacement

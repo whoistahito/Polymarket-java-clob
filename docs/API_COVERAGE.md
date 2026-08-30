@@ -176,7 +176,7 @@ onboarding: `sdk.rfq(gatewayHost)`. The root owns each one and closes it with it
 | Operation | Endpoint | Docs | Status |
 |---|---|---|---|
 | `serverTime()` | `GET clob /time` | https://docs.polymarket.com/api-reference/data/get-server-time | Supported |
-| `health()` | probes `clob /time`, `gamma /status`, `data /` | — | Supported — an unreachable service is reported, not thrown |
+| `health()` | probes `GET clob /time`, `GET gamma /tags?limit=1`, `GET data /trades?limit=1` | https://docs.polymarket.com/api-reference/tags/list-tags | Supported — every probe is a documented credential-free read; an unreachable service is reported, not thrown |
 | `geoblock()` | `GET https://polymarket.com/api/geoblock` | https://docs.polymarket.com/api-reference/geoblock | Supported |
 | `startHeartbeat()` / `stopHeartbeat()` | `POST clob /heartbeats` (L2, bodyless) | https://docs.polymarket.com/api-reference/trade/send-heartbeat | Supported — idle until started |
 | Automatic geoblock preflight before every action | — | — | Out of scope |

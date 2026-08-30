@@ -20,8 +20,9 @@ import org.junit.jupiter.api.Test;
 class ReadmeExamplesTest {
 
     private static final Path README = Path.of("README.md");
+    /** Not a test source: it is compiled against the packaged jar in the verify phase. */
     private static final Path COMPILED =
-            Path.of("src/test/java/com/polymarket/examples/ReadmeExamples.java");
+            Path.of("src/examples/java/com/polymarket/examples/ReadmeExamples.java");
 
     @Test
     @DisplayName("TC-RM-001: every README Java block is compiled source, not prose")

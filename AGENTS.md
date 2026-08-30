@@ -58,8 +58,11 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   honours `Retry-After`; `post` executes exactly once, so no read budget can replay an order.
 - `com.polymarket.authentication` — `Authentication` capability, `SigningAuthority`,
   `PrivateKeySigner` (holds the key, exposes only `address()` and `sign(digest)`), `ApiCredentials`,
+  `ApiKey` (a listed key, redacted in `toString` like `ApiCredentials` — issue #5),
   `SigningIdentity` (sealed: `Eoa`/`ProxyWallet`/`SafeWallet`/`DepositWallet`, valid by
-  construction, each carrying its official signature type), typed outcomes, and the
+  construction, each carrying its official signature type and its `orderSigner()` — the address the
+  exchange resolves for an order, which is the Trading Wallet under signature type 3 because that
+  wallet ERC-1271-verifies its own orders, and the Account Signer otherwise), typed outcomes, and the
   `ApiKeyDirectory` **port**. `SigningIdentity.deriveProxyWallet`/`.deriveSafeWallet` compute the
   CREATE2 Proxy/Safe address for an EOA locally (no RPC), matching the documented factories.
 - `com.polymarket.internal.operations` / `.authentication` — `OperationsGateway`,
@@ -73,7 +76,14 @@ that depend on the artifact. Domain packages are public, transport lives behind 
 - `com.polymarket.trading` (issues #11, #12, #13) — the closed `OrderIntent` hierarchy
   (`LimitOrder`/`MakerOnlyLimitOrder`/`GoodTilDateOrder`/`ImmediateBuy`/`ImmediateSell`),
   `ImmediatePlanner` (pure depth-walking, no network), and `OrderSigner`/`SigningContext`/
-  `SignedOrder`. Routing is the asset's sealed type alone — a `TokenId` signs against Exchange V2,
+  `SignedOrder`. **`OrderSigner` has one method and it is priced** (issue #10): it takes the
+  Protected Price, enforces the snapshot and derives the pUSD leg, so no leg-only overload can imply
+  a price the snapshot never saw. The one legitimate leg-based case, a Builder Gateway Combo quote,
+  has its own `com.polymarket.rfq.ComboQuoteSigner` port taking a `PositionId`.
+  `SignedOrder` is valid by construction — addresses, unsigned fields, positive legs, an official
+  signature type and a hex signature — and carries `signer` (the exchange's resolved signer) and
+  `accountSigner` (POLY_ADDRESS) separately, because type 3 splits them.
+  Routing is the asset's sealed type alone — a `TokenId` signs against Exchange V2,
   a `PositionId` against V3 — proven byte-for-byte against the official vectors in
   `Eip712OrderSignerVectorTest`. A Deposit Wallet (signature type 3) signs the ERC-7739
   `TypedDataSign` wrapper under the exchange's own domain, not the wallet's. Implemented by
@@ -89,12 +99,21 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   (`HttpRuntime.post` executes exactly once). A `PositionId` order is rejected before any request:
   V3 Combo orders route through the RFQ Builder Gateway (issues #25/#26), not `POST /order`.
   Implemented by `com.polymarket.internal.trading.TradingGateway`.
+  Immediate planning measures affordability at the price the order is actually signed at, not at
+  blended book prices, so a BUY's encoded leg plus quoted fee can never exceed its budget; share
+  quantities truncate to the tick profile's documented size decimals, and `ImmediatePlan.cost` is the
+  leg the order carries (the most a BUY spends, the least a SELL receives) on both sides.
+  `GoodTilDateOrder` is a final class, not a record: `expiringAt(..., clock)` is the only way to
+  build one, so an unvalidated lifetime cannot exist.
   `Trading.reconcile` (issue #16) takes a `SigningIdentity`, because the L2 `POLY_ADDRESS` header
   carries the Account Signer while the required `maker_address` filter carries the Trading Wallet —
   they coincide only for an EOA. It polls `GET /data/trades?id=` (one request per trade ID — the
   filter has no batch form) via the `TradeReader` **port** until every ID reaches the terminal
   `TradeStatus.Known.CONFIRMED`/`FAILED`, so a delayed transaction hash just shows up on a later
-  poll. A missing or non-terminal record keeps polling; an unrecognised status is kept as its
+  poll. The deadline is passed into `TradeReader.byIds`, so a multi-page, multi-id walk stops when
+  the caller's time is spent (the first attempt always goes out), and `Pending` reports the records
+  the last read observed, keeping missing, MATCHED, MINED, RETRYING and an unrecognised status
+  distinguishable. A missing or non-terminal record keeps polling; an unrecognised status is kept as its
   `raw()` text and treated as non-terminal. A local deadline yields `ReconciliationOutcome.Pending`
   (order and trade IDs preserved) rather than a reported failure. Implemented by
   `com.polymarket.internal.trading.TradeReaderGateway`.
@@ -125,7 +144,8 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   comments (general, by entity, by user, and single-comment/thread lookup) and profile search,
   reached through the `SocialDirectory` **port**. Every read is credential-free and bounded (a
   `limit` is required so no comment read can become an unbounded walk); an unrecognised
-  `parentEntityType` degrades to `Optional.empty()` rather than failing the read. `Markets.search()`
+  `parentEntityType` degrades to `Optional.empty()` rather than failing the read. A comment thread
+  has no documented ceiling either, so `commentsById` takes a `CommentPage` like every other read. `Markets.search()`
   keeps owning event/tag search results — `Social.search()` returns only the profile matches.
   Implemented by `com.polymarket.internal.social.SocialGateway`.
 - `com.polymarket.builders` (issue #19) — `Builders` capability: L2-authenticated builder
@@ -153,13 +173,18 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   `Trading.reconcile`'s injected-`Clock` loop; a local timeout is `Pending`, never a reported
   failure. HTTP validation (`Rejected`) and the business state machine stay separate axes, and the
   durable `rfqId` survives every uncertain path.
-  `accept` rejects an expired quote before sending, signs `quote.comboPositionId()` through the
+  `accept` takes no caller-supplied signer — the root wires the SDK's own — and refuses a
+  `SigningContext` whose identity is not the `requestedBy` the Quote was priced for. It rejects an
+  expired quote before sending, signs `quote.comboPositionId()` through the
   V3 path with `context.withBuilder(quote.builderCode())` (the official rule: "order.builder
-  must equal the returned builder_code"), and never throws or replays on transport failure — a
+  must equal the returned builder_code"), checks the signed order against the quote before sending,
+  and never throws or replays on transport failure — a
   connection loss becomes `Unknown(rfqId, ...)`, the durable handle for a later status poll.
   Direction, amounts, Combo position and deadline all ride on `RfqOutcome.Quoted`, so acceptance
-  cannot contradict the request; a payload missing any of them is `Unknown`, never a guessed BUY or
-  a zero amount. `expires_at` and `builder_code` are read top level and the Combo position from
+  cannot contradict the request; a payload missing any of them — or the quote id, builder code,
+  expiry or legs — is `Unknown`, never a guessed BUY, a zero amount or an epoch-zero deadline.
+  `awaitSettlement` clamps its sleep to the remaining time like `Trading.reconcile`, and a
+  `Confirmed` keeps the status read's `tx_hash` alongside the acceptance's `taker_order_hash`. `expires_at` and `builder_code` are read top level and the Combo position from
   `request.yes_position_id`, as `builder-gateway.json` pins them. `signer_address` follows the
   wallet type (Trading Wallet only for signature type 3); `POLY_ADDRESS` is always the Account
   Signer. Leg discovery reads the official `GET /v1/rfq/combo-markets` catalog — no local CTF
@@ -192,8 +217,16 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   envelope and no auth — but mirrors its lifecycle contract exactly (register-before-subscribe,
   closeable `Registration`, per-connection generation, callback isolation) via a parallel
   `RtdsChannelConnection` porting the same proven reconnect/backoff/heartbeat algorithm.
+  Every RTDS event carries `observedAt`, the envelope time the stream saw it, distinct from the
+  payload's own timestamp. `RtdsTransport` is `AutoCloseable`, so closing the capability releases
+  the scheduler, dispatcher and connection pool behind the socket, and dispatch delivers nothing
+  once closed. Both WebSocket hosts and the connect timeout come from `PolymarketConfig`
+  (`streamHost`, `rtdsHost`), never hardcoded in the root.
   Implemented by `com.polymarket.internal.streaming.RtdsGateway`.
-- Heartbeat (issue #24) — `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
+- Heartbeat (issue #24) — the interval is checked in milliseconds, the unit the schedule is
+  expressed in, so a positive but sub-millisecond `Duration` is refused before any state changes and
+  a scheduling failure restores the inactive state rather than stranding the flag.
+  `Polymarket.startHeartbeat()`/`startHeartbeat(Duration)`/
   `stopHeartbeat()`/`isHeartbeatActive()` own the CLOB dead-man-switch tick; nothing ticks on
   construction. Each tick is a **bodyless** L2-signed `POST /heartbeats` (`sendHeartbeat` declares
   no `requestBody`) and a successful status is the whole acknowledgement — there is no
@@ -209,6 +242,10 @@ import inside a public domain package (the gateway does the mapping), and **capa
 domain-declared ports, never on an internal adapter type**. Only `Polymarket`, the composition root,
 wires the two sides together. Secrets redact in `toString`, and absent authority throws
 `AuthenticationRequiredException` before anything reaches the wire.
+
+Every reference component of every shipped public record carries Lombok `@NonNull`, so a public
+model is valid by construction: a malformed wire frame is dropped rather than mapped into an event
+with null required fields, and absence is always `Optional`, never null.
 
 `PublicBoundaryTest` enforces those rules with ArchUnit (issue #6). With the 1.0 facade gone there is
 nothing left to exempt, so the rules cover **everything outside `com.polymarket.internal..`** rather
@@ -234,7 +271,11 @@ never exclusions.
 **Configuration is caller-supplied only (issue #8).** The SDK loads no property file, reads no secret
 file, prints no configuration, and ships no HTTP proxy support — hosts and timeouts reach the SDK
 through `PolymarketConfig` and credentials through `SigningAuthority`/`ApiCredentials`, and nowhere
-else. Construction performs no network call and derives no credential.
+else. Construction performs no network call and derives no credential. Every `PolymarketConfig`
+mutator rejects null, and the WebSocket hosts (`streamHost`, `rtdsHost`) sit there beside the REST
+ones. `HttpRuntime` refuses a request once closed, so a capability handed out before
+`Polymarket.close()` cannot outlive the root's transport, and it honours both legal `Retry-After`
+forms — delay-seconds and an HTTP-date measured from when the response arrived.
 
 **Two-level CLOB authentication.** Both header sets are built in
 `com.polymarket.internal.authentication` and are never public:
@@ -306,12 +347,15 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after issue #30: `mvn clean verify` → **554 tests, 0 failures,
-  0 errors, 0 skipped**, with the dependency gate clean. The earlier 328-test baseline predates the
+- Verified baseline on Java 21 after the issue-#1 repair wave: `mvn clean verify` → **594 tests,
+  0 failures, 0 errors, 0 skipped**, with the dependency gate clean and the README examples compiled
+  against the packaged jar. The earlier 328-test baseline predates the
   2.0 repair waves. The drop from 1179 is
   the deleted 1.0 facade suite, not lost coverage of 2.0 behavior; the deletion also uncovered a
   dropped capability (CREATE2 wallet derivation), restored with its own golden-vector tests.
-  `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else.
+  `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else; each probes a
+  documented, credential-free endpoint (`GET clob /time`, `GET gamma /tags?limit=1`,
+  `GET data /trades?limit=1`), never an unpublished liveness path.
 
 ## Companion documents (issue #30)
 
@@ -319,5 +363,9 @@ documentation and an independent signer — never from this SDK's own code.
   official doc URLs and a last-reviewed date. Update it in the same change that moves a line.
 - `docs/MIGRATION.md` — the 1.0 → 2.0 map. No compatibility adapters exist, so this is the only bridge.
 - `docs/WORKFLOW.md` — contributor workflow (GitHub issues + this file + the TDD conventions above).
-- `README.md` — 2.0 only; its examples are compiled against the packaged artifact before release.
+- `README.md` — 2.0 only. Its examples live in `src/examples/java`, are compiled against the
+  packaged JAR and its runtime dependencies during `verify` (not as test sources, and without
+  Lombok, so they build the way a consumer's code does), and `ReadmeExamplesTest` asserts the README
+  still shows exactly that source. `MigrationDocTest` checks every 2.0 replacement `MIGRATION.md`
+  names actually exists, so a rename cannot silently break the migration map.
 

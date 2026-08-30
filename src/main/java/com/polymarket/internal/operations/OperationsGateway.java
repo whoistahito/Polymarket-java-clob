@@ -45,9 +45,11 @@ public final class OperationsGateway {
 
     public List<ServiceHealth> health() {
         List<ServiceHealth> results = new ArrayList<>();
+        // Each probe is a documented, credential-free read bounded to one row. An undocumented
+        // liveness path can disappear without notice and report a healthy service as down.
         results.add(probe(PolymarketService.CLOB, config.clobHost(), "/time"));
-        results.add(probe(PolymarketService.GAMMA, config.gammaHost(), "/status"));
-        results.add(probe(PolymarketService.DATA, config.dataHost(), "/"));
+        results.add(probe(PolymarketService.GAMMA, config.gammaHost(), "/tags?limit=1"));
+        results.add(probe(PolymarketService.DATA, config.dataHost(), "/trades?limit=1"));
         return List.copyOf(results);
     }
 

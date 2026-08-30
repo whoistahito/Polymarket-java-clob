@@ -93,6 +93,22 @@ class PolymarketRootTest {
     }
 
     @Test
+    @DisplayName("TC-PR-020: health probes documented endpoints, never an undocumented liveness path")
+    void healthProbesOnlyDocumentedEndpoints() throws Exception {
+        for (int i = 0; i < 3; i++) server.enqueue(new MockResponse().setBody("{}"));
+
+        try (Polymarket sdk = Polymarket.with(config(), noSleepRuntime(ReadRetryPolicy.none()))) {
+            sdk.health();
+        }
+
+        // A deployment check must not depend on a path Polymarket never published: an undocumented
+        // one can disappear without notice and report a healthy service as down.
+        assertEquals(List.of("/time", "/tags?limit=1", "/trades?limit=1"),
+                List.of(server.takeRequest().getPath(), server.takeRequest().getPath(),
+                        server.takeRequest().getPath()));
+    }
+
+    @Test
     @DisplayName("TC-PR-005: geoblock is typed and missing fields stay absent")
     void geoblockIsTyped() throws Exception {
         server.enqueue(new MockResponse().setBody(

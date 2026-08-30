@@ -10,29 +10,38 @@ Reviewed: 2026-08-30
 
 ## Verification
 
-`mvn clean verify` passed: **554 tests, 0 failures, 0 errors, 0 skipped**. Dependency and packaging gates also passed.
+`mvn clean verify` passes: **594 tests, 0 failures, 0 errors, 0 skipped**. The dependency and
+packaging gates pass, and the README examples compile against the packaged JAR. `mvn -Plive test`
+selects the 6 read-only live checks and passes against the production API.
 
 ## Ticket Status
 
-- Complete: #2, #6, #7, #8, #15, #29.
-- Direct acceptance criteria implemented, but affected by issue #1 cross-cutting gaps: #18, #19, #20, #21, #22.
-- Partial or requiring correction: #1, #3, #4, #5, #9-#14, #16, #17, #23-#28, #30.
+Every ticket's follow-up comment has been worked. The release blockers below are closed:
 
-## Release Blockers
+1. #1/#5: listed API keys are a redacted `ApiKey` value type; a blank wire entry is a read failure.
+2. #10-#12: the public signing seam is priced and singular, so no leg pair can imply an off-grid
+   price; immediate BUY affordability is measured at the price the order is signed at.
+3. #14: a success whose `orderID` or `status` is not text is Unknown, and `SignedOrder` refuses a
+   value the signer could not have produced.
+4. #23: RTDS carries the envelope observation time and the documented comment/reaction fields;
+   closing releases the transport and stops delivery.
+5. #24: a sub-millisecond interval is refused before any state changes, and a scheduling failure
+   restores the inactive state.
+6. #26/#28: the Deposit Wallet signer contract is resolved in favour of the documented Resolve
+   Quoter Identity table, and acceptance is bound to the requesting identity and the SDK's signer.
 
-1. #1/#5: listed API keys are exposed as raw strings instead of redacted values.
-2. #10-#12: signing can bypass price-grid validation, and immediate BUY execution can exceed its pUSD budget.
-3. #14: malformed successful order responses can be classified as accepted.
-4. #23: RTDS drops envelope timestamps and documented social-event fields.
-5. #24: sub-millisecond heartbeat intervals can leave the SDK reporting an active schedule when none exists.
-6. #26/#28: RFQ Deposit Wallet signer rules conflict, and acceptance is not bound to the requesting identity or SDK signer.
+## Cross-cutting repairs
 
-## Other Gaps
+- Every reference component of every shipped public record rejects null, guarded by an ArchUnit
+  rule proven against a test-only fixture.
+- Reconciliation and RFQ polling are bounded by their local deadlines, including the work in
+  flight, and `ReconciliationOutcome.Pending` reports what was last observed.
+- Batch and cancellation responses are refused rather than coerced when malformed.
+- Streaming and RTDS hosts and timeouts come from `PolymarketConfig`.
+- `MIGRATION.md`, `SOURCES.md`, `API_COVERAGE.md` and `README.md` describe the code that exists,
+  and `MigrationDocTest` plus the fixture-directory enumeration keep them from drifting again.
 
-- Public models and configuration still permit null values where valid-by-construction types are required.
-- Reconciliation and RFQ polling can exceed local deadlines or collapse distinct settlement states.
-- Batch, cancellation, and RFQ response validation accepts some malformed payloads.
-- Streaming configuration and RTDS lifecycle are not fully controlled by the root SDK configuration.
-- Migration, protocol, README, and live-check documentation contain stale or unsupported claims.
+## Known limits
 
-Fix the release blockers before pushing or closing the affected GitHub issues.
+- `streams.json` names `media`, `reactions` and `tradeAsset` on an RTDS comment, but no official
+  example gives them a shape. They are recorded as deliberately unmapped rather than invented.
