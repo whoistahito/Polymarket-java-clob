@@ -281,7 +281,9 @@ class HeartbeatTest {
     }
 
     private PolymarketConfig configPointingAtServer() {
-        URI host = server.url("/").uri();
+        // MockWebServer listens on IPv4 in CI; after a forced disconnect OkHttp may otherwise
+        // postpone that route and retry localhost only over IPv6.
+        URI host = server.url("/").newBuilder().host("127.0.0.1").build().uri();
         return PolymarketConfig.defaults()
                 .clobHost(host).gammaHost(host).dataHost(host).geoblockHost(host);
     }
