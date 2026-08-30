@@ -58,6 +58,8 @@ final class ChannelConnection implements StreamConnection {
     private final Set<String> subjects = new LinkedHashSet<>();
     private WebSocket socket;
     private boolean initialSent;
+    /** True while a reconnect is already queued, so a subscribe does not undercut its backoff. */
+    private boolean reconnectScheduled;
 
     private volatile boolean closed;
     private final AtomicLong generation = new AtomicLong(0);
@@ -113,7 +115,17 @@ final class ChannelConnection implements StreamConnection {
         }
         subjects.removeAll(removed);
         subjects.addAll(added);
-        if (!initialSent || socket == null) {
+        if (socket == null) {
+            // A channel that dropped with nothing subscribed, or that spent its attempt budget,
+            // has no reconnect coming. Once there is something to carry again that reason is gone,
+            // and without this the channel stays silently dead. A queued reconnect keeps its
+            // backoff: it will open and its initial frame carries the set updated just above.
+            if (!closed && !reconnectScheduled && (isUser() || !subjects.isEmpty())) {
+                open();
+            }
+            return;
+        }
+        if (!initialSent) {
             return; // the initial frame has not gone out yet — it will carry the whole set
         }
         if (!added.isEmpty()) {
@@ -243,14 +255,20 @@ final class ChannelConnection implements StreamConnection {
             return;
         }
         long delay = Math.min(reconnectDelayMs * (1L << Math.min(n - 1, 30)), maxReconnectDelayMs);
+        markReconnectScheduled(true);
         try {
             scheduler.schedule(this::doReconnect, delay, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // close() won the race after the closed check above
+            markReconnectScheduled(false); // close() won the race after the closed check above
         }
     }
 
+    private synchronized void markReconnectScheduled(boolean scheduled) {
+        this.reconnectScheduled = scheduled;
+    }
+
     private synchronized void doReconnect() {
+        reconnectScheduled = false;
         if (closed || socket != null) {
             return;
         }

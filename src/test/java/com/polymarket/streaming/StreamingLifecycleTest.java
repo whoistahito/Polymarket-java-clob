@@ -302,6 +302,61 @@ class StreamingLifecycleTest {
     }
 
     @Test
+    @DisplayName("TC-SL-012 a channel dropped while nothing was subscribed comes back on the next subscribe")
+    void anEmptyChannelThatDroppedIsRevivedByTheNextSubscribe() throws Exception {
+        // Unsubscribing everything is a legitimate quiet period, and declining to reconnect an empty
+        // channel is right. But the socket must come back when there is something to carry again,
+        // or the channel is silently dead for the rest of the process's life.
+        CountDownLatch firstFrame = new CountDownLatch(1);
+        CountDownLatch revivedFrame = new CountDownLatch(1);
+        List<String> framesOnSecondSocket = new CopyOnWriteArrayList<>();
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+
+        server = new MockWebServer();
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                if (attempts.incrementAndGet() == 1) {
+                    // Drops the socket as soon as the unsubscribe-to-empty frame arrives.
+                    return new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                        @Override public void onMessage(WebSocket ws, String text) {
+                            if (firstFrame.getCount() > 0) {
+                                firstFrame.countDown();
+                            } else {
+                                ws.close(1000, "bye");
+                            }
+                        }
+                    });
+                }
+                return new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                    @Override public void onMessage(WebSocket ws, String text) {
+                        framesOnSecondSocket.add(text);
+                        revivedFrame.countDown();
+                    }
+                });
+            }
+        });
+        server.start();
+
+        gateway = StreamingGateway.builder().wsBase(wsBase()).reconnectDelayMs(50).build();
+        streaming = new Streaming(gateway, SigningAuthority.none());
+
+        streaming.subscribeMarket(List.of("tokA"));
+        assertTrue(firstFrame.await(15, TimeUnit.SECONDS), "the initial frame must go out");
+        streaming.unsubscribeMarket(List.of("tokA"));
+
+        // The server drops the socket on that unsubscribe frame; nothing is subscribed, so the
+        // channel correctly does not reconnect on its own.
+        Thread.sleep(300);
+        streaming.subscribeMarket(List.of("tokB"));
+
+        assertTrue(revivedFrame.await(15, TimeUnit.SECONDS),
+                "a subscribe after an empty-channel drop must reopen the socket");
+        assertTrue(framesOnSecondSocket.get(0).contains("tokB"),
+                "the revived socket carries the whole authoritative set: " + framesOnSecondSocket);
+    }
+
+    @Test
     @DisplayName("TC-SL-009 a throwing lifecycle listener cannot prevent reconnect")
     void throwingLifecycleListenerCannotPreventReconnect() throws Exception {
         CountDownLatch reconnected = new CountDownLatch(1);

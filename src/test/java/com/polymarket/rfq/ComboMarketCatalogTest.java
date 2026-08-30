@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import okhttp3.mockwebserver.MockResponse;
@@ -152,6 +153,41 @@ class ComboMarketCatalogTest {
         ComboMarketPage page = rfq().comboMarkets(ComboMarketQuery.pageSize(50));
 
         assertEquals(List.of(), page.markets());
+    }
+
+    @Test
+    @DisplayName("TC-CM-007: a market carrying an unusable identifier or price is skipped, not thrown")
+    void oneUnusableMarketDoesNotDiscardThePage() throws Exception {
+        // The method's contract is "anything else is skipped, never guessed". A position id that is
+        // not a uint256, or a price that is not a number, must not take the whole page with it.
+        server.enqueue(new MockResponse().setBody("""
+                {"markets":[
+                   {"id":"1","condition_id":"0xa","position_ids":["not-a-uint256","8"],
+                    "slug":"s","title":"t","outcomes":["Yes","No"],"outcome_prices":["0.5","0.5"]},
+                   {"id":"2","condition_id":"0xb","position_ids":["9","10"],
+                    "slug":"s2","title":"t2","outcomes":["Yes","No"],"outcome_prices":["oops","0.5"]},
+                   {"id":"3","condition_id":"0xc","position_ids":["11","12"],
+                    "slug":"s3","title":"t3","outcomes":["Yes","No"],"outcome_prices":["0.5","0.5"]}],
+                 "next_cursor":null}"""));
+
+        ComboMarketPage page = rfq().comboMarkets(ComboMarketQuery.pageSize(50));
+
+        assertEquals(List.of("3"), page.markets().stream().map(ComboMarket::id).toList(),
+                "the readable market survives its unreadable neighbours");
+    }
+
+    @Test
+    @DisplayName("TC-CM-008: a non-JSON error body reports the HTTP status, not a parse failure")
+    void aNonJsonErrorBodyReportsItsStatus() {
+        // A gateway or proxy failure is exactly when the status matters, and exactly when the body
+        // is least likely to be JSON.
+        server.enqueue(new MockResponse().setResponseCode(502)
+                .setBody("<html><body>502 Bad Gateway</body></html>"));
+
+        IOException failure = assertThrows(IOException.class,
+                () -> rfq().comboMarkets(ComboMarketQuery.pageSize(50)));
+
+        assertTrue(failure.getMessage().contains("502"), failure.getMessage());
     }
 
     @Test

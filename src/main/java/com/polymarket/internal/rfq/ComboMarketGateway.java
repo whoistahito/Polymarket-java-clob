@@ -18,12 +18,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Transport for the Combo markets catalog. Ground truth:
  * {@code src/test/resources/protocol/combo-markets.json}. The read is unauthenticated.
  */
 public final class ComboMarketGateway implements ComboMarketCatalog {
+
+    private static final Logger log = LoggerFactory.getLogger(ComboMarketGateway.class);
 
     /** Published in the "Get Combo Markets" API tab; not one of PolymarketConfig's hosts. */
     private static final String CATALOG_PATH = "/v1/rfq/combo-markets";
@@ -48,14 +52,29 @@ public final class ComboMarketGateway implements ComboMarketCatalog {
         }
 
         HttpOutcome outcome = runtime.get(host, path.toString(), Map.of());
-        JsonNode body = runtime.parse(outcome.body());
+        // Status first: a gateway failure is exactly when the status matters and exactly when the
+        // body is least likely to be JSON, so parsing it first would hide the status behind a
+        // parse error.
         if (!outcome.successful()) {
             throw new IOException("Combo catalog read failed: HTTP " + outcome.status()
-                    + " " + text(body, "error").orElse(""));
+                    + " " + errorDetail(outcome.body()));
         }
+        JsonNode body = runtime.parse(outcome.body());
         List<ComboMarket> markets = new ArrayList<>();
         body.path("markets").forEach(market -> comboMarket(market).ifPresent(markets::add));
         return new ComboMarketPage(markets, text(body, "next_cursor"));
+    }
+
+    /** The documented error envelope when there is one; otherwise the body as the server sent it. */
+    private String errorDetail(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            return text(runtime.parse(body), "error").orElse(body);
+        } catch (IOException notJson) {
+            return body;
+        }
     }
 
     /** The documented YES/NO pair is the whole contract; anything else is skipped, never guessed. */
@@ -66,7 +85,19 @@ public final class ComboMarketGateway implements ComboMarketCatalog {
         if (positionIds.size() != 2 || outcomes.size() != 2) {
             return Optional.empty();
         }
-        return Optional.of(new ComboMarket(
+        try {
+            return Optional.of(readMarket(node, positionIds, outcomes, prices));
+        } catch (RuntimeException unusable) {
+            // A row the domain types refuse — a position id that is not a uint256, a price that is
+            // not a number — is one skipped row, not a discarded page.
+            log.debug("Skipping an unreadable Combo market: {}", unusable.toString());
+            return Optional.empty();
+        }
+    }
+
+    private static ComboMarket readMarket(JsonNode node, JsonNode positionIds, JsonNode outcomes,
+            JsonNode prices) {
+        return new ComboMarket(
                 node.path("id").asText(""),
                 node.path("condition_id").asText(""),
                 outcome(outcomes, positionIds, prices, YES_INDEX),
@@ -75,7 +106,7 @@ public final class ComboMarketGateway implements ComboMarketCatalog {
                 node.path("title").asText(""),
                 text(node, "image"),
                 text(node, "volume").map(BigDecimal::new),
-                tags(node.path("tags"))));
+                tags(node.path("tags")));
     }
 
     private static ComboOutcome outcome(JsonNode outcomes, JsonNode positionIds, JsonNode prices,

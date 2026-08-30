@@ -55,6 +55,8 @@ final class RtdsChannelConnection implements RtdsConnection {
     private RtdsSubscriptions subjects;
     private WebSocket socket;
     private boolean initialSent;
+    /** True while a reconnect is already queued, so a subscribe does not undercut its backoff. */
+    private boolean reconnectScheduled;
 
     private volatile boolean closed;
     private final AtomicLong generation = new AtomicLong(0);
@@ -90,7 +92,15 @@ final class RtdsChannelConnection implements RtdsConnection {
     public synchronized void subscription(RtdsSubscriptions current) {
         RtdsSubscriptions previous = subjects;
         subjects = current;
-        if (!initialSent || socket == null) {
+        if (socket == null) {
+            // Nothing will reopen this socket once the attempt budget is spent, so a later
+            // subscribe has to. A queued reconnect keeps its backoff and carries the set set above.
+            if (!closed && !reconnectScheduled) {
+                open();
+            }
+            return;
+        }
+        if (!initialSent) {
             return; // the initial frame has not gone out yet - it will carry the whole set
         }
         send("subscribe", entriesFor(delta(current, previous)));
@@ -258,11 +268,16 @@ final class RtdsChannelConnection implements RtdsConnection {
             return;
         }
         long delay = Math.min(reconnectDelayMs * (1L << Math.min(n - 1, 30)), maxReconnectDelayMs);
+        markReconnectScheduled(true);
         try {
             scheduler.schedule(this::doReconnect, delay, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // close() won the race after the closed check above
+            markReconnectScheduled(false); // close() won the race after the closed check above
         }
+    }
+
+    private synchronized void markReconnectScheduled(boolean scheduled) {
+        this.reconnectScheduled = scheduled;
     }
 
     private synchronized void loseSocket() {
@@ -271,6 +286,7 @@ final class RtdsChannelConnection implements RtdsConnection {
     }
 
     private synchronized void doReconnect() {
+        reconnectScheduled = false;
         if (closed || socket != null) return;
         open();
     }
