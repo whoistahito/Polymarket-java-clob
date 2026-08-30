@@ -1,0 +1,39 @@
+[
+  {
+    "proxyWallet": "0x56687bf447db6ffa42ffe2208a51ce8ba1a5b63a",
+    "asset": "1343197538147866997676250008839231694243646439454152539053893078719042421992",
+    "conditionId": "0xbd31dc8a20211944f6b70f31557f1001557b59905b7738480ca09bd4532f84af",
+    "size": 1500.25,
+    "avgPrice": 0.4523,
+    "initialValue": 678.663075,
+    "grossInitialValue": 680.163075,
+    "entryFeesUsdc": 1.5,
+    "currentValue": 900.15,
+    "cashPnl": 221.486925,
+    "percentPnl": 32.6416,
+    "totalBought": 2000.5,
+    "realizedPnl": 12.25,
+    "percentRealizedPnl": 1.8055,
+    "curPrice": 0.6,
+    "redeemable": false,
+    "mergeable": true,
+    "title": "Will Xi Jinping be out before 2027?",
+    "slug": "xi-jinping-out-before-2027",
+    "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/xi.png",
+    "eventSlug": "xi-jinping-out",
+    "outcome": "Yes",
+    "outcomeIndex": 0,
+    "oppositeOutcome": "No",
+    "oppositeAsset": "32338220190071351435772801779725302244575775216413325951443816017994629993401",
+    "endDate": "2027-01-01T00:00:00Z",
+    "negativeRisk": false
+  },
+  {
+    "asset": "32338220190071351435772801779725302244575775216413325951443816017994629993401",
+    "conditionId": "0xa467b14d51f01b957109d9cbb1d6c124fab2a089d52ed8f471d23c2812e743b7",
+    "size": 0,
+    "curPrice": 0,
+    "outcome": "",
+    "outcomeIndex": 999
+  }
+]

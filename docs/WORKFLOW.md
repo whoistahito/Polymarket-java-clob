@@ -1,51 +1,64 @@
-# Session Workflow — implementing v2-alignment tickets
+# Contributor workflow
 
-How a future session should pick up and implement work here. Follow it top to bottom.
+How work on this repo is planned and landed. Read [AGENTS.md](../AGENTS.md) first — it is the
+architecture doc, and everything below assumes it.
 
-## 0. Orient (read first)
-- **`AGENTS.md`** (repo root) — build/test commands, architecture, conventions.
-- **v2 Rust SDK** at `rs-clob-client/` (`Polymarket/rs-clob-client-v2`) — the **wire/protocol ground
-  truth**: endpoints, HTTP methods, payloads, signing, data semantics. It is *guidance, not a
-  template* — this SDK is domain-driven, so package/type structure may differ on purpose. Mirror the
-  **wire behavior**, never the code structure. Where docs and Rust disagree, Rust wins.
-- **`docs/api-reference/`** — the OpenAPI docs (endpoint shapes, params, examples). Secondary to Rust.
+## 1. Orient
 
-## 1. Understand current state
-- **`docs/tickets/README.md`** — the hub: board (scope + status), current state, and out-of-scope.
-- **`docs/ENDPOINT_AUDIT.md`** — per-endpoint audit evidence behind the gaps.
+- **[AGENTS.md](../AGENTS.md)** — build and test commands, the 2.0 package map, invariants, testing
+  conventions, and the two-line maximum on JavaDoc and comments.
+- **[API_COVERAGE.md](API_COVERAGE.md)** — what the SDK supports, what it deliberately does not, and
+  what is out of scope. Update it in the same change that moves a line.
+- **[MIGRATION.md](MIGRATION.md)** — the 1.0 → 2.0 map, for questions about why something was dropped.
+- **`src/test/resources/protocol/*.json`** — pinned official fixtures (`signing-vectors.json`,
+  `constraints.json`, `builder-gateway.json`). Each field carries the documentation URL it came from.
+  They are wire ground truth; never regenerate them from this SDK's own output.
+- Polymarket's published documentation and its OpenAPI specs are the endpoint authority. Where the
+  official sources contradict each other (minimum-size units, book level ordering), AGENTS.md records
+  which side this SDK takes and why — do not quietly pick the other one.
 
-## 2. Pick a ticket
-- Tickets live in **`docs/tickets/`**. Start at **`README.md`** — the board (ID, priority, status,
-  parent) and the **recommended sequence**.
-- Take the highest-priority `🔵 Todo` ticket unless told otherwise. Each ticket file has the summary,
-  evidence (file refs), tasks, and a **Gherkin Definition of Done**.
-- Set its status to `🟡 In progress` in the board.
+## 2. Pick up work
 
-## 3. Implement — test-driven + domain-driven
-- **TDD:** write the failing test first from the ticket's Gherkin DoD (one scenario → one test),
-  then write the minimum code to pass. Tests use JUnit 5 + Mockito; client tests use `MockWebServer`
-  (see `BulkMarketDataTest`, `AuditFixesTest` for the pattern). Test IDs: `TC-XX-NNN` in `@DisplayName`.
-- **DDD:** model the domain, not the transport — e.g. results keyed by the domain identity
-  (`Map<tokenId, …>`), `Side` enum over strings, `BigDecimal` for all money (never `double`/`float`).
-  Don't add abstractions a ticket doesn't need.
-- Cross-check the exact wire shape against `rs-clob-client/` before changing a currently-working path;
-  tickets marked **verify on live** must be confirmed against the running API first.
-- Never regress V1 order signing.
+Work is tracked as **GitHub issues**, not files in this repo. The 2.0 redesign is issue #1 (the parent
+epic, holding the scope, decisions and the Out of Scope list); each unit of work is a sub-issue. An
+issue carrying the `ready-for-agent` label is ready to start. Take one issue at a time and keep its
+scope: an issue's acceptance criteria are the contract.
+
+## 3. Implement — test-driven, domain-driven
+
+- **TDD at the highest seam.** Drive a public capability against `MockWebServer` and assert the typed
+  outcome plus the exact outbound method, path, query, headers and body. Keep a pure domain test only
+  where no network seam can exercise the invariant.
+- Test IDs follow `TC-XX-NNN` in `@DisplayName`. Framework is JUnit 5 + Mockito.
+- **Model the domain, not the transport.** `BigDecimal` for every financial value, never
+  `double`/`float`; sealed types and records over strings and maps; `Optional` so absent stays distinct
+  from zero. Reject rather than round.
+- Don't add abstractions the issue doesn't need. Mark a deliberate corner-cut with a one-line
+  `// ponytail:` comment rather than building the general case.
+- Boundaries are enforced by the build: `PublicBoundaryTest` (no transport type or `internal` import in
+  a public package), `DirectChainSurfaceTest` (no Polygon RPC surface). If a change fights those rules,
+  the design is wrong, not the rule.
+- When touching `Eip712OrderSigner`, `L1Attestation` or `L2Attestation`, re-verify against the pinned
+  vectors — signing is the one place a green suite can still be wrong.
 
 ## 4. Verify
-- `mvn test` (full suite). Known pre-existing failure: `ExecutionEngineTest
-  .testBudgetCapBlocksOverspendForSingleBot` depends on unfinished bot WIP — not your regression
-  unless your diff touches it. Everything else must stay green.
-- A ticket is Done only when **every** Gherkin scenario passes (and live-verified where stated).
+
+```bash
+mvn -o clean verify     # full deterministic suite; must be entirely green, no exclusions
+mvn -o clean package    # the release gate
+```
+
+The suite is offline by construction, so a test that reaches a real host fails with
+`UnknownHostException`. Live checks are the exception: they carry `@Tag("live")`, live in
+`com.polymarket.live`, are excluded from every normal run, and are selected only by
+`mvn -Plive test`. `LiveCheckGatingTest` fails the build if a live check loses its tag or a live tag
+appears outside that package. Live checks stay credential-free and read-only — never an order, an RFQ
+acceptance, a cancellation, or a private key.
 
 ## 5. Close out
-- Flip the ticket to `🟢 Done` in `docs/tickets/README.md`; update its "Current state" if capabilities changed.
-- Commit per ticket: `feat(area): PMK-NNN <summary>` for code, `docs(tickets): …` for ticket/board
-  edits. Commit only when asked; if pushing on `main`, confirm first.
 
-## Guardrails
-- Rust wire behavior is ground truth; DDD structure is ours.
-- `BigDecimal` only for prices/amounts; rounding `HALF_UP`; token amounts × 10^6.
-- EIP-712 signing is signing-critical — for the V2 epic (PMK-001), cross-check hashes against the Rust
-  SDK and do it on its own focused branch.
-- Shortest working diff; delete dead code the change orphans.
+- Update AGENTS.md when architecture or the verified test count changes, and API_COVERAGE.md when
+  supported surface changes — in the same change, not a follow-up.
+- One commit per logical change, subject in the imperative naming the issue:
+  `Add trade-ID settlement reconciliation (#16)`.
+- Delete the dead code a change orphans. Prefer removing stale content over leaving a broken pointer.

@@ -1,0 +1,82 @@
+{
+  "reviewedOn": "2026-08-23",
+  "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (GET /builder/trades, info.version 1.0.0)",
+  "referencePage": "https://docs.polymarket.com/api-reference/trade/get-builder-trades.md",
+  "host": "https://clob.polymarket.com",
+  "method": "GET",
+  "path": "/builder/trades",
+  "operationId": "getBuilderTrades",
+
+  "requiredQuery": ["builder_code"],
+  "builderCodePattern": "^0x[a-fA-F0-9]{64}$",
+  "optionalQuery": ["id", "market", "asset_id", "before", "after", "next_cursor"],
+  "requiredQueryNote": "builder_code is required:true. A read that omits it is rejected with 400 'invalid builder trade params' - no filter defaults to the caller's own builder code.",
+
+  "auth": {
+    "declaredSecurity": "none",
+    "note": "The operation declares no security scheme and the spec sets no root-level security, unlike GET /data/trades which declares the five L2 headers. Recorded as read; builder onboarding may still gate it."
+  },
+
+  "continuation": {
+    "beforeParameter": "before",
+    "afterParameter": "after",
+    "beforeUnit": "unix-seconds, as a decimal string",
+    "afterUnit": "unix-seconds, as a decimal string",
+    "beforeAfterPattern": "^\\d+$",
+    "beforeExample": "1700000000",
+    "afterExample": "1600000000",
+    "cursorParameter": "next_cursor",
+    "cursorPlacement": "query",
+    "cursorEncoding": "base64-encoded offset",
+    "openingCursor": "MA==",
+    "endOfPagesCursor": "LTE=",
+    "note": "before/after bound the match-time window; next_cursor walks pages inside it. They are independent and can be combined."
+  },
+
+  "page": {
+    "schema": "BuilderTradesResponse",
+    "envelopeFields": ["limit", "next_cursor", "count", "data"],
+    "requiredEnvelopeFields": ["limit", "next_cursor", "count", "data"],
+    "rowsField": "data",
+    "exampleLimit": 300,
+    "exampleNextCursor": "MzAw"
+  },
+
+  "timestampUnits": {
+    "matchTime": "unix-seconds, as a decimal string",
+    "createdAt": "ISO-8601 date-time",
+    "updatedAt": "ISO-8601 date-time",
+    "contradiction": "One builder trade row mixes both encodings. matchTime is format-free string with pattern-style unix examples; createdAt/updatedAt declare format: date-time. Parse them with different readers."
+  },
+
+  "examples": {
+    "matchTime": "1700000000",
+    "createdAt": "2024-01-01T00:00:00Z",
+    "updatedAt": "2024-01-01T00:00:00Z"
+  },
+
+  "trade": {
+    "schema": "BuilderTrade",
+    "requiredFields": [
+      "id", "tradeType", "takerOrderHash", "builder", "market", "assetId", "side", "size",
+      "sizeUsdc", "price", "status", "outcome", "outcomeIndex", "owner", "maker",
+      "transactionHash", "matchTime", "bucketIndex", "fee", "feeUsdc"
+    ],
+    "optionalFields": ["err_msg", "createdAt", "updatedAt"],
+    "side": ["BUY", "SELL"],
+    "statusHasNoEnum": true,
+    "statusExample": "TRADE_STATUS_CONFIRMED",
+    "fieldNaming": "camelCase, unlike the snake_case Trade schema on GET /data/trades. err_msg is the one snake_case exception.",
+    "amountEncoding": "6-decimal base units as strings (size 100000000, sizeUsdc 50000000, fee 300000, feeUsdc 150000)"
+  },
+
+  "documentedErrors": {
+    "400": "invalid builder trade params",
+    "500": "could not fetch builder trades"
+  },
+
+  "builderCodeElsewhere": {
+    "source": "https://docs.polymarket.com/changelog/predictions.md (May 18, 2026)",
+    "note": "GET /v1/builders/leaderboard and GET /v1/builders/volume on the Data API also carry builderCode on each entry; legacy builders without a registered code return an empty string."
+  }
+}
