@@ -77,7 +77,7 @@ public final class Rfq {
 
         while (true) {
             RfqOutcome outcome = status(rfqId, accountCredentials, accountSigner);
-            if (!(outcome instanceof RfqOutcome.Waiting)) {
+            if (!stillSettling(outcome)) {
                 return outcome;
             }
             Instant now = clock.instant();
@@ -134,6 +134,20 @@ public final class Rfq {
         requireMatchesQuote(signedOrder, quote, pusdLeg, shareLeg, direction);
         return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder, context.identity(),
                 accountCredentials, builderCredentials);
+    }
+
+    /**
+     * Whether the settlement is still open. A gateway that declines to answer — rate limited or
+     * unavailable — has said nothing about an RFQ that is already accepted and executing, so
+     * reporting it as refused would call a live trade rejected. Every other refusal is a verdict
+     * that polling cannot change.
+     */
+    private static boolean stillSettling(RfqOutcome outcome) {
+        if (outcome instanceof RfqOutcome.Waiting) {
+            return true;
+        }
+        return outcome instanceof RfqOutcome.Rejected rejected
+                && (rejected.httpStatus() == 429 || rejected.httpStatus() >= 500);
     }
 
     /**

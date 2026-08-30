@@ -218,6 +218,19 @@
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.7.0</version>
                 <executions>
+                    <!-- The classpath the README examples compile against: dependencies only,
+                         so the packaged jar can be put in front of them. -->
+                    <execution>
+                        <id>example-classpath</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <outputFile>${project.build.directory}/example-classpath.txt</outputFile>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>enforce-declared-dependencies</id>
                         <phase>verify</phase>
@@ -266,24 +279,6 @@
               declared dependencies only. target/classes is deliberately off this classpath, and so
               is Lombok: a consumer gets the jar, so that is what the examples have to build against.
             -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>example-classpath</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>build-classpath</goal>
-                        </goals>
-                        <configuration>
-                            <includeScope>runtime</includeScope>
-                            <outputFile>${project.build.directory}/example-classpath.txt</outputFile>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>

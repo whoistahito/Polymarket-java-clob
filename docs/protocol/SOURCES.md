@@ -138,7 +138,12 @@ Matches the scope decisions in issue #1.
    the wallet's own ERC-1271 check, so the wallet is the signer the exchange resolves. The
    deposit-wallet vectors previously fed the Account Signer into `order.signer` — an input choice
    in `gen-vectors.js`, not an official value — and have been regenerated against the documented
-   Resolve Quoter Identity table. `SigningIdentity.orderSigner()` is where the rule now lives.
+   table. `SigningIdentity.orderSigner()` is where the rule now lives, and
+   `constraints.json.signatureTypes.walletAddressRoles` pins the wallet/`maker_address`/
+   `order_signer_address` table verbatim from `trading/place-orders`, so the core trading page and
+   the Builder Gateway page agree: only type 3 puts the wallet in both. That page also publishes
+   the six-field `TypedDataSign` payload with no `uint256[] extensions`, pinned as
+   `depositWalletTypedDataSignFields`.
 
 ### Superseded by this refresh
 

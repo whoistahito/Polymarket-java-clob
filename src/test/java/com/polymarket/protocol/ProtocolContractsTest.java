@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.polymarket.authentication.SigningIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -476,6 +477,42 @@ class ProtocolContractsTest {
         }
         assertEquals(4, precision.get("0.0025").get("priceDecimals").asInt(),
                 "a 0.0025 tick prices to four decimals, not three");
+    }
+
+    @Test
+    @DisplayName("TC-PC-030: each wallet type resolves the order's signer as the official table says")
+    void walletTypesResolveTheDocumentedOrderSigner() {
+        String accountSigner = "0x" + "a".repeat(40);
+        String tradingWallet = "0x" + "b".repeat(40);
+
+        for (JsonNode row : CONSTRAINTS.get("signatureTypes")
+                .get("walletAddressRoles").get("rows")) {
+            int type = row.get("signature_type").asInt();
+            SigningIdentity identity = switch (type) {
+                case 0 -> SigningIdentity.eoa(accountSigner);
+                case 1 -> SigningIdentity.proxyWallet(tradingWallet, accountSigner);
+                case 2 -> SigningIdentity.safeWallet(tradingWallet, accountSigner);
+                case 3 -> SigningIdentity.depositWallet(tradingWallet, accountSigner);
+                default -> throw new AssertionError("undocumented signature type " + type);
+            };
+            String wallet = row.get("wallet").asText();
+
+            assertEquals(type, identity.signatureType(), wallet);
+            assertEquals(address(row.get("maker_address").asText(), accountSigner, tradingWallet),
+                    identity.tradingWallet(), wallet + " maker_address");
+            assertEquals(address(row.get("order_signer_address").asText(), accountSigner, tradingWallet),
+                    identity.orderSigner(), wallet + " order_signer_address");
+            // Whatever the order names, the header is always the Account Signer.
+            assertEquals(accountSigner, identity.accountSigner(), wallet + " POLY_ADDRESS");
+        }
+    }
+
+    private static String address(String role, String accountSigner, String tradingWallet) {
+        return switch (role) {
+            case "account-signer" -> accountSigner;
+            case "trading-wallet" -> tradingWallet;
+            default -> throw new AssertionError("unknown address role " + role);
+        };
     }
 
     @ParameterizedTest(name = "{0}")

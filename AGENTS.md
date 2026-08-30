@@ -347,7 +347,7 @@ documentation and an independent signer — never from this SDK's own code.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
   outcome plus the exact outbound method, path, query, headers, and body. Keep a pure domain test
   only where no network seam can exercise the invariant.
-- Verified baseline on Java 21 after the issue-#1 repair wave: `mvn clean verify` → **594 tests,
+- Verified baseline on Java 21 after the issue-#1 repair wave: `mvn clean verify` → **597 tests,
   0 failures, 0 errors, 0 skipped**, with the dependency gate clean and the README examples compiled
   against the packaged jar. The earlier 328-test baseline predates the
   2.0 repair waves. The drop from 1179 is

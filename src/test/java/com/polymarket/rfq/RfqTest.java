@@ -420,6 +420,38 @@ class RfqTest {
     }
 
     @Test
+    @DisplayName("TC-RQ-027: a transient gateway error does not end a settlement wait as a refusal")
+    void aTransientGatewayErrorDoesNotEndTheWait() throws Exception {
+        // 503 is the gateway declining to answer, not a verdict on an RFQ that is already accepted
+        // and executing. Reporting it as Rejected would call a live trade refused.
+        server.enqueue(new MockResponse().setResponseCode(503).setBody("""
+                {"rfq_id":"rfq-1","code":"unavailable","error":{"message":"try again"}}"""));
+        enqueue("""
+                {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}""");
+
+        RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
+                Duration.ofSeconds(1))).awaitSettlement(
+                "rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address(), Duration.ofDays(1), Duration.ZERO);
+
+        assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
+        assertEquals(2, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-028: a gateway refusal that will not change ends the wait immediately")
+    void aDefinitiveRefusalEndsTheWait() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(403).setBody("""
+                {"rfq_id":"rfq-1","code":"forbidden","error":{"message":"not your rfq"}}"""));
+
+        RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
+                Duration.ofSeconds(1))).awaitSettlement(
+                "rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address(), Duration.ofDays(1), Duration.ZERO);
+
+        assertInstanceOf(RfqOutcome.Rejected.class, outcome);
+        assertEquals(1, server.getRequestCount(), "polling a refusal that cannot change is a spin");
+    }
+
+    @Test
     @DisplayName("TC-RQ-010: a requester write is never replayed, even with read retries configured")
     void requestIsNeverReplayedDespiteReadRetries() throws Exception {
         enqueue("""

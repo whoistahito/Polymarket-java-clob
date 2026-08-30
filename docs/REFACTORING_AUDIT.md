@@ -10,7 +10,7 @@ Reviewed: 2026-08-30
 
 ## Verification
 
-`mvn clean verify` passes: **594 tests, 0 failures, 0 errors, 0 skipped**. The dependency and
+`mvn clean verify` passes: **597 tests, 0 failures, 0 errors, 0 skipped**. The dependency and
 packaging gates pass, and the README examples compile against the packaged JAR. `mvn -Plive test`
 selects the 6 read-only live checks and passes against the production API.
 
