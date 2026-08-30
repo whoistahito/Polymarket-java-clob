@@ -10,7 +10,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -58,18 +57,22 @@ public final class HeartbeatGateway implements AutoCloseable {
     /** Starts the repeating tick. Idempotent: an already-active Heartbeat keeps its one schedule. */
     public void start(@NonNull Duration interval, @NonNull ApiCredentials credentials,
             @NonNull String address) {
-        if (interval.isNegative() || interval.isZero()) {
-            throw new IllegalArgumentException("interval must be positive, got: " + interval);
+        // A positive interval is not enough: the schedule is in milliseconds, so anything that
+        // truncates to zero would ask for an unbounded beat the scheduler refuses outright.
+        long ms = interval.toMillis();
+        if (ms < 1) {
+            throw new IllegalArgumentException(
+                    "interval must be at least one millisecond, got: " + interval);
         }
         if (!active.compareAndSet(false, true)) {
             return;
         }
-        long ms = interval.toMillis();
         try {
             task.set(scheduler.scheduleAtFixedRate(
                     () -> tick(credentials, address), ms, ms, TimeUnit.MILLISECONDS));
-        } catch (RejectedExecutionException e) {
-            active.set(false); // the scheduler was already shut down by close()
+        } catch (RuntimeException e) {
+            // Nothing is scheduled, so the dead-man switch must not report itself as running.
+            active.set(false);
             throw e;
         }
     }

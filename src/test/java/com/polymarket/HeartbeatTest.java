@@ -182,6 +182,25 @@ class HeartbeatTest {
     }
 
     @Test
+    @DisplayName("TC-HB-014: an interval below the scheduler's resolution is refused, not half-started")
+    void aSubMillisecondIntervalLeavesNoPhantomSchedule() throws Exception {
+        enqueueAcknowledgements();
+        try (Polymarket sdk = authenticatedSdk()) {
+            // Positive, but it truncates to a zero-millisecond period the scheduler cannot honour.
+            assertThrows(IllegalArgumentException.class,
+                    () -> sdk.startHeartbeat(Duration.ofNanos(1)));
+
+            assertFalse(sdk.isHeartbeatActive(),
+                    "a refused interval must not leave the dead-man switch reported as running");
+            assertDoesNotThrow(() -> sdk.startHeartbeat(TICK),
+                    "a refused start must not consume the one schedule");
+            assertTrue(sdk.isHeartbeatActive());
+            assertNotNull(server.takeRequest(5, TimeUnit.SECONDS),
+                    "the accepted interval, not the refused one, is what beats");
+        }
+    }
+
+    @Test
     @DisplayName("TC-HB-010: closing the root twice stops the heartbeat and throws no error")
     void closeIsIdempotentAndStopsHeartbeat() throws Exception {
         enqueueAcknowledgements();
