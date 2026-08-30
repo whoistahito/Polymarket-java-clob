@@ -78,19 +78,25 @@ public final class Rfq {
             if (!(outcome instanceof RfqOutcome.Waiting)) {
                 return outcome;
             }
-            if (!clock.instant().isBefore(deadline)) {
+            Instant now = clock.instant();
+            if (!now.isBefore(deadline)) {
                 return new RfqOutcome.Pending(rfqId);
             }
+            // The wait is the caller's deadline, not the poll interval: sleeping a whole interval
+            // past it would read once more and report Pending later than they asked.
+            Duration remaining = Duration.between(now, deadline);
             try {
-                sleeper.sleep(pollInterval);
+                sleeper.sleep(pollInterval.compareTo(remaining) < 0 ? pollInterval : remaining);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("interrupted while following an RFQ to settlement", e);
             }
+            if (!clock.instant().isBefore(deadline)) {
+                return new RfqOutcome.Pending(rfqId);
+            }
         }
     }
 
-    /** V3 has no neg-risk variant, so the rules passed to {@code signer} only ever supply a grid. */
     /**
      * Signs the Quote's Combo position through the V3 path and accepts it. Direction, amounts,
      * Combo position and deadline all come from the Quote, so no caller can contradict it.

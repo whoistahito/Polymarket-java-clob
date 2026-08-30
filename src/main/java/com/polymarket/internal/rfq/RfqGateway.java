@@ -231,25 +231,32 @@ public final class RfqGateway implements RfqDirectory {
     private RfqOutcome quoted(JsonNode node, String rfqId) {
         JsonNode quote = node.path("quote");
         JsonNode request = node.path("request");
+        // A Quote is executable only if every field acceptance signs against is on the wire. A
+        // missing one is not an RFQ still waiting on a maker — it is a response nobody can act on,
+        // and defaulting any of these would sign an order the gateway never quoted: a zero expiry
+        // reads as already expired, and a blank builder code contradicts the acceptance rule.
         String quoteId = textOrNull(quote, "quote_id");
         String comboPositionId = textOrNull(request, "yes_position_id");
-        if (quoteId == null || comboPositionId == null) {
-            return new RfqOutcome.Waiting(rfqId,
-                    new RfqStatus("AWAITING_REQUESTER_ACCEPTANCE"), Optional.empty());
-        }
-        // A Quote is executable only if every field acceptance signs against is on the wire;
-        // a guessed direction or a zero amount would sign an order the gateway never quoted.
         Side direction = direction(request);
         QuoteAmounts amounts = amounts(quote);
-        if (direction == null || amounts == null) {
+        String builderCode = textOrNull(node, "builder_code");
+        Long expiresAt = longOrNull(node, "expires_at");
+        List<PositionId> legs = new ArrayList<>();
+        request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
+
+        if (quoteId == null || comboPositionId == null || direction == null || amounts == null
+                || builderCode == null || expiresAt == null || legs.isEmpty()) {
             return new RfqOutcome.Unknown(rfqId,
                     "AWAITING_REQUESTER_ACCEPTANCE without a complete quote");
         }
-        List<PositionId> legs = new ArrayList<>();
-        request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
         return new RfqOutcome.Quoted(rfqId, quoteId, direction, new PositionId(comboPositionId),
-                legs, amounts, Instant.ofEpochMilli(node.path("expires_at").asLong(0)),
-                node.path("builder_code").asText(""));
+                legs, amounts, Instant.ofEpochMilli(expiresAt), builderCode);
+    }
+
+    /** Null unless the field is present and numeric: a defaulted expiry is a fabricated deadline. */
+    private static Long longOrNull(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isNumber() ? value.asLong() : null;
     }
 
     /** Null when the wire named no direction this release knows: never defaulted to a side. */

@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -58,12 +59,17 @@ class RfqTest {
     }
 
     private Rfq rfq(Clock clock) {
+        return rfq(clock, d -> {
+        });
+    }
+
+    private Rfq rfq(Clock clock, Rfq.Sleeper sleeper) {
         URI host = server.url("/").uri();
         HttpRuntime runtime = new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
                 ReadRetryPolicy.none(), d -> {
                 });
         return new Rfq(new RfqGateway(host, runtime, clock),
-                new ComboMarketGateway(host, runtime), clock);
+                new ComboMarketGateway(host, runtime), clock, sleeper);
     }
 
     private void enqueue(String body) {
@@ -371,6 +377,45 @@ class RfqTest {
 
         RfqOutcome.Pending pending = assertInstanceOf(RfqOutcome.Pending.class, outcome);
         assertEquals("rfq-1", pending.rfqId());
+    }
+
+    @Test
+    @DisplayName("TC-RQ-025: a settlement poll never sleeps past the deadline it was given")
+    void settlementPollingIsClampedToTheDeadline() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            enqueue("""
+                    {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
+        }
+        List<Duration> waits = new ArrayList<>();
+
+        RfqOutcome outcome = rfq(new SteppingClock(Instant.ofEpochSecond(1_800_000_000),
+                Duration.ofMillis(200)), waits::add).awaitSettlement(
+                "rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address(),
+                Duration.ofSeconds(1), Duration.ofHours(1));
+
+        assertInstanceOf(RfqOutcome.Pending.class, outcome);
+        assertTrue(waits.stream().mapToLong(Duration::toMillis).sum() <= 1_000L,
+                "an hour-long poll interval must be trimmed to the time actually left: " + waits);
+    }
+
+    @Test
+    @DisplayName("TC-RQ-026: a quote missing anything acceptance would sign is Unknown, never executable")
+    void anIncompleteQuoteIsUnknown() throws Exception {
+        // Each variant drops exactly one field acceptance depends on. None of them may look like a
+        // quote to sign, and none may look like an RFQ that simply has not resolved yet.
+        for (String missing : List.of("quote_id", "yes_position_id", "expires_at", "builder_code",
+                "leg_position_ids")) {
+            enqueue(OFFICIAL_CREATE_RESPONSE
+                    .replaceAll("\"" + missing + "\":\\[[^]]*],", "")
+                    .replaceAll("\"" + missing + "\":\"[^\"]*\",", "")
+                    .replaceAll("\"" + missing + "\":[0-9]+,", ""));
+
+            RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+                    SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+            assertInstanceOf(RfqOutcome.Unknown.class, outcome,
+                    "a response without " + missing + " is not something to accept");
+        }
     }
 
     @Test
