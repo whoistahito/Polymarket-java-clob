@@ -26,6 +26,8 @@ import com.polymarket.trading.SubmissionOutcome;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Clock;
+import com.polymarket.trading.Trading;
+import java.util.List;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -166,5 +168,26 @@ class AsyncTradingTest {
                     && !com.polymarket.trading.Trading.class.isAssignableFrom(method.getReturnType()),
                     "unexpected sync escape hatch: " + method);
         }
+    }
+
+    @Test
+    @DisplayName("TC-AT-006: every synchronous Trading operation has an asynchronous counterpart")
+    void everySyncOperationHasAnAsyncCounterpart() {
+        java.util.Set<String> async = java.util.stream.Stream
+                .of(AsyncTrading.class.getDeclaredMethods())
+                .filter(m -> java.lang.reflect.Modifier.isPublic(m.getModifiers())
+                        && !java.lang.reflect.Modifier.isStatic(m.getModifiers()))
+                .map(java.lang.reflect.Method::getName)
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<String> missing = java.util.stream.Stream.of(Trading.class.getDeclaredMethods())
+                .filter(m -> java.lang.reflect.Modifier.isPublic(m.getModifiers())
+                        && !java.lang.reflect.Modifier.isStatic(m.getModifiers()))
+                .map(java.lang.reflect.Method::getName)
+                .filter(name -> !async.contains(name))
+                .distinct()
+                .toList();
+
+        assertEquals(List.of(), missing, "synchronous Trading operations with no async wrapper");
     }
 }

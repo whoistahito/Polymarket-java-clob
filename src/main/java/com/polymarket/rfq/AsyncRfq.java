@@ -34,6 +34,11 @@ public final class AsyncRfq {
         return new AsyncRfq(rfq, executor);
     }
 
+    /** Read-only Combo discovery; async like every other Rfq operation, with the same page type. */
+    public CompletableFuture<ComboMarketPage> comboMarkets(ComboMarketQuery query) {
+        return io(() -> rfq.comboMarkets(query));
+    }
+
     public CompletableFuture<RfqOutcome> request(RfqRequest request, SigningIdentity identity,
             ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
         return io(() -> rfq.request(request, identity, accountCredentials, builderCredentials));

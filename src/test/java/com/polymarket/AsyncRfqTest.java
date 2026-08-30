@@ -12,7 +12,6 @@ import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
-import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.rfq.AsyncRfq;
 import com.polymarket.rfq.Rfq;
@@ -20,6 +19,14 @@ import com.polymarket.rfq.RfqOutcome;
 import com.polymarket.rfq.RfqRequest;
 import java.net.URI;
 import java.time.Clock;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import com.polymarket.markets.PositionId;
+import com.polymarket.rfq.ComboMarketPage;
+import com.polymarket.rfq.ComboMarketQuery;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -113,5 +120,36 @@ class AsyncRfqTest {
                     && !Rfq.class.isAssignableFrom(method.getReturnType()),
                     "unexpected sync escape hatch: " + method);
         }
+    }
+
+    @Test
+    @DisplayName("TC-AR-004: every synchronous Rfq operation has an asynchronous counterpart")
+    void everySyncOperationHasAnAsyncCounterpart() {
+        Set<String> async = Stream.of(AsyncRfq.class.getDeclaredMethods())
+                .filter(m -> Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()))
+                .map(Method::getName)
+                .collect(Collectors.toSet());
+
+        List<String> missing = Stream.of(Rfq.class.getDeclaredMethods())
+                .filter(m -> Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()))
+                .map(Method::getName)
+                .filter(name -> !async.contains(name))
+                .distinct()
+                .toList();
+
+        assertEquals(List.of(), missing, "synchronous Rfq operations with no async wrapper");
+    }
+
+    @Test
+    @DisplayName("TC-AR-005: async Combo discovery returns the page the synchronous read would")
+    void asyncComboMarketsMatchesTheSynchronousRead() throws Exception {
+        server.enqueue(new MockResponse().setBody(
+                "{\"data\":[],\"next_cursor\":\"LTE=\"}"));
+
+        ComboMarketPage page = AsyncRfq.wrap(rfq())
+                .comboMarkets(ComboMarketQuery.pageSize(10)).get();
+
+        assertEquals(List.of(), page.markets());
+        assertEquals("/v1/rfq/combo-markets?limit=10", server.takeRequest().getPath());
     }
 }
