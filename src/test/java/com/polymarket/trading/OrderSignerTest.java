@@ -188,7 +188,10 @@ class OrderSignerTest {
                 SigningContext.of(SigningIdentity.depositWallet(tradingWallet, LOCAL_SIGNER.address()),
                         LOCAL_SIGNER, 7L, Instant.ofEpochSecond(1_800_000_000)));
         assertEquals(tradingWallet, deposit.maker());
-        assertEquals(LOCAL_SIGNER.address(), deposit.signer());
+        assertEquals(tradingWallet, deposit.signer(),
+                "type 3 is ERC-1271-verified by the wallet, so the wallet is the resolved signer");
+        assertEquals(LOCAL_SIGNER.address(), deposit.accountSigner(),
+                "the Account Signer still produced the signature and still authenticates L2");
     }
 
     @Test

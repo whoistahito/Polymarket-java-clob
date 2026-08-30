@@ -1,5 +1,11 @@
 // Generates signing vectors from the OFFICIAL Polymarket typed data using ethers v6 as an
 // independent reference implementation. Nothing here reads the Java SDK.
+//
+// Signature type 3 names the Deposit Wallet in BOTH order.maker and order.signer: the exchange
+// verifies that order through the wallet's own ERC-1271 check, so the wallet is the signer it
+// resolves. Ground truth is the Resolve Quoter Identity table pinned in builder-gateway.json
+// (addressRoles.signerAddressByWalletType). The controlling EOA still produces the inner ECDSA
+// signature — that is what the ERC-7739 envelope wraps — and stays POLY_ADDRESS on the wire.
 const { ethers } = require("ethers");
 
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -141,7 +147,7 @@ async function vector(id, note, dom, types, primaryType, message) {
     await vector("v2-deposit-wallet",
       "Exchange V2 token order, Deposit Wallet (signatureType 3) wrapped for ERC-7739",
       v2Dom, { Order: ORDER_TYPE, TypedDataSign: TYPED_DATA_SIGN_TYPE }, "TypedDataSign",
-      depositWrapper(v2Order(3, DEPOSIT_WALLET, eoa))),
+      depositWrapper(v2Order(3, DEPOSIT_WALLET, DEPOSIT_WALLET))),
     await vector("v3-eoa", "Exchange V3 Combo position order, EOA (signatureType 0)",
       v3Dom, { Order: ORDER_TYPE }, "Order", v3Order(0, eoa, eoa)),
     await vector("v3-proxy", "Exchange V3 Combo position order, Proxy Wallet (signatureType 1)",
@@ -151,7 +157,7 @@ async function vector(id, note, dom, types, primaryType, message) {
     await vector("v3-deposit-wallet",
       "Exchange V3 Combo position order, Deposit Wallet (signatureType 3) wrapped for ERC-7739",
       v3Dom, { Order: ORDER_TYPE, TypedDataSign: TYPED_DATA_SIGN_TYPE }, "TypedDataSign",
-      depositWrapper(v3Order(3, DEPOSIT_WALLET, eoa))),
+      depositWrapper(v3Order(3, DEPOSIT_WALLET, DEPOSIT_WALLET))),
   ];
 
   console.log(JSON.stringify({

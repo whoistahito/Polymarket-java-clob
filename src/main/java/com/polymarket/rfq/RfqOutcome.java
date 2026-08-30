@@ -1,5 +1,6 @@
 package com.polymarket.rfq;
 
+import com.polymarket.authentication.SigningIdentity;
 import com.polymarket.markets.PositionId;
 import com.polymarket.trading.Side;
 import java.time.Instant;
@@ -19,19 +20,26 @@ public sealed interface RfqOutcome {
      * A quote ready to accept before {@code expiresAt} (AWAITING_REQUESTER_ACCEPTANCE).
      * {@code direction} is the direction the gateway echoed for the request, so acceptance
      * cannot restate it; {@code comboPositionId} is {@code request.yes_position_id}.
+     * {@code requestedBy} is the Signing Identity that asked for this Quote, so an acceptance
+     * cannot be signed by a wallet the gateway never quoted for.
      */
     record Quoted(@NonNull String rfqId, @NonNull String quoteId, @NonNull Side direction,
             @NonNull PositionId comboPositionId, @NonNull List<PositionId> legs,
-            @NonNull QuoteAmounts amounts, @NonNull Instant expiresAt, @NonNull String builderCode)
-            implements RfqOutcome {
+            @NonNull QuoteAmounts amounts, @NonNull Instant expiresAt, @NonNull String builderCode,
+            @NonNull SigningIdentity requestedBy) implements RfqOutcome {
         public Quoted {
             legs = List.copyOf(legs);
         }
     }
 
-    /** Routed execution succeeded (status CONFIRMED or FILLED — the fixture groups both as success). */
+    /**
+     * Routed execution succeeded (status CONFIRMED or FILLED — the fixture groups both as success).
+     * {@code takerOrderHash} is the acceptance response's EIP-712 order hash; {@code txHash} is the
+     * settlement transaction a status read reports. They are different facts and neither is guessed.
+     */
     record Confirmed(@NonNull String rfqId, @NonNull String status,
-            @NonNull Optional<String> takerOrderHash) implements RfqOutcome {
+            @NonNull Optional<String> takerOrderHash, @NonNull Optional<String> txHash)
+            implements RfqOutcome {
     }
 
     /**
@@ -39,7 +47,8 @@ public sealed interface RfqOutcome {
      * A retried acceptance may omit {@code takerOrderHash}, so its absence proves nothing.
      */
     record Waiting(@NonNull String rfqId, @NonNull RfqStatus status,
-            @NonNull Optional<String> takerOrderHash) implements RfqOutcome {
+            @NonNull Optional<String> takerOrderHash, @NonNull Optional<String> txHash)
+            implements RfqOutcome {
     }
 
     /**

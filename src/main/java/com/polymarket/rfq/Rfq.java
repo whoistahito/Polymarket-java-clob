@@ -21,6 +21,7 @@ public final class Rfq {
 
     private final RfqDirectory directory;
     private final ComboMarketCatalog catalog;
+    private final ComboQuoteSigner signer;
     private final Clock clock;
     private final Sleeper sleeper;
 
@@ -31,14 +32,15 @@ public final class Rfq {
     }
 
     public Rfq(@NonNull RfqDirectory directory, @NonNull ComboMarketCatalog catalog,
-            @NonNull Clock clock) {
-        this(directory, catalog, clock, d -> Thread.sleep(d.toMillis()));
+            @NonNull ComboQuoteSigner signer, @NonNull Clock clock) {
+        this(directory, catalog, signer, clock, d -> Thread.sleep(d.toMillis()));
     }
 
     public Rfq(@NonNull RfqDirectory directory, @NonNull ComboMarketCatalog catalog,
-            @NonNull Clock clock, @NonNull Sleeper sleeper) {
+            @NonNull ComboQuoteSigner signer, @NonNull Clock clock, @NonNull Sleeper sleeper) {
         this.directory = directory;
         this.catalog = catalog;
+        this.signer = signer;
         this.clock = clock;
         this.sleeper = sleeper;
     }
@@ -101,12 +103,18 @@ public final class Rfq {
      * Signs the Quote's Combo position through the V3 path and accepts it. Direction, amounts,
      * Combo position and deadline all come from the Quote, so no caller can contradict it.
      */
-    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull ComboQuoteSigner signer,
-            @NonNull SigningContext context, @NonNull ApiCredentials accountCredentials,
+    public RfqOutcome accept(@NonNull RfqOutcome.Quoted quote, @NonNull SigningContext context,
+            @NonNull ApiCredentials accountCredentials,
             @NonNull BuilderCredentials builderCredentials) {
         if (!clock.instant().isBefore(quote.expiresAt())) {
             throw new IllegalArgumentException(
                     "quote " + quote.quoteId() + " expired at " + quote.expiresAt());
+        }
+        // The gateway quoted for one wallet; accepting as another signs an order it never priced.
+        if (!context.identity().equals(quote.requestedBy())) {
+            throw new IllegalArgumentException("quote " + quote.quoteId() + " was requested by "
+                    + quote.requestedBy().tradingWallet() + ", not "
+                    + context.identity().tradingWallet());
         }
         Side direction = quote.direction();
         PusdAmount pusdLeg;
@@ -123,8 +131,26 @@ public final class Rfq {
         // Official: "order.builder must equal the returned builder_code."
         SignedOrder signedOrder = signer.sign(quote.comboPositionId(), direction, pusdLeg, shareLeg,
                 context.withBuilder(quote.builderCode()));
+        requireMatchesQuote(signedOrder, quote, pusdLeg, shareLeg, direction);
         return directory.accept(quote.rfqId(), quote.quoteId(), signedOrder, context.identity(),
                 accountCredentials, builderCredentials);
+    }
+
+    /**
+     * The order about to be sent must be the Quote the gateway priced. Cheap, and it is the only
+     * check between an OrderSigner implementation and an acceptance the requester cannot undo.
+     */
+    private static void requireMatchesQuote(SignedOrder order, RfqOutcome.Quoted quote,
+            PusdAmount pusdLeg, ShareQuantity shareLeg, Side direction) {
+        long expectedMaker = direction == Side.BUY ? pusdLeg.baseUnits() : shareLeg.baseUnits();
+        long expectedTaker = direction == Side.BUY ? shareLeg.baseUnits() : pusdLeg.baseUnits();
+        if (!order.asset().equals(quote.comboPositionId()) || order.side() != direction
+                || order.makerAmount() != expectedMaker || order.takerAmount() != expectedTaker
+                || !order.builder().equals(quote.builderCode())
+                || !order.maker().equals(quote.requestedBy().tradingWallet())) {
+            throw new IllegalStateException(
+                    "the signed order does not match quote " + quote.quoteId());
+        }
     }
 
     private static PusdAmount baseUnitsToPusd(long baseUnits) {

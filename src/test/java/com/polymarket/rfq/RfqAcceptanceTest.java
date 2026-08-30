@@ -71,7 +71,7 @@ class RfqAcceptanceTest {
         HttpRuntime runtime = runtime();
         URI host = server.url("/").uri();
         return new Rfq(new RfqGateway(host, runtime, FIXED),
-                new ComboMarketGateway(host, runtime), FIXED);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), FIXED);
     }
 
     private static HttpRuntime runtime() {
@@ -89,7 +89,7 @@ class RfqAcceptanceTest {
         return new RfqOutcome.Quoted("rfq-1", "quote-1", direction, new PositionId("333"),
                 List.of(new PositionId("111"), new PositionId("222")),
                 new QuoteAmounts(500000L, 966191L, 1932381L, 966191L, 1932381L),
-                expiresAt, BUILDER_CODE);
+                expiresAt, BUILDER_CODE, depositWallet());
     }
 
     private static SigningContext depositWalletContext() {
@@ -102,7 +102,7 @@ class RfqAcceptanceTest {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
         // A Deposit Wallet order whose signer field is the wallet, as the builders page shows.
-        SignedOrder order = new SignedOrder(1L, DEPOSIT_WALLET, DEPOSIT_WALLET,
+        SignedOrder order = new SignedOrder(1L, DEPOSIT_WALLET, DEPOSIT_WALLET, SIGNER.address(),
                 new PositionId("333"), Side.BUY, 3, 966191L, 1932381L, 1773890758L,
                 "0x" + "0".repeat(64), BUILDER_CODE, "0x" + "ab".repeat(65));
 
@@ -122,7 +122,7 @@ class RfqAcceptanceTest {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
 
-        rfq().accept(quote(Side.BUY, FIXED.instant().plusSeconds(60)), new Eip712OrderSigner(),
+        rfq().accept(quote(Side.BUY, FIXED.instant().plusSeconds(60)),
                 depositWalletContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         String body = server.takeRequest().getBody().readUtf8();
@@ -146,7 +146,7 @@ class RfqAcceptanceTest {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
 
-        rfq().accept(quote(Side.SELL, FIXED.instant().plusSeconds(60)), new Eip712OrderSigner(),
+        rfq().accept(quote(Side.SELL, FIXED.instant().plusSeconds(60)),
                 depositWalletContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         String body = server.takeRequest().getBody().readUtf8();
@@ -177,7 +177,7 @@ class RfqAcceptanceTest {
                  "taker_order_hash":"0xabc123"}"""));
 
         RfqOutcome outcome = rfq().accept(quote(Side.BUY, FIXED.instant().plusSeconds(60)),
-                new Eip712OrderSigner(), depositWalletContext(),
+                depositWalletContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Waiting waiting = assertInstanceOf(RfqOutcome.Waiting.class, outcome);
@@ -192,7 +192,7 @@ class RfqAcceptanceTest {
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}"""));
 
         RfqOutcome outcome = rfq().accept(quote(Side.BUY, FIXED.instant().plusSeconds(60)),
-                new Eip712OrderSigner(), depositWalletContext(),
+                depositWalletContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Waiting waiting = assertInstanceOf(RfqOutcome.Waiting.class, outcome);
@@ -206,7 +206,7 @@ class RfqAcceptanceTest {
         RfqOutcome.Quoted justExpired = quote(Side.BUY, FIXED.instant().minusMillis(1));
 
         assertThrows(IllegalArgumentException.class, () -> rfq().accept(justExpired,
-                new Eip712OrderSigner(), depositWalletContext(),
+                depositWalletContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
         assertEquals(0, server.getRequestCount());
     }
@@ -248,11 +248,47 @@ class RfqAcceptanceTest {
                 okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
 
         RfqOutcome outcome = rfq().accept(quote(Side.BUY, FIXED.instant().plusSeconds(60)),
-                new Eip712OrderSigner(), depositWalletContext(),
+                depositWalletContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);
         assertEquals("rfq-1", unknown.rfqId());
         assertEquals(1, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RA-008: accepting as a wallet the gateway never quoted for sends nothing")
+    void acceptanceIsBoundToTheRequestingIdentity() {
+        RfqOutcome.Quoted quote = quote(Side.BUY, FIXED.instant().plusSeconds(60));
+        SigningContext other = SigningContext.of(
+                SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> rfq().accept(quote, other, ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS),
+                "the quote was priced for the Deposit Wallet, not this EOA");
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RA-009: a CONFIRMED status read keeps the settlement transaction hash")
+    void confirmedKeepsTheSettlementTransactionHash() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}"""));
+
+        RfqOutcome outcome = rfq().status("rfq-1", ACCOUNT_CREDENTIALS, SIGNER.address());
+
+        RfqOutcome.Confirmed confirmed = assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
+        assertEquals("0xdead", confirmed.txHash().orElseThrow(),
+                "the settlement hash is the whole point of following an RFQ to CONFIRMED");
+    }
+
+    @Test
+    @DisplayName("TC-RA-010: acceptance signs with the SDK's own signer, never one a caller supplies")
+    void acceptanceTakesNoCallerSuppliedSigner() {
+        for (java.lang.reflect.Method method : Rfq.class.getMethods()) {
+            if (!method.getName().equals("accept")) continue;
+            assertFalse(List.of(method.getParameterTypes()).contains(ComboQuoteSigner.class),
+                    "a caller-supplied signer can produce an order the requester never authorised");
+        }
     }
 }

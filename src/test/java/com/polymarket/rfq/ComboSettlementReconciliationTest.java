@@ -78,7 +78,7 @@ class ComboSettlementReconciliationTest {
                 ReadRetryPolicy.none(), d -> {
                 });
         return new Rfq(new RfqGateway(host, runtime, FIXED),
-                new ComboMarketGateway(host, runtime), FIXED);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), FIXED);
     }
 
     private Polymarket sdk() {
@@ -98,7 +98,8 @@ class ComboSettlementReconciliationTest {
                 new PositionId(COMBO_POSITION_ID), List.of(new PositionId("111"),
                 new PositionId("222")),
                 new QuoteAmounts(500000L, 1000000L, 2000000L, 1000000L, 2000000L),
-                FIXED.instant().plusSeconds(60), BUILDER_CODE);
+                FIXED.instant().plusSeconds(60), BUILDER_CODE,
+                SigningIdentity.eoa(SIGNER.address()));
     }
 
     /** Body shaped from data-openapi.yaml CombosResponse/ComboPosition. */
@@ -119,7 +120,7 @@ class ComboSettlementReconciliationTest {
                 {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}"""));
         enqueueComboSnapshot("2000.000000");
 
-        RfqOutcome accepted = rfq().accept(quote(), new Eip712OrderSigner(),
+        RfqOutcome accepted = rfq().accept(quote(),
                 SigningContext.of(SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L,
                         FIXED.instant()),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);

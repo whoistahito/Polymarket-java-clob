@@ -94,9 +94,10 @@ public final class Trading {
                     + " orders exceeds the official limit of " + MAX_ORDERS_PER_BATCH);
         }
         ApiCredentials credentials = items.get(0).placement().credentials();
-        String signer = items.get(0).order().signer();
+        // One batch is one L2-signed request, so it is the Account Signer that must be uniform.
+        String accountSigner = items.get(0).order().accountSigner();
         boolean uniform = items.stream().allMatch(i -> i.placement().credentials().equals(credentials)
-                && i.order().signer().equals(signer));
+                && i.order().accountSigner().equals(accountSigner));
         if (!uniform) {
             throw new IllegalArgumentException(
                     "a batch is one signed request: every item must share the same credentials and signer");

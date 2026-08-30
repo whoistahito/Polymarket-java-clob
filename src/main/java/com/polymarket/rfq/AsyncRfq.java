@@ -51,10 +51,10 @@ public final class AsyncRfq {
                 rfqId, accountCredentials, accountSigner, timeout, pollInterval));
     }
 
-    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote, ComboQuoteSigner signer,
+    public CompletableFuture<RfqOutcome> accept(RfqOutcome.Quoted quote,
             SigningContext context, ApiCredentials accountCredentials, BuilderCredentials builderCredentials) {
         return CompletableFuture.supplyAsync(() -> rfq.accept(
-                quote, signer, context, accountCredentials, builderCredentials), executor);
+                quote, context, accountCredentials, builderCredentials), executor);
     }
 
     @FunctionalInterface

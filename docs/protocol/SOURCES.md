@@ -131,7 +131,12 @@ Matches the scope decisions in issue #1.
    is treated as current and the other as an unlisted alternative.
 8. **`signer_address` naming.** On the Builder Gateway, `signer_address` carries the **Trading
    Wallet** for Deposit Wallets (signature type 3) and the **Account Signer** for Proxy/Safe/EOA.
-   Only the `POLY_ADDRESS` header always carries the Account Signer.
+   Only the `POLY_ADDRESS` header always carries the Account Signer. **Resolved by issue #26**:
+   the same rule governs the signed order struct, because signature type 3 is verified through
+   the wallet's own ERC-1271 check, so the wallet is the signer the exchange resolves. The
+   deposit-wallet vectors previously fed the Account Signer into `order.signer` — an input choice
+   in `gen-vectors.js`, not an official value — and have been regenerated against the documented
+   Resolve Quoter Identity table. `SigningIdentity.orderSigner()` is where the rule now lives.
 
 ### Superseded by this refresh
 

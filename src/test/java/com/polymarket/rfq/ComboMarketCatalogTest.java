@@ -10,6 +10,7 @@ import com.polymarket.ReadRetryPolicy;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
+import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.markets.PositionId;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -64,7 +65,7 @@ class ComboMarketCatalogTest {
                 });
         Clock clock = Clock.fixed(Instant.ofEpochSecond(1773890758L), ZoneOffset.UTC);
         return new Rfq(new RfqGateway(host, runtime, clock),
-                new ComboMarketGateway(host, runtime), clock);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), clock);
     }
 
     private void enqueuePinnedPage() {

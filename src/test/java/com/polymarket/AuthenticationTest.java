@@ -311,7 +311,10 @@ class AuthenticationTest {
             }
 
             assertEquals(TRADING_WALLET, order.maker());
-            assertEquals(signer().address(), order.signer());
+            // Signature type 3 is verified through the wallet's own ERC-1271 check, so the wallet
+            // is the signer the exchange resolves; the Account Signer keeps POLY_ADDRESS.
+            assertEquals(TRADING_WALLET, order.signer());
+            assertEquals(signer().address(), order.accountSigner());
             assertEquals(3, order.signatureType());
             // The pinned v2-deposit-wallet signature only reproduces if the ERC-7739 wrapper
             // domain is the Trading Wallet, so this proves both wallet fields are the wallet's.

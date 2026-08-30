@@ -10,13 +10,17 @@ import lombok.NonNull;
  * one — the two exchanges document conflicting units and this type does not normalise them.
  * There is deliberately no nonce, fee-rate, taker, or version field: V1 cannot be expressed here.
  *
+ * <p>{@code signer} is the address the exchange resolves for the order — the Trading Wallet itself
+ * under signature type 3 — while {@code accountSigner} is the Account Signer that produced the
+ * signature and authenticates the request. They coincide for every other wallet type.
+ *
  * <p>Valid by construction, because submission takes this type rather than an Order Intent: a
  * hand-built value the signer could never have produced must not be able to reach {@code POST /order}.
  */
 public record SignedOrder(long salt, @NonNull String maker, @NonNull String signer,
-        @NonNull AssetId asset, @NonNull Side side, int signatureType, long makerAmount,
-        long takerAmount, long timestamp, @NonNull String metadata, @NonNull String builder,
-        @NonNull String signature) {
+        @NonNull String accountSigner, @NonNull AssetId asset, @NonNull Side side,
+        int signatureType, long makerAmount, long takerAmount, long timestamp,
+        @NonNull String metadata, @NonNull String builder, @NonNull String signature) {
 
     /** Official signature types: 0 EOA, 1 Proxy, 2 Safe, 3 Deposit Wallet. */
     private static final int MAX_SIGNATURE_TYPE = 3;
@@ -24,6 +28,7 @@ public record SignedOrder(long salt, @NonNull String maker, @NonNull String sign
     public SignedOrder {
         maker = requireAddress(maker, "maker");
         signer = requireAddress(signer, "signer");
+        accountSigner = requireAddress(accountSigner, "accountSigner");
         requireUnsigned(salt, "salt");
         requireUnsigned(timestamp, "timestamp");
         if (makerAmount <= 0 || takerAmount <= 0) {

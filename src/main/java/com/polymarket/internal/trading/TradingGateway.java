@@ -70,7 +70,9 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         HttpOutcome outcome;
         try {
             outcome = runtime.post(config.clobHost(), ORDER_PATH,
-                    l2Headers(placement.credentials(), order.signer(), "POST", ORDER_PATH, body), body);
+                    // POLY_ADDRESS is the Account Signer, which is not order.signer() for a
+                    // Deposit Wallet: that field names the wallet the exchange ERC-1271-verifies.
+                    l2Headers(placement.credentials(), order.accountSigner(), "POST", ORDER_PATH, body), body);
         } catch (IOException e) {
             return new SubmissionOutcome.Unknown(
                     Optional.empty(), transportMessage(e), Optional.of(e));
@@ -187,7 +189,7 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         }
         String body = batchWireBody(items);
         ApiCredentials credentials = items.get(0).placement().credentials();
-        String address = items.get(0).order().signer();
+        String address = items.get(0).order().accountSigner();
         HttpOutcome outcome;
         try {
             outcome = runtime.post(config.clobHost(), ORDERS_PATH,

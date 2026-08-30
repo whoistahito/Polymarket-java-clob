@@ -457,23 +457,23 @@ class TradingTest {
         SignedOrder valid = signedOrder();
 
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), "not-an-address",
-                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
                 valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), valid.signature()), "maker must be an address");
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
-                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
                 0L, valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), valid.signature()), "an order leg worth nothing is not an order");
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(-1L, valid.maker(),
-                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
                 valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), valid.signature()), "salt is an unsigned field");
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
-                valid.signer(), valid.asset(), valid.side(), 4,
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), 4,
                 valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), valid.signature()), "4 is not an official signature type");
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
-                valid.signer(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
                 valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), "  "), "a blank signature authorises nothing");
 

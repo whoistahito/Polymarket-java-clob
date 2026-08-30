@@ -11,6 +11,7 @@ import com.polymarket.builders.BuilderCredentials;
 import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
+import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.rfq.AsyncRfq;
@@ -64,7 +65,7 @@ class AsyncRfqTest {
                 ReadRetryPolicy.none(), d -> {
                 });
         return new Rfq(new RfqGateway(host, runtime, FIXED),
-                new ComboMarketGateway(host, runtime), FIXED);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), FIXED);
     }
 
     private static final class CountingExecutor implements Executor {

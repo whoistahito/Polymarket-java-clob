@@ -104,7 +104,7 @@ public final class Eip712OrderSigner implements OrderSigner, ComboQuoteSigner {
         SigningIdentity identity = context.identity();
 
         byte[] domainHash = domainHash(version, verifyingContract);
-        byte[] structHash = orderStructHash(context.salt(), identity.tradingWallet(), identity.accountSigner(),
+        byte[] structHash = orderStructHash(context.salt(), identity.tradingWallet(), identity.orderSigner(),
                 asset.value(), makerAmount, takerAmount, side, identity.signatureType(),
                 timestamp, metadata, builder);
 
@@ -117,9 +117,9 @@ public final class Eip712OrderSigner implements OrderSigner, ComboQuoteSigner {
         String signature = depositWallet
                 ? erc7739Envelope(inner, domainHash, structHash) : inner;
 
-        return new SignedOrder(context.salt(), identity.tradingWallet(),
-                identity.accountSigner(), asset, side, identity.signatureType(), makerAmount, takerAmount,
-                timestamp, metadata, builder, signature);
+        return new SignedOrder(context.salt(), identity.tradingWallet(), identity.orderSigner(),
+                identity.accountSigner(), asset, side, identity.signatureType(), makerAmount,
+                takerAmount, timestamp, metadata, builder, signature);
     }
 
     private static byte[] domainHash(String version, String verifyingContract) {

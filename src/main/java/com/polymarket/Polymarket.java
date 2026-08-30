@@ -61,6 +61,7 @@ public final class Polymarket implements AutoCloseable {
     private final Builders builders;
     private final Social social;
     private final Trading trading;
+    private final Eip712OrderSigner orderSigner;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
     private final RtdsGateway rtdsGateway;
@@ -86,8 +87,9 @@ public final class Polymarket implements AutoCloseable {
         this.rewards = new Rewards(authority, new RewardsGateway(config, runtime, clock));
         this.builders = new Builders(authority, new BuildersGateway(config, runtime, clock));
         this.social = new Social(new SocialGateway(config, runtime));
+        this.orderSigner = new Eip712OrderSigner();
         TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
-        this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
+        this.trading = new Trading(orderSigner, tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
         // The stream hosts and connect timeout are the caller's, exactly like every REST host.
         this.streamingGateway = StreamingGateway.builder()
@@ -195,10 +197,11 @@ public final class Polymarket implements AutoCloseable {
     /** The Combo requester flow against the Builder Gateway issued during builder onboarding. */
     public Rfq rfq(@NonNull URI builderGatewayHost) {
         requireOpen();
+        // The SDK's own signer, so an acceptance cannot be signed by something the caller supplies.
         return rfqByGateway.computeIfAbsent(builderGatewayHost, host -> new Rfq(
                 new RfqGateway(host, runtime, clock),
                 new ComboMarketGateway(config.comboMarketsHost(), runtime),
-                clock));
+                orderSigner, clock));
     }
 
     public ServerTime serverTime() throws IOException {

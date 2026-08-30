@@ -71,7 +71,8 @@ class Eip712OrderSignerVectorTest {
             case 0 -> SigningIdentity.eoa(signer);
             case 1 -> SigningIdentity.proxyWallet(maker, signer);
             case 2 -> SigningIdentity.safeWallet(maker, signer);
-            case 3 -> SigningIdentity.depositWallet(maker, signer);
+            // Type 3 names the wallet in both fields; the Account Signer is the key that signs.
+            case 3 -> SigningIdentity.depositWallet(maker, localSigner.address());
             default -> throw new IllegalArgumentException("unknown signatureType " + signatureType);
         };
 

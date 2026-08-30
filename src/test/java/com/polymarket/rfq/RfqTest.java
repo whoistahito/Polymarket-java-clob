@@ -13,6 +13,7 @@ import com.polymarket.internal.http.HttpRuntime;
 import com.polymarket.ReadRetryPolicy;
 import com.polymarket.internal.rfq.ComboMarketGateway;
 import com.polymarket.internal.rfq.RfqGateway;
+import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
 import com.polymarket.trading.Side;
@@ -69,7 +70,7 @@ class RfqTest {
                 ReadRetryPolicy.none(), d -> {
                 });
         return new Rfq(new RfqGateway(host, runtime, clock),
-                new ComboMarketGateway(host, runtime), clock, sleeper);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), clock, sleeper);
     }
 
     private void enqueue(String body) {
@@ -428,7 +429,7 @@ class RfqTest {
                 new ReadRetryPolicy(5, Duration.ZERO, Duration.ZERO), d -> {
                 });
         Rfq withRetries = new Rfq(new RfqGateway(host, runtime, FIXED),
-                new ComboMarketGateway(host, runtime), FIXED);
+                new ComboMarketGateway(host, runtime), new Eip712OrderSigner(), FIXED);
 
         withRetries.request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
@@ -447,7 +448,7 @@ class RfqTest {
         return new RfqOutcome.Quoted("rfq-1", "quote-1", direction, new PositionId("333"),
                 List.of(new PositionId("111"), new PositionId("222")),
                 new QuoteAmounts(500000L, 966191L, 1932381L, 966191L, 1932381L),
-                expiresAt, BUILDER_CODE);
+                expiresAt, BUILDER_CODE, acceptContext().identity());
     }
 
     private com.polymarket.trading.SigningContext acceptContext() {
@@ -461,7 +462,6 @@ class RfqTest {
         RfqOutcome.Quoted expired = quotedFixture(FIXED.instant().minusSeconds(1));
 
         assertThrows(IllegalArgumentException.class, () -> rfq(FIXED).accept(expired,
-                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
         assertEquals(0, server.getRequestCount());
     }
@@ -474,7 +474,7 @@ class RfqTest {
         RfqOutcome.Quoted quote = quotedFixture(FIXED.instant().plusSeconds(60));
 
         RfqOutcome outcome = rfq(FIXED).accept(quote,
-                new com.polymarket.internal.trading.Eip712OrderSigner(), acceptContext(),
+                acceptContext(),
                 ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         assertInstanceOf(RfqOutcome.Waiting.class, outcome);
@@ -499,7 +499,6 @@ class RfqTest {
                 {"rfq_id":"rfq-1","status":"FILLED"}""");
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Confirmed confirmed = assertInstanceOf(RfqOutcome.Confirmed.class, outcome);
@@ -513,7 +512,6 @@ class RfqTest {
                 okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);
@@ -544,7 +542,6 @@ class RfqTest {
                 {"rfq_id":"rfq-1","code":"QUOTE_MISMATCH","error":"quote mismatch"}"""));
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Rejected rejected = assertInstanceOf(RfqOutcome.Rejected.class, outcome);
@@ -558,7 +555,6 @@ class RfqTest {
         server.enqueue(new MockResponse().setBody("<html>gateway</html>"));
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
-                new com.polymarket.internal.trading.Eip712OrderSigner(),
                 acceptContext(), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Unknown unknown = assertInstanceOf(RfqOutcome.Unknown.class, outcome);

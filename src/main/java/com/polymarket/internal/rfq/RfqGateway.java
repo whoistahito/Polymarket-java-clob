@@ -66,7 +66,7 @@ public final class RfqGateway implements RfqDirectory {
         headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", REQUESTS_PATH, body));
 
         HttpOutcome outcome = runtime.post(gatewayHost, REQUESTS_PATH, headers, body);
-        return classify(outcome, null);
+        return classify(outcome, null, identity);
     }
 
     @Override
@@ -179,6 +179,15 @@ public final class RfqGateway implements RfqDirectory {
      * status read, where the caller already knows the ID it asked about).
      */
     private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId) throws IOException {
+        return classify(outcome, fallbackRfqId, null);
+    }
+
+    /**
+     * {@code requester} is present only on a create, the one response that can carry a Quote: it
+     * binds the Quote to the identity that asked for it, so acceptance cannot sign as another.
+     */
+    private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId, SigningIdentity requester)
+            throws IOException {
         JsonNode node = tryParse(outcome.body());
         String rfqId = node == null ? fallbackRfqId : textOrNull(node, "rfq_id");
         if (rfqId == null) rfqId = fallbackRfqId;
@@ -213,13 +222,14 @@ public final class RfqGateway implements RfqDirectory {
             return new RfqOutcome.Canceled(rfqId);
         }
         if (status.is(RfqStatus.Known.AWAITING_REQUESTER_ACCEPTANCE)) {
-            return quoted(node, rfqId);
+            return quoted(node, rfqId, requester);
         }
         if (status.is(RfqStatus.Known.CONFIRMED) || status.is(RfqStatus.Known.FILLED)) {
-            return new RfqOutcome.Confirmed(rfqId, status.raw(), takerOrderHash(node));
+            return new RfqOutcome.Confirmed(rfqId, status.raw(), takerOrderHash(node),
+                    txHash(node));
         }
         if (status.isNonTerminal()) {
-            return new RfqOutcome.Waiting(rfqId, status, takerOrderHash(node));
+            return new RfqOutcome.Waiting(rfqId, status, takerOrderHash(node), txHash(node));
         }
         return new RfqOutcome.Unknown(rfqId, status.raw());
     }
@@ -228,7 +238,7 @@ public final class RfqGateway implements RfqDirectory {
      * Official shape: expires_at and builder_code are TOP LEVEL, the Combo position and legs
      * live under request, and only the six pinned quote fields live under quote.
      */
-    private RfqOutcome quoted(JsonNode node, String rfqId) {
+    private RfqOutcome quoted(JsonNode node, String rfqId, SigningIdentity requester) {
         JsonNode quote = node.path("quote");
         JsonNode request = node.path("request");
         // A Quote is executable only if every field acceptance signs against is on the wire. A
@@ -245,12 +255,12 @@ public final class RfqGateway implements RfqDirectory {
         request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
 
         if (quoteId == null || comboPositionId == null || direction == null || amounts == null
-                || builderCode == null || expiresAt == null || legs.isEmpty()) {
+                || builderCode == null || expiresAt == null || legs.isEmpty() || requester == null) {
             return new RfqOutcome.Unknown(rfqId,
                     "AWAITING_REQUESTER_ACCEPTANCE without a complete quote");
         }
         return new RfqOutcome.Quoted(rfqId, quoteId, direction, new PositionId(comboPositionId),
-                legs, amounts, Instant.ofEpochMilli(expiresAt), builderCode);
+                legs, amounts, Instant.ofEpochMilli(expiresAt), builderCode, requester);
     }
 
     /** Null unless the field is present and numeric: a defaulted expiry is a fabricated deadline. */
@@ -284,6 +294,11 @@ public final class RfqGateway implements RfqDirectory {
     /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */
     private static Optional<String> takerOrderHash(JsonNode node) {
         return Optional.ofNullable(textOrNull(node, "taker_order_hash"));
+    }
+
+    /** The settlement transaction a status read may carry; documented as optional on that shape. */
+    private static Optional<String> txHash(JsonNode node) {
+        return Optional.ofNullable(textOrNull(node, "tx_hash"));
     }
 
     /** Official: "a non-2xx response carries a stable code and a human-readable top-level error". */
