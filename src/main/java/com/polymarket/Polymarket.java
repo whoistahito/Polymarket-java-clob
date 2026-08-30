@@ -64,7 +64,6 @@ public final class Polymarket implements AutoCloseable {
     private final Eip712OrderSigner orderSigner;
     private final StreamingGateway streamingGateway;
     private final Streaming streaming;
-    private final RtdsGateway rtdsGateway;
     private final Rtds rtds;
     private final HeartbeatGateway heartbeat;
     private final Clock clock;
@@ -97,11 +96,11 @@ public final class Polymarket implements AutoCloseable {
                 .connectTimeoutMs(config.connectTimeout().toMillis())
                 .build();
         this.streaming = new Streaming(streamingGateway, authority);
-        this.rtdsGateway = RtdsGateway.builder()
+        // Rtds owns and releases this transport, so the root holds no second reference to close.
+        this.rtds = new Rtds(RtdsGateway.builder()
                 .url(config.rtdsHost().toString())
                 .connectTimeoutMs(config.connectTimeout().toMillis())
-                .build();
-        this.rtds = new Rtds(rtdsGateway);
+                .build());
         this.heartbeat = new HeartbeatGateway(config, runtime, clock);
         this.clock = clock;
     }
@@ -255,7 +254,6 @@ public final class Polymarket implements AutoCloseable {
             heartbeat.close();
             streaming.close();
             streamingGateway.close();
-            // Rtds releases the RTDS gateway itself; the field stays only for the root's own wiring.
             rtds.close();
             // Every Rfq shares the root's runtime, so releasing them is releasing that.
             rfqByGateway.clear();
