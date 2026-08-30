@@ -514,10 +514,23 @@ class ProtocolContractsTest {
         node.forEach(child -> collectUrls(child, urls));
     }
 
+    /**
+     * Every fixture on the classpath, never a hand-kept list: a new one joins the review-date and
+     * provenance checks the moment it is added, instead of the day someone remembers to list it.
+     */
     static List<String> fixtureNames() {
-        return List.of("signing-vectors.json", "constraints.json", "builder-gateway.json",
-                "fees.json", "trades.json", "builder-trades.json", "heartbeat.json",
-                "combo-markets.json", "order-submission.json");
+        List<String> names = new ArrayList<>();
+        try (InputStream in = ProtocolContractsTest.class.getResourceAsStream("/protocol");
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+            reader.lines().filter(name -> name.endsWith(".json")).sorted().forEach(names::add);
+        } catch (Exception e) {
+            throw new IllegalStateException("could not enumerate /protocol fixtures", e);
+        }
+        assertTrue(names.contains("streams.json"),
+                "the stream frames are protocol evidence like any other fixture");
+        assertTrue(names.size() >= 10, "the fixture directory looks empty: " + names);
+        return names;
     }
 
     static List<String> feeExampleIds() {

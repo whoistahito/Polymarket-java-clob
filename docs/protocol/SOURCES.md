@@ -17,8 +17,10 @@ Machine-readable companions live in `src/test/resources/protocol/` and are enfor
 | `heartbeat.json` | Bodyless `POST /heartbeats` contract and the unlisted id-chaining variant |
 | `combo-markets.json` | Combo markets catalog endpoint, query bounds, YES/NO index alignment, cursor semantics |
 | `order-submission.json` | `SendOrderResponse` required/optional fields incl. `transactionsHashes`, `POST /orders` array shape, `CancelOrdersResponse` contract, order-identifier syntax evidence |
+| `streams.json` | CLOB market and user channel frames and field lists from the two AsyncAPI documents, RTDS topics, subscribe shapes, heartbeat intervals, and the comment fields no official example gives a shape for |
 
-Stream frames are **not** covered here; another ticket owns `streams.json` and the AsyncAPI rows.
+`ProtocolContractsTest` enumerates this directory rather than a list, so a fixture added without a
+`reviewedOn` date or citing anything but official documentation fails the build on the day it lands.
 
 ## 1. Pinned source revisions
 
@@ -183,25 +185,28 @@ probe of `combos-rfq-api.polymarket.com` on 2026-08-24 — behaviour the documen
 ## 6. Discrepancies against current production code
 
 Recorded here for the tickets that own the code. **No production code was changed by issue #3.**
-In every case the fixture states the OFFICIAL value.
+In every case the fixture states the OFFICIAL value. Entries struck through have since been
+repaired by the ticket named; they are kept because the fixture that caught them is still the
+evidence the repair is checked against.
 
-1. `trading/FeeRate.feeOn` charges `notional × bps / 10000`, with no `p × (1 - p)` price-curve
-   factor. At a 0.50 price it overstates the official fee by exactly 2×. See `fees.json`.
-2. `internal/builders/BuildersGateway.query(...)` never sends `builder_code`, the only **required**
-   parameter of `GET /builder/trades`, and `BuilderTradeQuery` cannot carry one. See
-   `builder-trades.json.requiredQuery`.
-3. `BuildersGateway.trade(...)` parses `matchTime` with `Instant::parse`, but `matchTime` is a
-   unix-seconds string; only `createdAt`/`updatedAt` are ISO-8601. See
+1. ~~`trading/FeeRate.feeOn` charges `notional × bps / 10000`, with no `p × (1 - p)` price-curve
+   factor.~~ **Repaired (issue #11.)** `exactFeeOn` applies the official price curve, and
+   `FeeRateTest` reproduces the published table. See `fees.json`.
+2. ~~`internal/builders/BuildersGateway.query(...)` never sends `builder_code`, the only
+   **required** parameter of `GET /builder/trades`.~~ **Repaired (issue #19.)** The code is
+   required by `BuilderTradeQuery` and always sent. See `builder-trades.json.requiredQuery`.
+3. ~~`BuildersGateway.trade(...)` parses `matchTime` with `Instant::parse`.~~ **Repaired (issue
+   #19.)** `matchTime` is read as unix seconds and `createdAt`/`updatedAt` as ISO-8601, per
    `builder-trades.json.timestampUnits`.
-4. `BuilderTradeQuery` exposes no `before`/`after`, so a builder-trade read cannot be windowed.
-   See `builder-trades.json.continuation`.
-5. `internal/trading/TradeReaderGateway` iterates the `GET /data/trades` body as if it were an
-   array. The response is the four-field `TradesResponse` envelope; the rows are under `data`.
-   It also omits the required `maker_address`. See `trades.json.clobTradePage`.
-6. `internal/operations/HeartbeatGateway` posts the id-chaining `POST /v1/heartbeats` with a
-   `heartbeat_id` body. The published Heartbeat is the bodyless `POST /heartbeats` returning
-   `{"status":"ok"}`. Its `DEFAULT_INTERVAL = 5s` and the "cancelled after a 10 s silence" comment
-   have no published source. See `heartbeat.json`.
+4. ~~`BuilderTradeQuery` exposes no `before`/`after`.~~ **Repaired (issue #19.)** Both windows are
+   sent as unix seconds. See `builder-trades.json.continuation`.
+5. ~~`internal/trading/TradeReaderGateway` iterates the `GET /data/trades` body as if it were an
+   array and omits the required `maker_address`.~~ **Repaired (issue #16.)** Rows are read from
+   `data`, the walk follows `next_cursor`, and the Trading Wallet filter is always sent. See
+   `trades.json.clobTradePage`.
+6. ~~`internal/operations/HeartbeatGateway` posts the id-chaining `POST /v1/heartbeats`.~~
+   **Repaired (issue #24.)** Each tick is the bodyless `POST /heartbeats`, and the 5 s default is
+   documented in code as a local choice with no published source. See `heartbeat.json`.
 7. ~~`internal/rfq/RfqGateway.quoted(...)` reads `expires_at` and `builder_code` from inside
    `quote` and `leg_position_ids` from the top level.~~ **Repaired (issue #25.)** Both are read
    from the top level and the legs from `request`. See `builder-gateway.json.createResponse`.
@@ -214,9 +219,9 @@ In every case the fixture states the OFFICIAL value.
 10. ~~`RfqGateway.accept(...)` uses `signedOrder.signer()` as `POLY_ADDRESS`.~~ **Repaired (issue
     #26.)** The Signing Identity is passed through, so `POLY_ADDRESS` is always the Account
     Signer EOA that owns the credentials.
-11. `internal/portfolio/PortfolioGateway` caps Data API `/trades` at limit 500 / offset 1000 and
-    cites `constraints.json` for it. The pinned spec values are 10000 / 10000; the 500/1000 figures
-    come from the superseded 2025-08-26 changelog entry.
+11. ~~`internal/portfolio/PortfolioGateway` caps Data API `/trades` at limit 500 / offset 1000.~~
+    **Repaired (issue #15.)** Each endpoint carries its own pinned spec bound, and the superseded
+    2025-08-26 changelog figures are kept in `constraints.json` only to explain the old ones.
 
 12. `internal/trading/TradeReaderGateway` used ONE caller-supplied address for both the L2
     `POLY_ADDRESS` header and the required `maker_address` trade filter. `POLY_ADDRESS` is the

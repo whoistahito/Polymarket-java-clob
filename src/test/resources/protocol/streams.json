@@ -1,5 +1,6 @@
 {
  "description": "Current documented Polymarket stream frames: the CLOB market channel, the CLOB authenticated user channel, and the Real-Time Data Service. Every frame is copied verbatim from the official page named in 'sources'; every field list is copied verbatim from the official AsyncAPI document. Owned by issues #21/#22/#23.",
+ "reviewedOn": "2026-08-23",
  "sources": [
   {
    "url": "https://docs.polymarket.com/asyncapi.json",
