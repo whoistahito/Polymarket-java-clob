@@ -1,0 +1,63 @@
+{
+  "reviewedOn": "2026-08-24",
+  "note": "Official POST /order, POST /orders and DELETE /orders response contracts. Read from the pinned clob-openapi.yaml (sha256 82529177635db366c31a08777355b4b95c392a427298c3ba68904b937d4594da, unchanged since the 2026-08-23 pin). Nothing here is derived from this SDK's Java code.",
+  "sendOrderResponse": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml#/components/schemas/SendOrderResponse",
+    "rendered": "https://docs.polymarket.com/api-reference/trade/post-a-new-order.md",
+    "required": ["success", "orderID", "status"],
+    "optional": [
+      "makingAmount",
+      "takingAmount",
+      "transactionsHashes",
+      "tradeIDs",
+      "errorMsg"
+    ],
+    "statusEnum": ["live", "matched", "delayed", "unmatched"],
+    "statusNote": "The rendered Place Orders API workflow also documents unmatched as a successful insertion status, although the OpenAPI enum lists only live, matched, and delayed. Preserve both official sources rather than rejecting a documented success.",
+    "transactionsHashes": {
+      "type": "array of string",
+      "description": "Array of transaction hashes (present when status is 'matched')",
+      "example": ["0x1234567890abcdef1234567890abcdef12345678"],
+      "note": "Spelled transactionsHashes, not transactionHashes."
+    },
+    "settlementContradiction": "constraints.json settlement (changelog Jul 17, 2026) says POST /order returns tradeIDs INSTEAD OF transactionHashes. The live clob-openapi.yaml still documents transactionsHashes on SendOrderResponse and still shows it in the matched_order and mixed_results examples. Both are official. Carry the field when present rather than dropping a documented success field; never require it."
+  },
+  "postOrdersResponse": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (POST /orders, 200)",
+    "shape": "array of SendOrderResponse, one element per submitted order",
+    "maxItems": 15,
+    "note": "The array carries no per-item request ID, so an element can only be attributed by position."
+  },
+  "cancelOrdersResponse": {
+    "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml#/components/schemas/CancelOrdersResponse",
+    "rendered": "https://docs.polymarket.com/api-reference/trade/cancel-multiple-orders.md",
+    "required": ["canceled", "not_canceled"],
+    "canceled": "array of order IDs that were successfully canceled",
+    "notCanceled": "object mapping order ID to the server's reason string",
+    "duplicateHandling": "Duplicate order IDs in the request are automatically ignored.",
+    "maxItems": 1000,
+    "silenceIsNotAnAnswer": "No official text says an ID absent from BOTH canceled and not_canceled was not canceled. The published examples always account for every requested ID. An unmentioned ID is unaccounted for, not a stated refusal."
+  },
+  "orderIdentifierSyntax": {
+    "constrained": false,
+    "sources": [
+      "https://docs.polymarket.com/api-spec/clob-openapi.yaml#/components/schemas/CancelOrderPayload (orderID: type string, no pattern)",
+      "https://docs.polymarket.com/api-spec/clob-openapi.yaml#/components/schemas/SendOrderResponse (orderID: type string, no pattern)",
+      "https://docs.polymarket.com/api-spec/clob-openapi.yaml (DELETE /orders body: array of type string, no item pattern)",
+      "https://docs.polymarket.com/trading/manage-orders.md (OpenOrder example id)"
+    ],
+    "evidence": {
+      "noPattern": "Every orderID / order_id / order_ids field in clob-openapi.yaml is a bare `type: string`. Sibling fields in the same schemas DO carry patterns (maker_address ^0x[a-fA-F0-9]{40}$, market ^0x[a-fA-F0-9]{64}$), so the omission is deliberate, not an oversight.",
+      "lengthDisagreement": [
+        "SendOrderResponse.orderID example: 0xabcdef1234567890abcdef1234567890abcdef12 (0x + 40 hex)",
+        "CancelOrderPayload.orderID example: 0xabcdef1234567890abcdef1234567890abcdef12 (0x + 40 hex)",
+        "GET /data/order/{orderID} example: 0x0000000000000000000000000000000000000000000000000000000000000001 (0x + 64 hex)",
+        "GET /order-scoring order_id example: 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 (0x + 64 hex)",
+        "manage-orders.md OpenOrder.id: 0xff354cd7ca7539dfa9c28d90943ab5779a4eac34b9b37a757d7b32bdfb11790b (0x + 64 hex)"
+      ],
+      "emptyIsDocumented": "POST /orders per-item failure examples carry orderID: '' — an absent identifier, not an identifier of some other shape."
+    },
+    "commonShape": "Every non-empty official order-ID example matches ^0x[0-9a-fA-F]+$. Only the LENGTH disagrees (40 vs 64 hex), so the length must not be enforced.",
+    "verdict": "Enforce the 0x-hex shape locally, never a length. The spec publishes no pattern, so anything stricter than the shape every official example shares would be invented."
+  }
+}

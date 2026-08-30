@@ -1,0 +1,376 @@
+package com.polymarket.internal.rfq;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.polymarket.authentication.ApiCredentials;
+import com.polymarket.authentication.SigningIdentity;
+import com.polymarket.builders.BuilderCredentials;
+import com.polymarket.internal.authentication.L2Attestation;
+import com.polymarket.internal.http.HttpOutcome;
+import com.polymarket.internal.http.HttpRuntime;
+import com.polymarket.markets.PositionId;
+import com.polymarket.rfq.QuoteAmounts;
+import com.polymarket.rfq.RfqDirectory;
+import com.polymarket.rfq.RfqGatewayException;
+import com.polymarket.rfq.RfqOutcome;
+import com.polymarket.rfq.RfqRequest;
+import com.polymarket.rfq.RfqStatus;
+import com.polymarket.trading.Side;
+import com.polymarket.trading.SignedOrder;
+import java.io.IOException;
+import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Transport for the Builder Gateway requester flow. Ground truth:
+ * {@code src/test/resources/protocol/builder-gateway.json}. The gateway host is issued per
+ * builder onboarding (not a fixed Polymarket host), so it is supplied explicitly here rather
+ * than living in {@code PolymarketConfig}.
+ */
+public final class RfqGateway implements RfqDirectory {
+
+    private static final String REQUESTS_PATH = "/v1/builder/rfq/requests";
+    private static final String ACCEPT_SUFFIX = "/accept";
+    private static final int DEPOSIT_WALLET_SIGNATURE_TYPE = 3;
+    private static final int STATE_CONFLICT = 409;
+
+    /** builder-gateway.json quoteFields, less quote_id: all five ride every official Quote. */
+    private static final String[] QUOTE_AMOUNT_FIELDS = {"blended_price_e6", "maker_amount_e6",
+            "taker_amount_e6", "total_required_e6", "net_receive_e6"};
+
+    private final URI gatewayHost;
+    private final HttpRuntime runtime;
+    private final Clock clock;
+    private final ObjectMapper json = new ObjectMapper();
+
+    public RfqGateway(URI gatewayHost, HttpRuntime runtime, Clock clock) {
+        this.gatewayHost = gatewayHost;
+        this.runtime = runtime;
+        this.clock = clock;
+    }
+
+    @Override
+    public RfqOutcome request(RfqRequest request, SigningIdentity identity,
+            ApiCredentials accountCredentials, BuilderCredentials builderCredentials) throws IOException {
+        String body = requestBody(request, identity);
+        Map<String, String> headers = new LinkedHashMap<>();
+        long timestamp = clock.instant().getEpochSecond();
+        headers.putAll(L2Attestation.headers(
+                accountCredentials, identity.accountSigner(), timestamp, "POST", REQUESTS_PATH, body));
+        headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", REQUESTS_PATH, body));
+
+        HttpOutcome outcome = runtime.post(gatewayHost, REQUESTS_PATH, headers, body);
+        return classify(outcome, null, identity, request);
+    }
+
+    @Override
+    public RfqOutcome status(String rfqId, ApiCredentials accountCredentials, String address)
+            throws IOException {
+        String path = REQUESTS_PATH + "/" + rfqId;
+        long timestamp = clock.instant().getEpochSecond();
+        Map<String, String> headers = L2Attestation.headers(
+                accountCredentials, address, timestamp, "GET", path, null);
+
+        HttpOutcome outcome = runtime.get(gatewayHost, path, headers);
+        // Official: a status read before acceptance is the gateway's documented 409.
+        if (outcome.status() == STATE_CONFLICT) {
+            return new RfqOutcome.NotYetAccepted(rfqId);
+        }
+        return classify(outcome, rfqId);
+    }
+
+    @Override
+    public RfqOutcome accept(String rfqId, String quoteId, SignedOrder signedOrder,
+            SigningIdentity identity, ApiCredentials accountCredentials,
+            BuilderCredentials builderCredentials) {
+        String path = REQUESTS_PATH + "/" + rfqId + ACCEPT_SUFFIX;
+        String body = acceptBody(quoteId, signedOrder);
+        long timestamp = clock.instant().getEpochSecond();
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.putAll(L2Attestation.headers(
+                accountCredentials, identity.accountSigner(), timestamp, "POST", path, body));
+        headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", path, body));
+
+        try {
+            HttpOutcome outcome = runtime.post(gatewayHost, path, headers, body);
+            return classify(outcome, rfqId);
+        } catch (IOException transportFailure) {
+            // Never replayed and never thrown: the acceptance may or may not have landed, so
+            // the caller polls status() with the same durable rfqId instead of re-accepting.
+            return new RfqOutcome.Unknown(rfqId,
+                    "transport failure: " + transportFailure.getMessage());
+        }
+    }
+
+    private String acceptBody(String quoteId, SignedOrder signedOrder) {
+        Map<String, Object> order = new LinkedHashMap<>();
+        order.put("salt", signedOrder.salt());
+        order.put("maker", signedOrder.maker());
+        order.put("signer", signedOrder.signer());
+        order.put("tokenId", signedOrder.asset().value());
+        order.put("makerAmount", String.valueOf(signedOrder.makerAmount()));
+        order.put("takerAmount", String.valueOf(signedOrder.takerAmount()));
+        order.put("side", signedOrder.side().wireValue());
+        order.put("signatureType", signedOrder.signatureType());
+        order.put("timestamp", String.valueOf(signedOrder.timestamp()));
+        order.put("metadata", signedOrder.metadata());
+        order.put("builder", signedOrder.builder());
+        order.put("signature", signedOrder.signature());
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("quote_id", quoteId);
+        body.put("signed_order", order);
+        try {
+            return json.writeValueAsString(body);
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize the RFQ acceptance", e);
+        }
+    }
+
+    private String requestBody(RfqRequest request, SigningIdentity identity) {
+        Map<String, Object> size = new LinkedHashMap<>();
+        Map<String, Object> body = new LinkedHashMap<>();
+        // Only signature type 3 collapses signer_address onto the Trading Wallet;
+        // POLY_ADDRESS stays the Account Signer for every type (builder-gateway.json).
+        body.put("signer_address", identity.signatureType() == DEPOSIT_WALLET_SIGNATURE_TYPE
+                ? identity.tradingWallet() : identity.accountSigner());
+        body.put("maker_address", identity.tradingWallet());
+        body.put("signature_type", identity.signatureType());
+        List<String> legs = new ArrayList<>();
+        request.legs().forEach(leg -> legs.add(leg.value()));
+        body.put("leg_position_ids", legs);
+        body.put("side", "YES");
+        if (request instanceof RfqRequest.Buy buy) {
+            body.put("direction", "BUY");
+            size.put("unit", "notional");
+            size.put("value_e6", String.valueOf(buy.notional().baseUnits()));
+        } else if (request instanceof RfqRequest.Sell sell) {
+            body.put("direction", "SELL");
+            size.put("unit", "shares");
+            size.put("value_e6", String.valueOf(sell.shares().baseUnits()));
+        }
+        body.put("requested_size", size);
+        try {
+            return json.writeValueAsString(body);
+        } catch (IOException e) {
+            throw new IllegalStateException("could not serialize the RFQ request", e);
+        }
+    }
+
+    private static Map<String, String> builderHeaders(BuilderCredentials credentials,
+            long timestampSeconds, String method, String path, String body) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("POLY_BUILDER_API_KEY", credentials.key());
+        headers.put("POLY_BUILDER_PASSPHRASE", credentials.passphrase());
+        headers.put("POLY_BUILDER_TIMESTAMP", String.valueOf(timestampSeconds));
+        headers.put("POLY_BUILDER_SIGNATURE",
+                L2Attestation.sign(credentials.secret(), timestampSeconds, method, path, body));
+        return headers;
+    }
+
+    /**
+     * {@code fallbackRfqId} is used when the body carries none (e.g. an unreadable body on a
+     * status read, where the caller already knows the ID it asked about).
+     */
+    private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId) throws IOException {
+        return classify(outcome, fallbackRfqId, null, null);
+    }
+
+    /** The requester and request are present only on create, binding every returned Quote term. */
+    private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId, SigningIdentity requester,
+            RfqRequest expectedRequest) throws IOException {
+        JsonNode node = tryParse(outcome.body());
+        String rfqId = node == null ? fallbackRfqId : textOrNull(node, "rfq_id");
+        if (rfqId == null) rfqId = fallbackRfqId;
+
+        // Two independent axes: this is the HTTP verdict on the exchange, never the RFQ's
+        // business result. A business failure is HTTP 200 with status FAILED, handled below.
+        if (!outcome.successful()) {
+            String reason = node == null ? "HTTP " + outcome.status() : errorEnvelope(node);
+            if (rfqId == null) {
+                throw new RfqGatewayException(outcome.status(), reason);
+            }
+            return new RfqOutcome.Rejected(rfqId, outcome.status(), reason);
+        }
+        if (node == null) {
+            if (rfqId != null) {
+                return new RfqOutcome.Unknown(rfqId, "unreadable response body");
+            }
+            throw new RfqGatewayException(outcome.status(), "unreadable response body");
+        }
+        if (rfqId == null) {
+            throw new RfqGatewayException(outcome.status(), "response carried no rfq_id");
+        }
+        RfqStatus status = new RfqStatus(node.path("status").asText(""));
+
+        if (status.is(RfqStatus.Known.FAILED)) {
+            return new RfqOutcome.Failed(rfqId, errorReason(node));
+        }
+        if (status.is(RfqStatus.Known.EXPIRED)) {
+            return new RfqOutcome.Expired(rfqId);
+        }
+        if (status.is(RfqStatus.Known.CANCELED)) {
+            return new RfqOutcome.Canceled(rfqId);
+        }
+        if (status.is(RfqStatus.Known.AWAITING_REQUESTER_ACCEPTANCE)) {
+            return quoted(node, rfqId, requester, expectedRequest);
+        }
+        if (status.is(RfqStatus.Known.CONFIRMED) || status.is(RfqStatus.Known.FILLED)) {
+            return new RfqOutcome.Confirmed(rfqId, status.raw(), takerOrderHash(node),
+                    txHash(node));
+        }
+        if (status.isNonTerminal()) {
+            return new RfqOutcome.Waiting(rfqId, status, takerOrderHash(node), txHash(node));
+        }
+        return new RfqOutcome.Unknown(rfqId, status.raw());
+    }
+
+    /**
+     * Official shape: expires_at and builder_code are TOP LEVEL, the Combo position and legs
+     * live under request, and only the six pinned quote fields live under quote.
+     */
+    private RfqOutcome quoted(JsonNode node, String rfqId, SigningIdentity requester,
+            RfqRequest expectedRequest) {
+        JsonNode quote = node.path("quote");
+        JsonNode request = node.path("request");
+        // A Quote is executable only if every field acceptance signs against is on the wire. A
+        // missing one is not an RFQ still waiting on a maker — it is a response nobody can act on,
+        // and defaulting any of these would sign an order the gateway never quoted: a zero expiry
+        // reads as already expired, and a blank builder code contradicts the acceptance rule.
+        String quoteId = textOrNull(quote, "quote_id");
+        String comboPositionId = textOrNull(request, "yes_position_id");
+        Side direction = direction(request);
+        QuoteAmounts amounts = amounts(quote);
+        String builderCode = textOrNull(node, "builder_code");
+        Long expiresAt = longOrNull(node, "expires_at");
+        PositionId position = positionIdOrNull(comboPositionId);
+        List<PositionId> legs = positionIdsOrNull(request.path("leg_position_ids"));
+
+        if (quoteId == null || position == null || direction == null || amounts == null
+                || builderCode == null || expiresAt == null || legs == null || legs.isEmpty()
+                || requester == null || !matches(expectedRequest, direction, legs, request)) {
+            return new RfqOutcome.Unknown(rfqId,
+                    "AWAITING_REQUESTER_ACCEPTANCE with an incomplete or contradictory quote");
+        }
+        return new RfqOutcome.Quoted(rfqId, quoteId, direction, position,
+                legs, amounts, Instant.ofEpochMilli(expiresAt), builderCode, requester);
+    }
+
+    private static boolean matches(RfqRequest expected, Side direction, List<PositionId> legs,
+            JsonNode request) {
+        if (expected == null || !expected.legs().equals(legs)
+                || !"YES".equals(textOrNull(request, "side"))) {
+            return false;
+        }
+        JsonNode size = request.path("requested_size");
+        String unit = textOrNull(size, "unit");
+        String value = textOrNull(size, "value_e6");
+        if (expected instanceof RfqRequest.Buy buy) {
+            return direction == Side.BUY && "notional".equals(unit)
+                    && String.valueOf(buy.notional().baseUnits()).equals(value);
+        }
+        RfqRequest.Sell sell = (RfqRequest.Sell) expected;
+        return direction == Side.SELL && "shares".equals(unit)
+                && String.valueOf(sell.shares().baseUnits()).equals(value);
+    }
+
+    private static PositionId positionIdOrNull(String value) {
+        if (value == null) return null;
+        try {
+            return new PositionId(value);
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
+    }
+
+    private static List<PositionId> positionIdsOrNull(JsonNode node) {
+        if (!node.isArray()) return null;
+        List<PositionId> positions = new ArrayList<>();
+        for (JsonNode value : node) {
+            if (!value.isTextual()) return null;
+            PositionId position = positionIdOrNull(value.asText());
+            if (position == null) return null;
+            positions.add(position);
+        }
+        return positions;
+    }
+
+    /** Null unless the field is present and numeric: a defaulted expiry is a fabricated deadline. */
+    private static Long longOrNull(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isIntegralNumber() && value.canConvertToLong() ? value.asLong() : null;
+    }
+
+    /** Null when the wire named no direction this release knows: never defaulted to a side. */
+    private static Side direction(JsonNode request) {
+        String raw = textOrNull(request, "direction");
+        if ("BUY".equalsIgnoreCase(raw)) return Side.BUY;
+        return "SELL".equalsIgnoreCase(raw) ? Side.SELL : null;
+    }
+
+    /** Null unless all six pinned quote amounts are present and readable. */
+    private static QuoteAmounts amounts(JsonNode quote) {
+        long[] values = new long[QUOTE_AMOUNT_FIELDS.length];
+        for (int i = 0; i < QUOTE_AMOUNT_FIELDS.length; i++) {
+            String raw = textOrNull(quote, QUOTE_AMOUNT_FIELDS[i]);
+            if (raw == null) return null;
+            try {
+                values[i] = Long.parseLong(raw);
+            } catch (NumberFormatException notANumber) {
+                return null;
+            }
+        }
+        try {
+            return new QuoteAmounts(values[0], values[1], values[2], values[3], values[4]);
+        } catch (IllegalArgumentException invalidAmount) {
+            return null;
+        }
+    }
+
+    /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */
+    private static Optional<String> takerOrderHash(JsonNode node) {
+        return Optional.ofNullable(textOrNull(node, "taker_order_hash"));
+    }
+
+    /** The settlement transaction a status read may carry; documented as optional on that shape. */
+    private static Optional<String> txHash(JsonNode node) {
+        return Optional.ofNullable(textOrNull(node, "tx_hash"));
+    }
+
+    /** Official: "a non-2xx response carries a stable code and a human-readable top-level error". */
+    private static String errorEnvelope(JsonNode node) {
+        String code = textOrNull(node, "code");
+        String message = errorReason(node);
+        return code == null ? message : code + ": " + message;
+    }
+
+    private static String errorReason(JsonNode node) {
+        JsonNode error = node.path("error");
+        String message = textOrNull(error, "message");
+        if (message != null) return message;
+        String flatError = error.isTextual() ? error.asText() : null;
+        if (flatError != null && !flatError.isBlank()) return flatError;
+        String topLevel = textOrNull(node, "error_message");
+        return topLevel != null ? topLevel : "RFQ failed";
+    }
+
+    private JsonNode tryParse(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            return runtime.parse(body);
+        } catch (IOException notJson) {
+            return null;
+        }
+    }
+
+    private static String textOrNull(JsonNode node, String field) {
+        String value = node.path(field).asText(null);
+        return value == null || value.isBlank() ? null : value;
+    }
+}

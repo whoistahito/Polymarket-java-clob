@@ -7,25 +7,68 @@
 
     <groupId>com.polymarket</groupId>
     <artifactId>polymarket-api</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <packaging>jar</packaging>
 
     <name>Polymarket API Client</name>
-    <description>Java SDK for the Polymarket CLOB, Gamma, Data, CTF and RTDS APIs</description>
+    <description>Java SDK for the Polymarket CLOB, Gamma, Data and RTDS APIs</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.release>21</maven.compiler.release>
         <okhttp.version>4.12.0</okhttp.version>
         <jackson.version>2.16.1</jackson.version>
         <web3j.version>4.10.3</web3j.version>
-        <slf4j.version>2.0.9</slf4j.version>
+        <slf4j.version>2.0.12</slf4j.version>
         <logback.version>1.4.14</logback.version>
-        <junit.version>5.10.1</junit.version>
-        <mockito.version>5.14.2</mockito.version>
+        <junit.version>5.11.2</junit.version>
         <lombok.version>1.18.36</lombok.version>
+        <archunit.version>1.3.0</archunit.version>
+        <kotlin.version>1.9.10</kotlin.version>
+        <okio.version>3.6.0</okio.version>
+        <enforcer.version>3.5.0</enforcer.version>
     </properties>
+
+    <!--
+      Convergence pins only: every entry resolves a version conflict the enforcer's dependencyConvergence
+      rule reports. Pinning keeps the transitive dependency present, unlike an exclusion.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- okio wants kotlin 1.9.10, okhttp wants 1.8.21; take the newer, which is binary compatible. -->
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-jdk7</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-jdk8</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib-common</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <!-- web3j:crypto drags an older Jackson and slf4j; the SDK's own versions win. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- HTTP Client -->
@@ -33,6 +76,12 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>${okhttp.version}</version>
+        </dependency>
+        <!-- OkHttp's own signatures name okio types, so it is a compile-classpath requirement. -->
+        <dependency>
+            <groupId>com.squareup.okio</groupId>
+            <artifactId>okio-jvm</artifactId>
+            <version>${okio.version}</version>
         </dependency>
 
         <!-- JSON Processing -->
@@ -42,24 +91,24 @@
             <version>${jackson.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- Web3/Ethereum -->
-        <dependency>
-            <groupId>org.web3j</groupId>
-            <artifactId>core</artifactId>
-            <version>${web3j.version}</version>
-        </dependency>
+        <!-- Local EIP-712 signing only; no RPC/transaction packages -->
         <dependency>
             <groupId>org.web3j</groupId>
             <artifactId>crypto</artifactId>
             <version>${web3j.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.web3j</groupId>
+            <artifactId>utils</artifactId>
+            <version>${web3j.version}</version>
+        </dependency>
 
-        <!-- Logging -->
+        <!-- Logging: a library binds no backend. logback is test-only, for readable suite output. -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -69,32 +118,13 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
-        </dependency>
-
-        <!-- Apache Commons -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.14.0</version>
-        </dependency>
-
-        <!-- Bouncy Castle (for cryptography) -->
-        <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bcprov-jdk15on</artifactId>
-            <version>1.70</version>
-        </dependency>
-
-        <!-- Testing -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Testing: the junit-jupiter aggregator already brings api, engine and params. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
+            <artifactId>junit-jupiter-api</artifactId>
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
@@ -105,21 +135,22 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>${mockito.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <version>${mockito.version}</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>${okhttp.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -134,14 +165,102 @@
 
     <build>
         <plugins>
+            <!--
+              Dependency gate: consumers inherit this tree, so a silent version conflict is our bug, not theirs.
+              Convergence conflicts are fixed by a dependencyManagement pin above, never by an exclusion.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-dependency-hygiene</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <dependencyConvergence/>
+                                <banDuplicatePomDependencyVersions/>
+                                <!-- Scoped to what ships: logback stays legal at test scope. -->
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>ch.qos.logback:*:*:*:compile</exclude>
+                                        <exclude>ch.qos.logback:*:*:*:runtime</exclude>
+                                        <exclude>org.apache.logging.log4j:*</exclude>
+                                        <exclude>org.slf4j:slf4j-simple</exclude>
+                                        <exclude>org.slf4j:slf4j-jdk14</exclude>
+                                        <exclude>org.slf4j:slf4j-log4j12</exclude>
+                                        <exclude>org.web3j:core</exclude>
+                                        <exclude>org.web3j:hosted-providers</exclude>
+                                        <exclude>org.bouncycastle:bcprov-jdk15on</exclude>
+                                        <exclude>org.bouncycastle:bcprov-jdk15to18</exclude>
+                                    </excludes>
+                                </bannedDependencies>
+                                <requireMavenVersion>
+                                    <version>[3.6.3,)</version>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Dependency Plugin: the declared graph must match the APIs actually used -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.7.0</version>
+                <executions>
+                    <!-- The classpath the README examples compile against: dependencies only,
+                         so the packaged jar can be put in front of them. -->
+                    <execution>
+                        <id>example-classpath</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <outputFile>${project.build.directory}/example-classpath.txt</outputFile>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>enforce-declared-dependencies</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>analyze-only</goal>
+                        </goals>
+                        <configuration>
+                            <failOnWarning>true</failOnWarning>
+                            <ignoreNonCompile>false</ignoreNonCompile>
+                            <!-- Both are loaded by ServiceLoader at test runtime, so no class references them. -->
+                            <ignoredUnusedDeclaredDependencies>
+                                <dep>org.junit.jupiter:junit-jupiter-engine</dep>
+                                <dep>ch.qos.logback:logback-classic</dep>
+                            </ignoredUnusedDeclaredDependencies>
+                            <!-- Only tests name an okio type, but OkHttp needs it to compile main. -->
+                            <ignoredNonTestScopedDependencies>
+                                <dep>com.squareup.okio:okio-jvm</dep>
+                            </ignoredNonTestScopedDependencies>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>17</source>
-                    <target>17</target>
+                    <release>${maven.compiler.release}</release>
                     <compilerArgs>
                         <arg>-parameters</arg>
                     </compilerArgs>
@@ -153,6 +272,40 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+
+            <!--
+              Release gate: the README's examples are compiled against the PACKAGED JAR and its
+              declared dependencies only. target/classes is deliberately off this classpath, and so
+              is Lombok: a consumer gets the jar, so that is what the examples have to build against.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>compile-readme-examples</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}/examples-classes"/>
+                                <!-- Read at run time: a Maven property another plugin sets during
+                                     the build is not interpolated into this configuration. -->
+                                <loadfile property="example.dependency.classpath"
+                                          srcFile="${project.build.directory}/example-classpath.txt"/>
+                                <javac srcdir="${project.basedir}/src/examples/java"
+                                       destdir="${project.build.directory}/examples-classes"
+                                       release="${maven.compiler.release}"
+                                       includeantruntime="false" fork="true" failonerror="true"
+                                       classpath="${project.build.directory}/${project.build.finalName}.jar:${example.dependency.classpath}"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Surefire Plugin for Testing -->
@@ -167,8 +320,32 @@
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
                     </includes>
+                    <!-- Live checks are opt-in only: mvn -Plive test -->
+                    <excludedGroups>live</excludedGroups>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Opt-in lane for the read-only live checks; nothing else runs here. -->
+        <profile>
+            <id>live</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>live</groups>
+                            <excludedGroups combine.self="override"/>
+                            <systemPropertyVariables>
+                                <polymarket.live>true</polymarket.live>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

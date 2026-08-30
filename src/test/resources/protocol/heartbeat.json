@@ -1,0 +1,48 @@
+{
+  "reviewedOn": "2026-08-23",
+  "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml (POST /heartbeats, info.version 1.0.0)",
+  "referencePage": "https://docs.polymarket.com/api-reference/trade/send-heartbeat.md",
+  "host": "https://clob.polymarket.com",
+
+  "purpose": "Dead-man switch. If heartbeats stop arriving, the CLOB automatically cancels all of the user's open orders.",
+  "cancelsOpenOrdersWhenBeatsStop": true,
+  "intervalIsPublished": false,
+  "publishedIntervalSeconds": null,
+  "intervalNote": "No official page states a beat interval or a silence timeout. Any interval constant in an SDK is a local choice, not pinned evidence.",
+  "introduced": "https://docs.polymarket.com/changelog/predictions.md (Jan 6, 2026)",
+
+  "current": {
+    "method": "POST",
+    "path": "/heartbeats",
+    "operationId": "sendHeartbeat",
+    "hasRequestBody": false,
+    "requestBody": "",
+    "requestBodyNote": "The operation declares no requestBody. The signed L2 payload therefore covers timestamp + POST + /heartbeats with an empty body.",
+    "contentTypeRequired": false,
+    "authLevel": "L2",
+    "authHeaders": ["POLY_API_KEY", "POLY_ADDRESS", "POLY_SIGNATURE", "POLY_PASSPHRASE", "POLY_TIMESTAMP"],
+    "responseSchema": "HeartbeatResponse",
+    "responseFields": ["status"],
+    "requiredResponseFields": ["status"],
+    "responseExample": {"status": "ok"},
+    "documentedErrors": {"401": "Invalid API key", "500": "Internal server error"},
+    "listedInDocumentationIndex": true
+  },
+
+  "idChainingVariant": {
+    "method": "POST",
+    "path": "/v1/heartbeats",
+    "operationId": "sendHeartbeatV1",
+    "hasRequestBody": true,
+    "requiredRequestFields": ["heartbeat_id"],
+    "firstRequestValue": "",
+    "responseSchema": "HeartbeatV1Response",
+    "responseFields": ["heartbeat_id"],
+    "chainingRule": "The response returns a new heartbeat_id that must be sent on the next request; a mismatch returns 400 with the expected id.",
+    "errorSchema": "HeartbeatErrorResponse",
+    "errorFields": ["error", "heartbeat_id"],
+    "documentedErrors": {"400": "Invalid Heartbeat ID", "401": "Invalid API key", "500": "Internal server error"},
+    "listedInDocumentationIndex": false,
+    "note": "Present in clob-openapi.yaml but absent from llms.txt, which lists only the bodyless POST /heartbeats. Treat the bodyless contract as current and this one as an unlisted alternative."
+  }
+}
