@@ -89,9 +89,16 @@ public final class Polymarket implements AutoCloseable {
         TradingGateway tradingGateway = new TradingGateway(config, runtime, clock);
         this.trading = new Trading(new Eip712OrderSigner(), tradingGateway, tradingGateway,
                 new TradeReaderGateway(config, runtime, clock), clock);
-        this.streamingGateway = new StreamingGateway();
+        // The stream hosts and connect timeout are the caller's, exactly like every REST host.
+        this.streamingGateway = StreamingGateway.builder()
+                .wsBase(config.streamHost().toString())
+                .connectTimeoutMs(config.connectTimeout().toMillis())
+                .build();
         this.streaming = new Streaming(streamingGateway, authority);
-        this.rtdsGateway = new RtdsGateway();
+        this.rtdsGateway = RtdsGateway.builder()
+                .url(config.rtdsHost().toString())
+                .connectTimeoutMs(config.connectTimeout().toMillis())
+                .build();
         this.rtds = new Rtds(rtdsGateway);
         this.heartbeat = new HeartbeatGateway(config, runtime, clock);
         this.clock = clock;
@@ -245,8 +252,8 @@ public final class Polymarket implements AutoCloseable {
             heartbeat.close();
             streaming.close();
             streamingGateway.close();
+            // Rtds releases the RTDS gateway itself; the field stays only for the root's own wiring.
             rtds.close();
-            rtdsGateway.close();
             // Every Rfq shares the root's runtime, so releasing them is releasing that.
             rfqByGateway.clear();
             runtime.close();

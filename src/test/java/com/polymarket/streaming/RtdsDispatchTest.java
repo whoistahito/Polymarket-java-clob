@@ -159,6 +159,67 @@ class RtdsDispatchTest {
     }
 
     @Test
+    @DisplayName("TC-RD-006 the pinned RTDS frames keep their observation time and every mapped field")
+    void pinnedFramesPreserveObservationTimeAndDocumentedFields() throws Exception {
+        String price = StreamProtocol.at("rtds", "events", "crypto_prices").toString();
+        String comment = StreamProtocol.at("rtds", "events", "comment_created").toString();
+        String reaction = StreamProtocol.at("rtds", "events", "reaction_created").toString();
+        long envelopeTime = StreamProtocol.at("rtds", "events", "crypto_prices", "timestamp").asLong();
+        CountDownLatch sent = serveOnFirstFrame(price, comment, reaction);
+
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<BinancePriceEvent> prices = new CopyOnWriteArrayList<>();
+        List<CommentCreatedEvent> comments = new CopyOnWriteArrayList<>();
+        List<ReactionCreatedEvent> reactions = new CopyOnWriteArrayList<>();
+        CountDownLatch allThree = new CountDownLatch(3);
+
+        rtds.onBinancePrice(List.of(), e -> { prices.add(e); allThree.countDown(); });
+        rtds.onCommentCreated(e -> { comments.add(e); allThree.countDown(); });
+        rtds.onReactionCreated(e -> { reactions.add(e); allThree.countDown(); });
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+        rtds.subscribeComments(CommentEventType.COMMENT_CREATED);
+        rtds.subscribeComments(CommentEventType.REACTION_CREATED);
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(allThree.await(10, TimeUnit.SECONDS));
+
+        // The envelope timestamp is when RTDS observed the event; the payload timestamp is when the
+        // source produced it. Dropping the envelope one loses the only stream-side ordering fact.
+        assertEquals(envelopeTime, prices.get(0).observedAt());
+        assertEquals(envelopeTime, comments.get(0).observedAt());
+        assertEquals(envelopeTime, reactions.get(0).observedAt());
+        assertEquals(1782753357213L, prices.get(0).timestamp(), "the payload time survives too");
+
+        assertEquals("salted.caramel", comments.get(0).profile().orElseThrow().name());
+        assertEquals("0xce533188d53a16ed580fd5121dedf166d3482677",
+                reactions.get(0).userAddress().orElseThrow());
+    }
+
+    @Test
+    @DisplayName("TC-RD-007 a reaction keeps the nested profile RTDS documents for it")
+    void reactionsKeepTheirNestedProfile() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"comments","type":"reaction_created","timestamp":7,
+             "payload":{"id":"r1","commentID":1,"reactionType":"HEART","userAddress":"0xabc",
+             "profile":{"baseAddress":"0xabc","displayUsernamePublic":true,"name":"n",
+             "proxyWallet":"0xdef","pseudonym":"p"}}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<ReactionCreatedEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch got = new CountDownLatch(1);
+
+        rtds.onReactionCreated(e -> { seen.add(e); got.countDown(); });
+        rtds.subscribeComments(CommentEventType.REACTION_CREATED);
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(got.await(10, TimeUnit.SECONDS));
+        assertEquals("n", seen.get(0).profile().orElseThrow().name());
+        assertEquals(7L, seen.get(0).observedAt());
+    }
+
+    @Test
     @DisplayName("TC-RD-004 one throwing callback does not stop the others")
     void oneThrowingCallbackDoesNotStopOthers() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""

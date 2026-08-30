@@ -39,6 +39,7 @@ public final class StreamingGateway implements StreamTransport, AutoCloseable {
     private StreamingGateway(Builder b) {
         this.wsBase = b.wsBase;
         this.okHttp = new OkHttpClient.Builder()
+                .connectTimeout(b.connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .pingInterval(0, TimeUnit.SECONDS) // the documented heartbeat is a text PING, not a WS ping
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .build();
@@ -87,6 +88,7 @@ public final class StreamingGateway implements StreamTransport, AutoCloseable {
     public static final class Builder {
         private String wsBase = DEFAULT_WS_BASE;
         private long pingIntervalMs = 10_000L;
+        private long connectTimeoutMs = 10_000L;
         private long reconnectDelayMs = 1_000L;
         private long maxReconnectDelayMs = 60_000L;
         private long stableConnectionMs = 30_000L;
@@ -99,6 +101,12 @@ public final class StreamingGateway implements StreamTransport, AutoCloseable {
 
         public Builder pingIntervalMs(long ms) {
             this.pingIntervalMs = ms;
+            return this;
+        }
+
+        public Builder connectTimeoutMs(long ms) {
+            if (ms < 0) throw new IllegalArgumentException("connectTimeoutMs must be >= 0");
+            this.connectTimeoutMs = ms;
             return this;
         }
 

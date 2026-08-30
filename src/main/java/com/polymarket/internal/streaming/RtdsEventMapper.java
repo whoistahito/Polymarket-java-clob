@@ -53,51 +53,60 @@ final class RtdsEventMapper {
         String topic = node.path("topic").asText("");
         String type = node.path("type").asText("");
         JsonNode payload = node.path("payload");
+        // The envelope timestamp is when RTDS observed the event; it is a separate fact from the
+        // payload's own time, and the only stream-side ordering the caller ever gets.
+        long observedAt = node.path("timestamp").asLong(0);
         switch (topic) {
-            case "crypto_prices" -> sink.onBinancePrice(toPriceEvent(payload, BinancePriceEvent::new));
-            case "crypto_prices_chainlink" -> sink.onChainlinkPrice(toPriceEvent(payload, ChainlinkPriceEvent::new));
-            case "comments" -> dispatchComment(type, payload, sink);
+            case "crypto_prices" ->
+                    sink.onBinancePrice(toPriceEvent(payload, observedAt, BinancePriceEvent::new));
+            case "crypto_prices_chainlink" ->
+                    sink.onChainlinkPrice(toPriceEvent(payload, observedAt, ChainlinkPriceEvent::new));
+            case "comments" -> dispatchComment(type, payload, observedAt, sink);
             default -> log.debug("Ignoring undocumented or unrecognised RTDS topic: {}", node);
         }
     }
 
-    private void dispatchComment(String type, JsonNode p, RtdsEventSink sink) {
+    private void dispatchComment(String type, JsonNode p, long observedAt, RtdsEventSink sink) {
         switch (type) {
-            case "comment_created" -> sink.onCommentCreated(toCommentCreated(p));
-            case "comment_removed" -> sink.onCommentRemoved(toCommentRemoved(p));
-            case "reaction_created" -> sink.onReactionCreated(toReactionCreated(p));
-            case "reaction_removed" -> sink.onReactionRemoved(toReactionRemoved(p));
+            case "comment_created" -> sink.onCommentCreated(toCommentCreated(p, observedAt));
+            case "comment_removed" -> sink.onCommentRemoved(toCommentRemoved(p, observedAt));
+            case "reaction_created" -> sink.onReactionCreated(toReactionCreated(p, observedAt));
+            case "reaction_removed" -> sink.onReactionRemoved(toReactionRemoved(p, observedAt));
             default -> log.debug("Ignoring unrecognised RTDS comment event type: {}", type);
         }
     }
 
     private interface PriceEventFactory<T> {
-        T create(String symbol, long timestamp, BigDecimal value);
+        T create(String symbol, long observedAt, long timestamp, BigDecimal value);
     }
 
-    private static <T> T toPriceEvent(JsonNode n, PriceEventFactory<T> factory) {
-        return factory.create(text(n, "symbol"), n.path("timestamp").asLong(0), decimal(n, "value"));
+    private static <T> T toPriceEvent(JsonNode n, long observedAt, PriceEventFactory<T> factory) {
+        return factory.create(text(n, "symbol"), observedAt,
+                n.path("timestamp").asLong(0), decimal(n, "value"));
     }
 
-    private static CommentCreatedEvent toCommentCreated(JsonNode n) {
-        return new CommentCreatedEvent(text(n, "id"), optText(n, "body"), entityType(n), entityId(n),
-                optText(n, "parentCommentID"), optText(n, "userAddress"), optText(n, "replyAddress"),
-                optText(n, "createdAt"), optLong(n, "reactionCount"), optLong(n, "reportCount"), profile(n.get("profile")));
+    private static CommentCreatedEvent toCommentCreated(JsonNode n, long observedAt) {
+        return new CommentCreatedEvent(text(n, "id"), observedAt, optText(n, "body"),
+                entityType(n), entityId(n), optText(n, "parentCommentID"),
+                optText(n, "userAddress"), optText(n, "replyAddress"), optText(n, "createdAt"),
+                optText(n, "updatedAt"), optLong(n, "reactionCount"), optLong(n, "reportCount"),
+                profile(n.get("profile")));
     }
 
-    private static CommentRemovedEvent toCommentRemoved(JsonNode n) {
-        return new CommentRemovedEvent(
-                text(n, "id"), optText(n, "body"), entityType(n), entityId(n), optText(n, "userAddress"));
+    private static CommentRemovedEvent toCommentRemoved(JsonNode n, long observedAt) {
+        return new CommentRemovedEvent(text(n, "id"), observedAt, optText(n, "body"),
+                entityType(n), entityId(n), optText(n, "userAddress"));
     }
 
-    private static ReactionCreatedEvent toReactionCreated(JsonNode n) {
-        return new ReactionCreatedEvent(text(n, "id"), optLong(n, "commentID"), optText(n, "reactionType"),
-                optText(n, "icon"), optText(n, "userAddress"), optText(n, "createdAt"));
+    private static ReactionCreatedEvent toReactionCreated(JsonNode n, long observedAt) {
+        return new ReactionCreatedEvent(text(n, "id"), observedAt, optLong(n, "commentID"),
+                optText(n, "reactionType"), optText(n, "icon"), optText(n, "userAddress"),
+                optText(n, "createdAt"), profile(n.get("profile")));
     }
 
-    private static ReactionRemovedEvent toReactionRemoved(JsonNode n) {
-        return new ReactionRemovedEvent(
-                text(n, "id"), optLong(n, "commentID"), optText(n, "reactionType"), optText(n, "userAddress"));
+    private static ReactionRemovedEvent toReactionRemoved(JsonNode n, long observedAt) {
+        return new ReactionRemovedEvent(text(n, "id"), observedAt, optLong(n, "commentID"),
+                optText(n, "reactionType"), optText(n, "userAddress"), profile(n.get("profile")));
     }
 
     private static Optional<CommentProfile> profile(JsonNode n) {

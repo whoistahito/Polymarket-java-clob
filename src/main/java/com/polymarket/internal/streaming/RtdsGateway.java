@@ -35,6 +35,7 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
     private RtdsGateway(Builder b) {
         this.url = b.url;
         this.okHttp = new OkHttpClient.Builder()
+                .connectTimeout(b.connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .pingInterval(0, TimeUnit.SECONDS) // the documented heartbeat is a text PING, not a WS ping
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .build();
@@ -83,6 +84,7 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
         private String url = DEFAULT_RTDS_URL;
         // The RTDS docs specify a 5-second text PING, distinct from the CLOB channels' 10-second one.
         private long pingIntervalMs = 5_000L;
+        private long connectTimeoutMs = 10_000L;
         private long reconnectDelayMs = 1_000L;
         private long maxReconnectDelayMs = 60_000L;
         private long stableConnectionMs = 30_000L;
@@ -95,6 +97,12 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
 
         public Builder pingIntervalMs(long ms) {
             this.pingIntervalMs = ms;
+            return this;
+        }
+
+        public Builder connectTimeoutMs(long ms) {
+            if (ms < 0) throw new IllegalArgumentException("connectTimeoutMs must be >= 0");
+            this.connectTimeoutMs = ms;
             return this;
         }
 

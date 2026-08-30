@@ -271,6 +271,36 @@ class PolymarketRootTest {
         assertThrows(NullPointerException.class, () -> config.readRetryPolicy(null));
     }
 
+    @Test
+    @DisplayName("TC-PR-018: the stream and RTDS hosts are configured, never hardcoded in the root")
+    void streamHostsAreConfigurable() {
+        PolymarketConfig defaults = PolymarketConfig.defaults();
+        assertEquals(URI.create("wss://ws-subscriptions-clob.polymarket.com"), defaults.streamHost());
+        assertEquals(URI.create("wss://ws-live-data.polymarket.com"), defaults.rtdsHost());
+
+        PolymarketConfig custom = defaults
+                .streamHost(URI.create("ws://localhost:1/clob"))
+                .rtdsHost(URI.create("ws://localhost:2/rtds"));
+        assertEquals(URI.create("ws://localhost:1/clob"), custom.streamHost());
+        assertEquals(URI.create("ws://localhost:2/rtds"), custom.rtdsHost());
+        assertThrows(NullPointerException.class, () -> defaults.streamHost(null));
+        assertThrows(NullPointerException.class, () -> defaults.rtdsHost(null));
+    }
+
+    @Test
+    @DisplayName("TC-PR-019: closing the root releases the RTDS transport, not only its capability")
+    void closingTheRootReleasesTheRtdsTransport() {
+        Polymarket sdk = sdk();
+        com.polymarket.streaming.Rtds rtds = sdk.rtds();
+
+        sdk.close();
+
+        assertTrue(rtds.isClosed());
+        assertThrows(IllegalStateException.class,
+                () -> rtds.subscribeBinancePrices(List.of("btcusdt")),
+                "a closed RTDS capability never reopens");
+    }
+
     private PolymarketConfig config() {
         URI host = server.url("/").uri();
         return PolymarketConfig.defaults()

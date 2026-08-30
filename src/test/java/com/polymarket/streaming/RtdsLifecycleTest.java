@@ -201,6 +201,64 @@ class RtdsLifecycleTest {
     }
 
     @Test
+    @DisplayName("TC-RL-009 closing the capability releases the transport it was handed, not just its socket")
+    void closingReleasesEveryOwnedTransportResource() throws Exception {
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+        }));
+        server.start();
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+
+        rtds.close();
+
+        assertTrue(gateway.isClosed(),
+                "close() must release the scheduler, dispatcher and connection pool it owns");
+        assertEquals(0, gateway.connectionPoolSize());
+    }
+
+    @Test
+    @DisplayName("TC-RL-010 an event that arrives after close is not delivered to a handler")
+    void noCallbackRunsAfterClose() {
+        // A frame can already be in flight when close() runs, so the guard has to be at dispatch.
+        CapturingTransport transport = new CapturingTransport();
+        Rtds capability = new Rtds(transport);
+        List<BinancePriceEvent> seen = new CopyOnWriteArrayList<>();
+        capability.onBinancePrice(List.of(), seen::add);
+        capability.subscribeBinancePrices(List.of("btcusdt"));
+
+        capability.close();
+        transport.sink.onBinancePrice(
+                new BinancePriceEvent("btcusdt", 1L, 1L, java.math.BigDecimal.ONE));
+
+        assertEquals(List.of(), seen, "a closed capability must deliver nothing");
+    }
+
+    /** Captures the sink so a test can deliver an event at a moment of its choosing. */
+    private static final class CapturingTransport implements RtdsTransport {
+        private RtdsEventSink sink;
+
+        @Override
+        public RtdsConnection connect(RtdsSubscriptions subscriptions, RtdsEventSink sink) {
+            this.sink = sink;
+            return new RtdsConnection() {
+                @Override
+                public void subscription(RtdsSubscriptions current) {
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
+
+        @Override
+        public void close() {
+        }
+    }
+
+    @Test
     @DisplayName("TC-RL-008 a throwing lifecycle listener cannot prevent reconnect")
     void throwingLifecycleListenerCannotPreventReconnect() throws Exception {
         CountDownLatch reconnected = new CountDownLatch(1);

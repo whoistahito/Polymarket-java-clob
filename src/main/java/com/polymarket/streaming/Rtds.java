@@ -205,7 +205,10 @@ public final class Rtds implements AutoCloseable {
         return closed;
     }
 
-    /** Terminal: stops the socket, reconnect work, text keepalive and callback delivery. */
+    /**
+     * Terminal: stops the socket, reconnect work, text keepalive and callback delivery, then
+     * releases the transport's own scheduler, dispatcher and connection pool.
+     */
     @Override
     public synchronized void close() {
         if (closed) {
@@ -216,6 +219,7 @@ public final class Rtds implements AutoCloseable {
             connection.close();
             connection = null;
         }
+        transport.close();
     }
 
     private void requireOpen() {
@@ -254,11 +258,13 @@ public final class Rtds implements AutoCloseable {
     private final RtdsEventSink sink = new RtdsEventSink() {
         @Override
         public void onBinancePrice(BinancePriceEvent event) {
+            if (closed) return;
             binancePriceCallbacks.dispatch(event, bySymbol(event.symbol()));
         }
 
         @Override
         public void onChainlinkPrice(ChainlinkPriceEvent event) {
+            if (closed) return;
             chainlinkPriceCallbacks.dispatch(event, bySymbol(event.symbol()));
         }
 
@@ -304,7 +310,11 @@ public final class Rtds implements AutoCloseable {
         }
     };
 
-    private static <T> void dispatch(CopyOnWriteArrayList<Consumer<T>> callbacks, T event) {
+    private <T> void dispatch(CopyOnWriteArrayList<Consumer<T>> callbacks, T event) {
+        // A frame can already be in flight when close() runs; a closed capability delivers nothing.
+        if (closed) {
+            return;
+        }
         for (Consumer<T> callback : callbacks) {
             try {
                 callback.accept(event);
