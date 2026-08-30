@@ -66,7 +66,7 @@ public final class RfqGateway implements RfqDirectory {
         headers.putAll(builderHeaders(builderCredentials, timestamp, "POST", REQUESTS_PATH, body));
 
         HttpOutcome outcome = runtime.post(gatewayHost, REQUESTS_PATH, headers, body);
-        return classify(outcome, null, identity);
+        return classify(outcome, null, identity, request);
     }
 
     @Override
@@ -179,15 +179,12 @@ public final class RfqGateway implements RfqDirectory {
      * status read, where the caller already knows the ID it asked about).
      */
     private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId) throws IOException {
-        return classify(outcome, fallbackRfqId, null);
+        return classify(outcome, fallbackRfqId, null, null);
     }
 
-    /**
-     * {@code requester} is present only on a create, the one response that can carry a Quote: it
-     * binds the Quote to the identity that asked for it, so acceptance cannot sign as another.
-     */
-    private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId, SigningIdentity requester)
-            throws IOException {
+    /** The requester and request are present only on create, binding every returned Quote term. */
+    private RfqOutcome classify(HttpOutcome outcome, String fallbackRfqId, SigningIdentity requester,
+            RfqRequest expectedRequest) throws IOException {
         JsonNode node = tryParse(outcome.body());
         String rfqId = node == null ? fallbackRfqId : textOrNull(node, "rfq_id");
         if (rfqId == null) rfqId = fallbackRfqId;
@@ -222,7 +219,7 @@ public final class RfqGateway implements RfqDirectory {
             return new RfqOutcome.Canceled(rfqId);
         }
         if (status.is(RfqStatus.Known.AWAITING_REQUESTER_ACCEPTANCE)) {
-            return quoted(node, rfqId, requester);
+            return quoted(node, rfqId, requester, expectedRequest);
         }
         if (status.is(RfqStatus.Known.CONFIRMED) || status.is(RfqStatus.Known.FILLED)) {
             return new RfqOutcome.Confirmed(rfqId, status.raw(), takerOrderHash(node),
@@ -238,7 +235,8 @@ public final class RfqGateway implements RfqDirectory {
      * Official shape: expires_at and builder_code are TOP LEVEL, the Combo position and legs
      * live under request, and only the six pinned quote fields live under quote.
      */
-    private RfqOutcome quoted(JsonNode node, String rfqId, SigningIdentity requester) {
+    private RfqOutcome quoted(JsonNode node, String rfqId, SigningIdentity requester,
+            RfqRequest expectedRequest) {
         JsonNode quote = node.path("quote");
         JsonNode request = node.path("request");
         // A Quote is executable only if every field acceptance signs against is on the wire. A
@@ -251,22 +249,62 @@ public final class RfqGateway implements RfqDirectory {
         QuoteAmounts amounts = amounts(quote);
         String builderCode = textOrNull(node, "builder_code");
         Long expiresAt = longOrNull(node, "expires_at");
-        List<PositionId> legs = new ArrayList<>();
-        request.path("leg_position_ids").forEach(l -> legs.add(new PositionId(l.asText())));
+        PositionId position = positionIdOrNull(comboPositionId);
+        List<PositionId> legs = positionIdsOrNull(request.path("leg_position_ids"));
 
-        if (quoteId == null || comboPositionId == null || direction == null || amounts == null
-                || builderCode == null || expiresAt == null || legs.isEmpty() || requester == null) {
+        if (quoteId == null || position == null || direction == null || amounts == null
+                || builderCode == null || expiresAt == null || legs == null || legs.isEmpty()
+                || requester == null || !matches(expectedRequest, direction, legs, request)) {
             return new RfqOutcome.Unknown(rfqId,
-                    "AWAITING_REQUESTER_ACCEPTANCE without a complete quote");
+                    "AWAITING_REQUESTER_ACCEPTANCE with an incomplete or contradictory quote");
         }
-        return new RfqOutcome.Quoted(rfqId, quoteId, direction, new PositionId(comboPositionId),
+        return new RfqOutcome.Quoted(rfqId, quoteId, direction, position,
                 legs, amounts, Instant.ofEpochMilli(expiresAt), builderCode, requester);
+    }
+
+    private static boolean matches(RfqRequest expected, Side direction, List<PositionId> legs,
+            JsonNode request) {
+        if (expected == null || !expected.legs().equals(legs)
+                || !"YES".equals(textOrNull(request, "side"))) {
+            return false;
+        }
+        JsonNode size = request.path("requested_size");
+        String unit = textOrNull(size, "unit");
+        String value = textOrNull(size, "value_e6");
+        if (expected instanceof RfqRequest.Buy buy) {
+            return direction == Side.BUY && "notional".equals(unit)
+                    && String.valueOf(buy.notional().baseUnits()).equals(value);
+        }
+        RfqRequest.Sell sell = (RfqRequest.Sell) expected;
+        return direction == Side.SELL && "shares".equals(unit)
+                && String.valueOf(sell.shares().baseUnits()).equals(value);
+    }
+
+    private static PositionId positionIdOrNull(String value) {
+        if (value == null) return null;
+        try {
+            return new PositionId(value);
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
+    }
+
+    private static List<PositionId> positionIdsOrNull(JsonNode node) {
+        if (!node.isArray()) return null;
+        List<PositionId> positions = new ArrayList<>();
+        for (JsonNode value : node) {
+            if (!value.isTextual()) return null;
+            PositionId position = positionIdOrNull(value.asText());
+            if (position == null) return null;
+            positions.add(position);
+        }
+        return positions;
     }
 
     /** Null unless the field is present and numeric: a defaulted expiry is a fabricated deadline. */
     private static Long longOrNull(JsonNode node, String field) {
         JsonNode value = node.path(field);
-        return value.isNumber() ? value.asLong() : null;
+        return value.isIntegralNumber() && value.canConvertToLong() ? value.asLong() : null;
     }
 
     /** Null when the wire named no direction this release knows: never defaulted to a side. */
@@ -288,7 +326,11 @@ public final class RfqGateway implements RfqDirectory {
                 return null;
             }
         }
-        return new QuoteAmounts(values[0], values[1], values[2], values[3], values[4]);
+        try {
+            return new QuoteAmounts(values[0], values[1], values[2], values[3], values[4]);
+        } catch (IllegalArgumentException invalidAmount) {
+            return null;
+        }
     }
 
     /** Present on an acceptance response; a safe retry may omit it, so it stays optional. */

@@ -32,6 +32,7 @@ Re-fetch, re-hash, and if a hash moved, re-read that page before trusting any fi
 |---|---|---|---|
 | `https://docs.polymarket.com/api-spec/clob-openapi.yaml` | 2026-08-23 | `82529177635db366c31a08777355b4b95c392a427298c3ba68904b937d4594da` | openapi 3.1.0, `info.version` 1.0.0 |
 | `https://docs.polymarket.com/api-spec/data-openapi.yaml` | 2026-08-23 | `9d5d62b302bced648b7212e6e8c589a741b258d38bb8769a1cd57c5224ecc1fe` | openapi 3.0.3, `info.version` 1.0.0 |
+| `https://docs.polymarket.com/api-spec/gamma-openapi.yaml` | 2026-08-30 | `285a58c10c9bffd3888768ff25fbf1e7f31df59db72c35a0c3b115cecb39a3c9` | openapi 3.0.3, `info.version` 1.0.0 |
 | `https://docs.polymarket.com/trading/fees.md` | 2026-08-23 | `8e246189f6ca85b8b8782e1d76a769cf98672a98c4c63d8bbe6150d659db8d7c` | prose (no version field) |
 | `https://docs.polymarket.com/market-data/market-details.md` | 2026-08-23 | `6996afeeb98c76da4f983cca1d0256708600d213fbad41a62a17e3bef5f74e90` | prose |
 | `https://docs.polymarket.com/trading/combos/builders.md` | 2026-08-23 | `117c3990aa64d0691e617f45d21074bd5ea626838584fca733e6fbc85e622ff8` | prose |
@@ -53,8 +54,8 @@ Re-fetched on **2026-08-24** for issues #14/#17: `clob-openapi.yaml` still hashe
 `82529177635db366c31a08777355b4b95c392a427298c3ba68904b937d4594da`, so the 2026-08-23 pin above
 still covers every schema `order-submission.json` cites.
 
-Out of scope for this refresh, unchanged from the previous review: Gamma OpenAPI, Combos RFQ
-OpenAPI (quoter/maker only), Relayer / Bridge / Perps OpenAPI, and the AsyncAPI documents.
+Unsupported protocol specs remain out of scope: Combos RFQ OpenAPI (quoter/maker only), Relayer,
+Bridge, and Perps. The supported stream documents are inventoried by `streams.json`.
 
 ## 2. Which fixture each fact came from
 

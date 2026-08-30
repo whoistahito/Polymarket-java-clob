@@ -41,7 +41,7 @@ public record SignedOrder(long salt, @NonNull String maker, @NonNull String sign
         }
         metadata = requireBytes32(metadata, "metadata");
         builder = requireBytes32(builder, "builder");
-        if (!signature.matches("(?i)0x[0-9a-f]+")) {
+        if (!signature.matches("(?i)0x(?:[0-9a-f]{2})+")) {
             throw new IllegalArgumentException(
                     "signature must be 0x-prefixed hex, got: " + signature);
         }

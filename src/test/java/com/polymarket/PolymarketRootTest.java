@@ -20,8 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -315,6 +320,33 @@ class PolymarketRootTest {
         assertThrows(IllegalStateException.class,
                 () -> rtds.subscribeBinancePrices(List.of("btcusdt")),
                 "a closed RTDS capability never reopens");
+    }
+
+    @Test
+    @DisplayName("TC-PR-021: closing the root cancels an HTTP call already in flight")
+    void closeCancelsInFlightHttpCalls() throws Exception {
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
+        HttpRuntime runtime = new HttpRuntime(
+                Duration.ofSeconds(2), Duration.ofMinutes(1), ReadRetryPolicy.none());
+        Polymarket sdk = Polymarket.with(config(), runtime);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> read = executor.submit(() -> {
+            try {
+                sdk.serverTime();
+            } catch (IOException expected) {
+                return;
+            }
+            throw new AssertionError("the in-flight call completed successfully after close");
+        });
+
+        try {
+            assertNotNull(server.takeRequest(5, TimeUnit.SECONDS));
+            sdk.close();
+            read.get(5, TimeUnit.SECONDS);
+        } finally {
+            sdk.close();
+            executor.shutdownNow();
+        }
     }
 
     private PolymarketConfig config() {

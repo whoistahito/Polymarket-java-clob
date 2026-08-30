@@ -72,7 +72,7 @@ public final class ImmediatePlanner {
      */
     private static BigDecimal affordableAt(Price price, BigDecimal budget, Optional<FeeRate> rate,
             MarketRules rules) {
-        BigDecimal candidate = truncate(
+        BigDecimal candidate = truncateSize(
                 budget.divide(costPerShare(price, rate), UNIT_SCALE, RoundingMode.DOWN), rules);
         BigDecimal step = BigDecimal.ONE.movePointLeft(rules.tickSize().sizeDecimals());
         // Encoding rounds the leg and the fee, so the fit is verified rather than assumed.
@@ -105,7 +105,7 @@ public final class ImmediatePlanner {
             value = value.add(level.price().value().multiply(taken));
             remaining = remaining.subtract(taken);
         }
-        return PusdAmount.of(truncate(value, rules));
+        return PusdAmount.of(truncateAmount(value, rules));
     }
 
     public static ImmediatePlan plan(@NonNull ImmediateSell sell, @NonNull OrderBookSnapshot book) {
@@ -127,11 +127,11 @@ public final class ImmediatePlanner {
         }
 
         boolean partial = remaining.signum() > 0;
-        ShareQuantity filled = ShareQuantity.of(truncate(shares, rules));
+        ShareQuantity filled = ShareQuantity.of(truncateSize(shares, rules));
         if (worst == null || (partial && sell.policy() == ExecutionPolicy.FOK)
                 || belowMinimum(filled, rules)) {
             return new ImmediatePlan.InsufficientDepth(
-                    PusdAmount.of(truncate(proceeds, rules)), Optional.of(filled));
+                    PusdAmount.of(truncateAmount(proceeds, rules)), Optional.of(filled));
         }
         return new ImmediatePlan.Executable(worst, filled, rules.notional(worst, filled),
                 PusdAmount.of("0"), partial);
@@ -172,8 +172,13 @@ public final class ImmediatePlanner {
     }
 
     /** The documented size precision for this grid, never a fixed six decimals. */
-    private static BigDecimal truncate(BigDecimal value, MarketRules rules) {
+    private static BigDecimal truncateSize(BigDecimal value, MarketRules rules) {
         return value.setScale(rules.tickSize().sizeDecimals(), RoundingMode.DOWN)
+                .stripTrailingZeros();
+    }
+
+    private static BigDecimal truncateAmount(BigDecimal value, MarketRules rules) {
+        return value.setScale(rules.tickSize().amountDecimals(), RoundingMode.DOWN)
                 .stripTrailingZeros();
     }
 }

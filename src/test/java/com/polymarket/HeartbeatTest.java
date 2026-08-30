@@ -220,10 +220,11 @@ class HeartbeatTest {
     @Test
     @DisplayName("TC-HB-011: a transport failure does not silently stop later ticks")
     void transportFailureDoesNotStopScheduling() throws Exception {
-        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
+            assertNotNull(server.takeRequest(5, TimeUnit.SECONDS), "expected the lost request");
             RecordedRequest afterLoss = nextDeliveredRequest();
             assertEquals("/heartbeats", afterLoss.getPath());
             assertEquals("", afterLoss.getBody().readUtf8());

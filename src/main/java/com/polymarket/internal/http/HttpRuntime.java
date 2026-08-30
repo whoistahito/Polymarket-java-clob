@@ -165,6 +165,7 @@ public final class HttpRuntime implements AutoCloseable {
     @Override
     public void close() {
         closed.set(true);
+        http.dispatcher().cancelAll();
         http.dispatcher().executorService().shutdown();
         http.connectionPool().evictAll();
     }

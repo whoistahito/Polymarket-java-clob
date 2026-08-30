@@ -139,5 +139,23 @@ class OrderExecutionTest {
             assertEquals(PusdAmount.of("19.2"), execution.pusdLeg());
             assertEquals(OrderType.FOK, execution.orderType());
         }
+
+        @Test
+        @DisplayName("TC-OE-006: a hand-built plan cannot exceed the immediate intent")
+        void handBuiltPlanCannotDiscardIntentGuarantees() {
+            ImmediatePlan.Executable oversizedBuy = new ImmediatePlan.Executable(
+                    Price.of("0.50"), ShareQuantity.of("10"), PusdAmount.of("5"),
+                    PusdAmount.of("0"), false);
+            ImmediatePlan.Executable partialFokSell = new ImmediatePlan.Executable(
+                    Price.of("0.50"), ShareQuantity.of("5"), PusdAmount.of("2.5"),
+                    PusdAmount.of("0"), true);
+
+            assertThrows(IllegalArgumentException.class, () -> OrderExecution.of(
+                    ImmediateBuy.of(ASSET, PusdAmount.of("1"), ExecutionPolicy.FAK),
+                    oversizedBuy, RULES));
+            assertThrows(IllegalArgumentException.class, () -> OrderExecution.of(
+                    ImmediateSell.of(ASSET, ShareQuantity.of("10"), ExecutionPolicy.FOK),
+                    partialFokSell, RULES));
+        }
     }
 }

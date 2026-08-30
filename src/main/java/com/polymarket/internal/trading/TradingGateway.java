@@ -48,6 +48,8 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
 
     /** HTTP 400 {@code "order {id} is invalid. Duplicated."}: proves an earlier attempt landed. */
     private static final String DUPLICATE_ORDER_MARKER = "is invalid. duplicated";
+    private static final Set<String> ACCEPTED_STATUSES =
+            Set.of("live", "matched", "delayed", "unmatched");
 
     private final PolymarketConfig config;
     private final HttpRuntime runtime;
@@ -112,10 +114,11 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
 
     /** Classifies one order-response object; reused for both a single body and each batch element. */
     private static SubmissionOutcome classifyOrderNode(JsonNode node, int httpStatus) {
-        // Anything that is not a documented order object states nothing, so it cannot be a rejection.
-        if (!isOrderResponse(node)) {
+        String defect = structuralDefect(node);
+        // Anything outside the documented success shape states nothing, so it cannot be a rejection.
+        if (defect != null) {
             return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
-                    "success response is not a documented order object", Optional.empty());
+                    "success response " + defect, Optional.empty());
         }
         String errorMsg = blankToNull(node.path("errorMsg").asText(null));
         boolean success = node.path("success").asBoolean(false);
@@ -137,10 +140,6 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
                     "success without a textual order id", Optional.empty());
         }
         String status = requiredText(node, "status");
-        if (status == null) {
-            return new SubmissionOutcome.Unknown(Optional.of(httpStatus),
-                    "success without a textual order status", Optional.empty());
-        }
 
         // clob-openapi.yaml SendOrderResponse: transactionsHashes is documented on a match.
         return new SubmissionOutcome.Accepted(orderId, status, texts(node, "tradeIDs"),
@@ -170,7 +169,30 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
         if (requiredText(node, "status") == null) {
             return "reports success without a textual order status";
         }
+        if (!ACCEPTED_STATUSES.contains(node.path("status").asText())) {
+            return "reports an undocumented order status";
+        }
+        for (String field : List.of("tradeIDs", "transactionsHashes")) {
+            if (!isOptionalTextArray(node, field)) {
+                return "carries " + field + " outside its documented string-array shape";
+            }
+        }
+        for (String field : List.of("makingAmount", "takingAmount", "errorMsg")) {
+            if (node.has(field) && !node.path(field).isTextual()) {
+                return "carries " + field + " outside its documented string shape";
+            }
+        }
         return null;
+    }
+
+    private static boolean isOptionalTextArray(JsonNode node, String field) {
+        if (!node.has(field)) return true;
+        JsonNode value = node.path(field);
+        if (!value.isArray()) return false;
+        for (JsonNode member : value) {
+            if (!member.isTextual()) return false;
+        }
+        return true;
     }
 
     /** A documented string field, present and non-blank; anything else states nothing. */
@@ -267,6 +289,17 @@ public final class TradingGateway implements OrderSubmitter, OrderBatch {
                         Optional.empty());
             }
             notCanceled.put(entry.getKey(), entry.getValue().asText());
+        }
+
+        Set<String> requested = Set.copyOf(orderIds);
+        Set<String> canceledSet = new LinkedHashSet<>(canceled);
+        if (canceledSet.size() != canceled.size()
+                || !requested.containsAll(canceledSet)
+                || !requested.containsAll(notCanceled.keySet())
+                || canceledSet.stream().anyMatch(notCanceled::containsKey)) {
+            return new CancellationOutcome.Uncertain(Optional.of(outcome.status()),
+                    "cancellation response carries contradictory or unrequested order ids",
+                    Optional.empty());
         }
 
         // An ID the server stated nothing about is unaccounted for, not a refusal it never made.

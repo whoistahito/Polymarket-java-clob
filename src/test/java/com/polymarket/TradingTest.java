@@ -367,10 +367,24 @@ class TradingTest {
     @Test
     @DisplayName("TC-TR-017: a GTD expiration inside the official minimum lifetime sends nothing")
     void tooSoonGoodTilDateSendsNothing() throws Exception {
-        // constraints.json gtd.minimumFutureSeconds = 180.
+        // The wire adds the 60-second threshold, so 119 effective seconds is still under 180.
         assertThrows(IllegalArgumentException.class, () -> GoodTilDateOrder.expiringAt(
                 new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
-                FIXED.instant().plusSeconds(179), FIXED));
+                FIXED.instant().plusSeconds(119), FIXED));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-TR-026: a hand-built GTD placement that is too near expiry sends nothing")
+    void handBuiltExpiredGtdPlacementSendsNothing() throws Exception {
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
+
+        try (Polymarket sdk = sdk()) {
+            assertThrows(IllegalArgumentException.class, () -> sdk.trading().submit(signedOrder(),
+                    OrderPlacement.goodTilDate(CREDENTIALS,
+                            FIXED.instant().plusSeconds(179).getEpochSecond())));
+        }
         assertEquals(0, server.getRequestCount());
     }
 
@@ -476,27 +490,53 @@ class TradingTest {
                 valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
                 valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
                 valid.builder(), "  "), "a blank signature authorises nothing");
+        assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), valid.maker(),
+                valid.signer(), valid.accountSigner(), valid.asset(), valid.side(), valid.signatureType(),
+                valid.makerAmount(), valid.takerAmount(), valid.timestamp(), valid.metadata(),
+                valid.builder(), "0x0"), "a signature must contain complete bytes");
 
         assertEquals(0, server.getRequestCount(), "nothing may reach the wire");
     }
 
     @Test
-    @DisplayName("TC-TR-025: a success whose order id or status is not text states nothing")
-    void nonTextualOrderIdOrStatusIsUnknown() throws Exception {
+    @DisplayName("TC-TR-025: a success outside the documented response shape states nothing")
+    void undocumentedSuccessShapeIsUnknown() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":12345,"status":"live","tradeIDs":[]}""");
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":7,"tradeIDs":[]}""");
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"invented","tradeIDs":[]}""");
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[123]}""");
 
         try (Polymarket sdk = sdk()) {
             SubmissionOutcome numericId = sdk.trading()
                     .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
             SubmissionOutcome numericStatus = sdk.trading()
                     .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            SubmissionOutcome unknownStatus = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
+            SubmissionOutcome malformedTrades = sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC));
 
             assertInstanceOf(SubmissionOutcome.Unknown.class, numericId,
                     "a numeric order id is not the documented string; it must not become Accepted");
             assertInstanceOf(SubmissionOutcome.Unknown.class, numericStatus);
+            assertInstanceOf(SubmissionOutcome.Unknown.class, unknownStatus);
+            assertInstanceOf(SubmissionOutcome.Unknown.class, malformedTrades);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-TR-027: the rendered API's unmatched success status is accepted")
+    void unmatchedStatusIsAccepted() throws Exception {
+        enqueue(200, """
+                {"success":true,"orderID":"0xabc","status":"unmatched","tradeIDs":[]}""");
+
+        try (Polymarket sdk = sdk()) {
+            assertInstanceOf(SubmissionOutcome.Accepted.class, sdk.trading()
+                    .submit(signedOrder(), OrderPlacement.of(CREDENTIALS, OrderType.GTC)));
         }
     }
 

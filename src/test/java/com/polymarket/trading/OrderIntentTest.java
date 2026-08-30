@@ -65,22 +65,25 @@ class OrderIntentTest {
     class GoodTilDate {
 
         @Test
-        @DisplayName("TC-TI-005: an expiration under the official three-minute minimum is rejected")
+        @DisplayName("TC-TI-005: an effective expiration whose wire value is under three minutes is rejected")
         void rejectsTooSoonExpiration() {
-            Instant tooSoon = NOW.plus(Duration.ofSeconds(179));
+            Instant tooSoon = NOW.plus(Duration.ofSeconds(119));
             IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                     () -> GoodTilDateOrder.expiringAt(
                             ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), tooSoon, CLOCK));
-            assertTrue(e.getMessage().contains("180"), e.getMessage());
+            assertTrue(e.getMessage().contains("120"), e.getMessage());
         }
 
         @Test
         @DisplayName("TC-TI-006: the official minimum itself is accepted")
         void acceptsTheMinimum() {
-            Instant exactly = NOW.plus(Duration.ofSeconds(180));
+            // The wire value adds 60 seconds, so an effective expiry 120 seconds out is stated
+            // exactly 180 seconds in the future as the official rule requires.
+            Instant exactly = NOW.plus(Duration.ofSeconds(120));
             GoodTilDateOrder order = GoodTilDateOrder.expiringAt(
                     ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), exactly, CLOCK);
             assertEquals(exactly, order.expiresAt());
+            assertEquals(NOW.plusSeconds(180).getEpochSecond(), order.expirationSeconds());
         }
 
         @Test

@@ -328,6 +328,21 @@ class OrderBatchTest {
     }
 
     @Test
+    @DisplayName("TC-BA-023: an undocumented successful status makes the batch indeterminate")
+    void undocumentedBatchStatusIsIndeterminate() throws Exception {
+        enqueue("""
+                [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
+                 {"success":true,"orderID":"0xb","status":"invented","tradeIDs":[]}]""");
+
+        BatchSubmissionOutcome outcome;
+        try (Polymarket sdk = sdk()) {
+            outcome = sdk.trading().submitBatch(List.of(item("123", 1), item("456", 2)));
+        }
+
+        assertInstanceOf(BatchSubmissionOutcome.Indeterminate.class, outcome);
+    }
+
+    @Test
     @DisplayName("TC-BA-022: a cancellation member that is not text is uncertain, never coerced")
     void malformedCancellationMembersAreUncertain() throws Exception {
         for (String body : List.of(
@@ -404,6 +419,22 @@ class OrderBatchTest {
         assertEquals(List.of(ID_1), completed.canceled());
         assertEquals(java.util.Map.of(ID_2, "Order not found"), completed.notCanceled());
         assertTrue(completed.unaccounted().isEmpty());
+    }
+
+    @Test
+    @DisplayName("TC-BA-024: contradictory or unrelated cancellation facts are uncertain")
+    void contradictoryCancellationFactsAreUncertain() throws Exception {
+        for (String body : List.of(
+                "{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
+                        + ID_1 + "\":\"not found\"}}",
+                "{\"canceled\":[\"" + ID_2 + "\"],\"not_canceled\":{}}")) {
+            enqueue(body);
+            CancellationOutcome outcome;
+            try (Polymarket sdk = sdk()) {
+                outcome = sdk.trading().cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1));
+            }
+            assertInstanceOf(CancellationOutcome.Uncertain.class, outcome, body);
+        }
     }
 
     @Test

@@ -16,6 +16,7 @@ import com.polymarket.internal.rfq.RfqGateway;
 import com.polymarket.internal.trading.Eip712OrderSigner;
 import com.polymarket.markets.PositionId;
 import com.polymarket.markets.PusdAmount;
+import com.polymarket.markets.ShareQuantity;
 import com.polymarket.trading.Side;
 import java.net.URI;
 import java.time.Clock;
@@ -80,6 +81,11 @@ class RfqTest {
     private RfqRequest.Buy buyRequest() {
         return new RfqRequest.Buy(List.of(new PositionId("111"), new PositionId("222")),
                 PusdAmount.of("1.0"));
+    }
+
+    private RfqRequest.Sell officialRequest() {
+        return new RfqRequest.Sell(List.of(new PositionId("111"), new PositionId("222")),
+                ShareQuantity.of("1.932381"));
     }
 
     @Test
@@ -208,7 +214,7 @@ class RfqTest {
     void officialCreateResponseMapsTopLevelExpiryAndBuilderCode() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
-        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+        RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
                 SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class, outcome);
@@ -222,7 +228,7 @@ class RfqTest {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
-                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                rfq(FIXED).request(officialRequest(), SigningIdentity.eoa(SIGNER.address()),
                         ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
 
         assertEquals(new PositionId("333"), quoted.comboPositionId());
@@ -235,7 +241,7 @@ class RfqTest {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
-                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                rfq(FIXED).request(officialRequest(), SigningIdentity.eoa(SIGNER.address()),
                         ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
 
         assertEquals("quote-1", quoted.quoteId());
@@ -252,7 +258,7 @@ class RfqTest {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
-                rfq(FIXED).request(buyRequest(), SigningIdentity.eoa(SIGNER.address()),
+                rfq(FIXED).request(officialRequest(), SigningIdentity.eoa(SIGNER.address()),
                         ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS));
 
         assertEquals(Side.SELL, quoted.direction());
@@ -263,7 +269,7 @@ class RfqTest {
     void quoteMissingItsDirectionIsNotExecutable() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"direction\":\"SELL\",", ""));
 
-        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+        RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
                 SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         assertInstanceOf(RfqOutcome.Unknown.class, outcome,
@@ -275,7 +281,7 @@ class RfqTest {
     void quoteMissingASigningAmountIsNotExecutable() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"maker_amount_e6\":\"966191\",", ""));
 
-        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+        RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
                 SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
         assertInstanceOf(RfqOutcome.Unknown.class, outcome,
@@ -411,11 +417,37 @@ class RfqTest {
                     .replaceAll("\"" + missing + "\":\"[^\"]*\",", "")
                     .replaceAll("\"" + missing + "\":[0-9]+,", ""));
 
-            RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+            RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
                     SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
 
             assertInstanceOf(RfqOutcome.Unknown.class, outcome,
                     "a response without " + missing + " is not something to accept");
+        }
+    }
+
+    @Test
+    @DisplayName("TC-RQ-029: a Quote contradicting the request direction is Unknown")
+    void quoteCannotReverseTheRequestedDirection() throws Exception {
+        enqueue(OFFICIAL_CREATE_RESPONSE);
+
+        RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
+                SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+
+        assertInstanceOf(RfqOutcome.Unknown.class, outcome);
+    }
+
+    @Test
+    @DisplayName("TC-RQ-030: malformed Quote amounts and expiry are Unknown")
+    void malformedQuoteNumbersAreUnknown() throws Exception {
+        for (String response : List.of(
+                OFFICIAL_CREATE_RESPONSE.replace("\"maker_amount_e6\":\"966191\"",
+                        "\"maker_amount_e6\":\"-1\""),
+                OFFICIAL_CREATE_RESPONSE.replace("\"expires_at\":1773890765500",
+                        "\"expires_at\":1773890765500.5"))) {
+            enqueue(response);
+            RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
+                    SigningIdentity.eoa(SIGNER.address()), ACCOUNT_CREDENTIALS, BUILDER_CREDENTIALS);
+            assertInstanceOf(RfqOutcome.Unknown.class, outcome, response);
         }
     }
 

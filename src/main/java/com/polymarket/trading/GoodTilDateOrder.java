@@ -42,9 +42,11 @@ public final class GoodTilDateOrder implements OrderIntent {
             @NonNull Price price, @NonNull ShareQuantity size, @NonNull Instant expiresAt,
             @NonNull Clock clock) {
         Duration ahead = Duration.between(clock.instant(), expiresAt);
-        if (ahead.compareTo(MINIMUM_LIFETIME) < 0) {
-            throw new IllegalArgumentException("a GTD expiration must be at least "
-                    + MINIMUM_LIFETIME.toSeconds() + "s ahead, got " + ahead.toSeconds() + "s");
+        Duration minimumEffectiveLifetime = MINIMUM_LIFETIME.minus(SECURITY_THRESHOLD);
+        if (ahead.compareTo(minimumEffectiveLifetime) < 0) {
+            throw new IllegalArgumentException("an effective GTD expiration must be at least "
+                    + minimumEffectiveLifetime.toSeconds() + "s ahead, got "
+                    + ahead.toSeconds() + "s");
         }
         return new GoodTilDateOrder(asset, side, price, size, expiresAt);
     }

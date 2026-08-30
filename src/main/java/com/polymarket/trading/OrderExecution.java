@@ -46,12 +46,14 @@ public record OrderExecution(
     /** Legs priced at the plan's Protected Price, never at the blended average of the walk. */
     public static OrderExecution of(@NonNull ImmediateBuy intent,
             @NonNull ImmediatePlan.Executable plan, @NonNull MarketRules rules) {
+        requireConsistent(intent, plan, rules);
         return immediate(intent.asset(), Side.BUY, plan, intent.policy(), rules);
     }
 
     /** Legs priced at the plan's Protected Price, never at the blended average of the walk. */
     public static OrderExecution of(@NonNull ImmediateSell intent,
             @NonNull ImmediatePlan.Executable plan, @NonNull MarketRules rules) {
+        requireConsistent(intent, plan, rules);
         return immediate(intent.asset(), Side.SELL, plan, intent.policy(), rules);
     }
 
@@ -75,5 +77,32 @@ public record OrderExecution(
         return new OrderExecution(asset, side, protectedPrice, plan.shares(),
                 rules.notional(protectedPrice, plan.shares()), rules,
                 policy.orderType(), false, 0L);
+    }
+
+    private static void requireConsistent(ImmediateBuy intent, ImmediatePlan.Executable plan,
+            MarketRules rules) {
+        PusdAmount cost = rules.notional(plan.protectedPrice(), plan.shares());
+        PusdAmount fee = intent.feeRate().map(rate -> rate.feeOn(plan.shares(), plan.protectedPrice()))
+                .orElse(PusdAmount.of("0"));
+        if (!plan.cost().equals(cost) || !plan.fee().equals(fee)
+                || cost.value().add(fee.value()).compareTo(intent.budget().value()) > 0
+                || intent.maximumPrice().map(max -> plan.protectedPrice().compareTo(max) > 0)
+                        .orElse(false)
+                || (intent.policy() == ExecutionPolicy.FOK && plan.partial())) {
+            throw new IllegalArgumentException("immediate plan contradicts the BUY intent");
+        }
+    }
+
+    private static void requireConsistent(ImmediateSell intent, ImmediatePlan.Executable plan,
+            MarketRules rules) {
+        int sizeComparison = plan.shares().value().compareTo(intent.size().value());
+        boolean partial = sizeComparison < 0;
+        if (!plan.cost().equals(rules.notional(plan.protectedPrice(), plan.shares()))
+                || !plan.fee().isZero() || sizeComparison > 0 || plan.partial() != partial
+                || (intent.policy() == ExecutionPolicy.FOK && partial)
+                || intent.minimumPrice().map(min -> plan.protectedPrice().compareTo(min) < 0)
+                        .orElse(false)) {
+            throw new IllegalArgumentException("immediate plan contradicts the SELL intent");
+        }
     }
 }

@@ -12,7 +12,8 @@
       "tradeIDs",
       "errorMsg"
     ],
-    "statusEnum": ["live", "matched", "delayed"],
+    "statusEnum": ["live", "matched", "delayed", "unmatched"],
+    "statusNote": "The rendered Place Orders API workflow also documents unmatched as a successful insertion status, although the OpenAPI enum lists only live, matched, and delayed. Preserve both official sources rather than rejecting a documented success.",
     "transactionsHashes": {
       "type": "array of string",
       "description": "Array of transaction hashes (present when status is 'matched')",

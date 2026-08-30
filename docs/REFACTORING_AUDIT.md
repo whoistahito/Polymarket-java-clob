@@ -10,7 +10,7 @@ Reviewed: 2026-08-30
 
 ## Verification
 
-`mvn clean verify` passes: **600 tests, 0 failures, 0 errors, 0 skipped**. The dependency and
+`mvn clean verify` passes: **609 tests, 0 failures, 0 errors, 0 skipped**. The dependency and
 packaging gates pass, and the README examples compile against the packaged JAR. `mvn -Plive test`
 selects the 6 read-only live checks and passes against the production API.
 
@@ -40,6 +40,10 @@ Every ticket's follow-up comment has been worked. The release blockers below are
 - Streaming and RTDS hosts and timeouts come from `PolymarketConfig`.
 - `MIGRATION.md`, `SOURCES.md`, `API_COVERAGE.md` and `README.md` describe the code that exists,
   and `MigrationDocTest` plus the fixture-directory enumeration keep them from drifting again.
+- The final PR review also binds hand-built immediate plans to their intents, rejects RFQ responses
+  that contradict their requests, validates every documented successful order field, refuses
+  contradictory cancellation facts, checks GTD lifetime again at submission, and cancels HTTP work
+  already in flight when the root closes.
 
 ## Known limits
 

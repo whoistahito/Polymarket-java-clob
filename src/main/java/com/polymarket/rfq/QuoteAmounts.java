@@ -11,4 +11,11 @@ public record QuoteAmounts(
         long takerAmountBaseUnits,
         long totalRequiredBaseUnits,
         long netReceiveBaseUnits) {
+
+    public QuoteAmounts {
+        if (blendedPriceBaseUnits <= 0 || makerAmountBaseUnits <= 0 || takerAmountBaseUnits <= 0
+                || totalRequiredBaseUnits <= 0 || netReceiveBaseUnits <= 0) {
+            throw new IllegalArgumentException("quote amounts must all be positive");
+        }
+    }
 }

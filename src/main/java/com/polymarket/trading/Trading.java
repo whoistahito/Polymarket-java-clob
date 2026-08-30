@@ -69,13 +69,14 @@ public final class Trading {
 
     /** Never replayed: one signed order produces exactly one {@code POST /order}. */
     public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement) {
+        requireLive(placement, clock.instant());
         return submitter.submit(order, placement);
     }
 
     /** The Order Intent stays authoritative: a placement that restates it differently sends nothing. */
     public SubmissionOutcome submit(@NonNull SignedOrder order, @NonNull OrderPlacement placement,
             @NonNull OrderIntent intent) {
-        return submitter.submit(order, placement.requireConsistentWith(intent));
+        return submit(order, placement.requireConsistentWith(intent));
     }
 
     /** Signs and submits one resolved Order Intent; Maker-Only and GTD ride along, never restated. */
@@ -93,6 +94,8 @@ public final class Trading {
             throw new IllegalArgumentException("batch of " + items.size()
                     + " orders exceeds the official limit of " + MAX_ORDERS_PER_BATCH);
         }
+        Instant now = clock.instant();
+        items.forEach(item -> requireLive(item.placement(), now));
         ApiCredentials credentials = items.get(0).placement().credentials();
         // One batch is one L2-signed request, so it is the Account Signer that must be uniform.
         String accountSigner = items.get(0).order().accountSigner();
@@ -128,6 +131,15 @@ public final class Trading {
             }
         }
         return batch.cancel(credentials, accountSigner, orderIds);
+    }
+
+    private static void requireLive(OrderPlacement placement, Instant now) {
+        if (placement.orderType() == OrderType.GTD
+                && placement.expirationSeconds()
+                < now.plus(GoodTilDateOrder.MINIMUM_LIFETIME).getEpochSecond()) {
+            throw new IllegalArgumentException("a GTD wire expiration must be at least "
+                    + GoodTilDateOrder.MINIMUM_LIFETIME.toSeconds() + "s ahead");
+        }
     }
 
     /**

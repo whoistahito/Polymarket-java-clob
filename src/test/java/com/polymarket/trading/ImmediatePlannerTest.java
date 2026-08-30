@@ -248,6 +248,23 @@ class ImmediatePlannerTest {
                     assertInstanceOf(ImmediatePlan.InsufficientDepth.class, plan);
             assertEquals(ShareQuantity.of("60"), insufficient.availableShares().orElseThrow());
         }
+
+        @Test
+        @DisplayName("TC-DP-018: reported pUSD depth keeps the tick profile's amount precision")
+        void insufficientDepthKeepsAmountPrecision() {
+            MarketRules rules = new MarketRules(
+                    TickSize.of("0.0025"), ShareQuantity.of("1"), false);
+            OrderBookSnapshot shallow = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH,
+                    "hash", List.of(), List.of(level("0.5025", "1.23")), rules,
+                    Optional.empty());
+
+            ImmediatePlan.InsufficientDepth insufficient = assertInstanceOf(
+                    ImmediatePlan.InsufficientDepth.class,
+                    ImmediatePlanner.plan(ImmediateBuy.of(
+                            ASSET, PusdAmount.of("1"), ExecutionPolicy.FOK), shallow));
+
+            assertEquals(PusdAmount.of("0.618075"), insufficient.available());
+        }
     }
 
     @Nested
