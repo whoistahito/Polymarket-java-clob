@@ -35,12 +35,16 @@ public sealed interface ReconciliationOutcome {
 
     /**
      * The local deadline passed before every trade settled. Not a failure — the order, and the
-     * RFQ ID where a Combo request produced one, may still settle later.
+     * RFQ ID where a Combo request produced one, may still settle later. {@code observed} is what
+     * the last read actually saw, so missing, MATCHED, MINED, RETRYING and an unrecognised status
+     * stay distinguishable instead of collapsing into an unexplained wait.
      */
     record Pending(@NonNull String orderId, @NonNull List<String> tradeIds,
-            @NonNull Optional<String> rfqId) implements ReconciliationOutcome {
+            @NonNull Optional<String> rfqId, @NonNull List<SettledTrade> observed)
+            implements ReconciliationOutcome {
         public Pending {
             tradeIds = List.copyOf(tradeIds);
+            observed = List.copyOf(observed);
         }
     }
 }

@@ -48,17 +48,24 @@ public final class TradeReaderGateway implements TradeReader {
 
     @Override
     public List<SettledTrade> byIds(ApiCredentials credentials, SigningIdentity identity,
-            List<String> tradeIds) throws IOException {
+            List<String> tradeIds, Instant deadline) throws IOException {
         // POLY_ADDRESS is the Account Signer that owns the API key; maker_address is the Trading
         // Wallet named as the maker. They coincide only for an EOA.
         String accountSigner = identity.accountSigner();
         List<SettledTrade> trades = new ArrayList<>();
+        boolean anyRequested = false;
         for (String id : tradeIds) {
             String filter = PATH + "?id=" + encode(id)
                     + "&maker_address=" + encode(identity.tradingWallet());
             Set<String> visited = new HashSet<>();
             String cursor = null;
             while (true) {
+                // The deadline bounds continuation, not the first attempt: a caller always gets one
+                // read, but a multi-page, multi-id walk stops once its time is spent.
+                if (anyRequested && !clock.instant().isBefore(deadline)) {
+                    return List.copyOf(trades);
+                }
+                anyRequested = true;
                 String path = cursor == null ? filter : filter + "&next_cursor=" + encode(cursor);
                 HttpOutcome outcome = runtime.get(config.clobHost(), path,
                         l2Headers(credentials, accountSigner, path));

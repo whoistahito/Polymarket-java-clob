@@ -14,6 +14,7 @@ import com.polymarket.portfolio.PositionQuery;
 import com.polymarket.portfolio.PositionSnapshot;
 import com.polymarket.trading.ReconciliationOutcome;
 import com.polymarket.trading.SettledTrade;
+import com.polymarket.trading.TradeStatus;
 import com.polymarket.trading.Side;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -346,6 +347,49 @@ class TradeReconciliationTest {
 
         assertInstanceOf(ReconciliationOutcome.Pending.class, outcome);
         assertEquals(1, server.getRequestCount());
+    }
+
+    @Test
+    @DisplayName("TC-RC-016: Pending reports what each trade was last seen as, not just that it waited")
+    void pendingCarriesTheLastObservedRecords() throws Exception {
+        // t1 is matched but not mined, t2 has no record at all. Both are non-terminal, and a
+        // caller deciding whether to wait or investigate needs to be able to tell them apart.
+        enqueuePage("LTE=", row("t1", "TRADE_STATUS_MATCHED", ""));
+        enqueuePage("LTE=");
+
+        ReconciliationOutcome outcome;
+        try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofSeconds(20)))) {
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
+                    List.of("t1", "t2"), Duration.ofSeconds(30), Duration.ofHours(2));
+        }
+
+        ReconciliationOutcome.Pending pending =
+                assertInstanceOf(ReconciliationOutcome.Pending.class, outcome);
+        assertEquals(List.of("t1", "t2"), pending.tradeIds());
+        assertEquals(List.of("t1"), pending.observed().stream().map(SettledTrade::id).toList(),
+                "the matched trade was seen; the other one is missing, and that is a fact too");
+        assertTrue(pending.observed().get(0).status().is(TradeStatus.Known.MATCHED),
+                "MATCHED must not be collapsed into an unexplained wait");
+    }
+
+    @Test
+    @DisplayName("TC-RC-017: the deadline stops the page walk, not only the poll between reads")
+    void theDeadlineBoundsThePageWalkItself() throws Exception {
+        // Three pages for one trade id. The clock spends the whole budget reading the first, so
+        // the walk must stop there rather than finishing a chain the caller no longer has time for.
+        enqueuePage("cursor-2", row("t1", "TRADE_STATUS_MATCHED", ""));
+        enqueuePage("cursor-3", row("t1", "TRADE_STATUS_MATCHED", ""));
+        enqueuePage("LTE=", confirmed("t1", "0xhash"));
+
+        ReconciliationOutcome outcome;
+        try (Polymarket sdk = sdk(new SteppingClock(START, Duration.ofMinutes(1)))) {
+            outcome = sdk.trading().reconcile(CREDENTIALS, EOA, "order-1",
+                    List.of("t1"), Duration.ofSeconds(30), Duration.ofHours(2));
+        }
+
+        assertInstanceOf(ReconciliationOutcome.Pending.class, outcome);
+        assertEquals(1, server.getRequestCount(),
+                "the page walk must respect the deadline it is running under");
     }
 
     @Test

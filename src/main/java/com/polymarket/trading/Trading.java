@@ -155,18 +155,17 @@ public final class Trading {
             String orderId, Optional<String> rfqId, List<String> tradeIds, Duration timeout,
             Duration pollInterval) throws IOException {
         requireReconcilable(orderId, tradeIds, timeout, pollInterval);
-        ReconciliationOutcome pending =
-                new ReconciliationOutcome.Pending(orderId, tradeIds, rfqId);
         Instant deadline = clock.instant().plus(timeout);
+        List<SettledTrade> observed = List.of();
 
         while (true) {
-            Optional<ReconciliationOutcome> resolved =
-                    classify(tradeReader.byIds(credentials, identity, tradeIds), tradeIds);
+            observed = tradeReader.byIds(credentials, identity, tradeIds, deadline);
+            Optional<ReconciliationOutcome> resolved = classify(observed, tradeIds);
             if (resolved.isPresent()) return resolved.get();
 
             // The deadline binds the network work too, so a slow response cannot overshoot it.
             Instant now = clock.instant();
-            if (!now.isBefore(deadline)) return pending;
+            if (!now.isBefore(deadline)) return pending(orderId, tradeIds, rfqId, observed);
             Duration remaining = Duration.between(now, deadline);
             try {
                 sleeper.sleep(pollInterval.compareTo(remaining) < 0 ? pollInterval : remaining);
@@ -174,8 +173,15 @@ public final class Trading {
                 Thread.currentThread().interrupt();
                 throw new IOException("interrupted while reconciling trades", e);
             }
-            if (!clock.instant().isBefore(deadline)) return pending;
+            if (!clock.instant().isBefore(deadline)) {
+                return pending(orderId, tradeIds, rfqId, observed);
+            }
         }
+    }
+
+    private static ReconciliationOutcome pending(String orderId, List<String> tradeIds,
+            Optional<String> rfqId, List<SettledTrade> observed) {
+        return new ReconciliationOutcome.Pending(orderId, tradeIds, rfqId, observed);
     }
 
     /** Empty while the settlement is still open; otherwise the disposition it reached. */
