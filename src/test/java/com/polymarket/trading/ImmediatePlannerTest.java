@@ -195,6 +195,28 @@ class ImmediatePlannerTest {
                             <= book().rules().tickSize().sizeDecimals(),
                     "planned " + plan.shares() + " carries more decimals than the tick allows");
         }
+
+        @Test
+        @DisplayName("TC-DP-019: a depth-bound BUY truncates a fine-grained wire size to the tick")
+        void depthBoundSharesFollowTheDocumentedSizePrecision() {
+            // A wire ask level may carry finer size precision than the grid allows. When the walk
+            // is depth-bound (the budget never binds), the whole available quantity becomes the
+            // fill, so it must be truncated to the tick's size decimals just like the SELL side —
+            // otherwise a size the exchange rejects (0.01 tick -> 2 size decimals) is signed.
+            MarketRules rules = new MarketRules(TickSize.of("0.01"), ShareQuantity.of("1"), false);
+            OrderBookSnapshot book = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
+                    List.of(), List.of(level("0.50", "12.345")), rules, Optional.empty());
+
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK), book));
+
+            assertEquals(ShareQuantity.of("12.34"), plan.shares(),
+                    "the depth-bound fill must truncate to the grid, not carry the wire's 12.345");
+            assertTrue(plan.shares().value().stripTrailingZeros().scale()
+                            <= rules.tickSize().sizeDecimals(),
+                    "planned " + plan.shares() + " carries more decimals than the tick allows");
+        }
     }
 
     @Nested

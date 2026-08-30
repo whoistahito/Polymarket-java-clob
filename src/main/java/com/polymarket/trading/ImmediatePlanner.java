@@ -52,7 +52,9 @@ public final class ImmediatePlanner {
         }
 
         boolean partial = !budgetBound;
-        ShareQuantity filled = ShareQuantity.of(shares);
+        // A depth-bound walk takes the raw wire size, which may carry finer precision than the
+        // grid allows; truncate to the tick's size decimals like the SELL side before signing.
+        ShareQuantity filled = ShareQuantity.of(truncateSize(shares, rules));
         if (protectedPrice == null || (partial && buy.policy() == ExecutionPolicy.FOK)
                 || belowMinimum(filled, rules)) {
             // An unfillable report describes the book, so it quotes the walk at its own level
