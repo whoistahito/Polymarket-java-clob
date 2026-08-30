@@ -1,218 +1,163 @@
 {
- "reviewedOn": "2026-08-23",
- "note": "Official Polymarket constraints. Every value carries the source it was read from. Nothing here is derived from this SDK's Java code.",
- "contracts": {
-  "source": "https://docs.polymarket.com/resources/contracts",
-  "chainId": 137,
-  "ctfExchangeV2": "0xE111180000d2663C0091e4f400237545B87B996B",
-  "negRiskCtfExchangeV2": "0xe2222d279d744050d28e00520010520000310F59",
-  "conditionalTokens": "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
-  "negRiskAdapter": "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296",
-  "combosExchangeV3": "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa",
-  "combosPositionManager": "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF",
-  "pusd": "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
-  "polymarketProxyFactory": "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052",
-  "depositWalletFactory": "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07"
- },
- "collateral": {
-  "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
-  "token": "pUSD",
-  "replaces": "USDC.e",
-  "decimals": 6,
-  "note": "Standard ERC-20 on Polygon, backed 1:1 by USDC, backing enforced onchain."
- },
- "signatureTypes": {
-  "source": "https://docs.polymarket.com/trading/combos/market-makers (Sign the Order)",
-  "EOA": 0,
-  "POLY_PROXY": 1,
-  "POLY_GNOSIS_SAFE": 2,
-  "DEPOSIT_WALLET": 3,
-  "depositWalletSignatureIsErc7739Wrapped": true,
-  "walletAddressRoles": {
-   "source": "https://docs.polymarket.com/trading/place-orders.md (Resolve the remaining placeholders for the account's wallet)",
-   "note": "Copied verbatim from the official table. order_signer_address is the signer field of the Order struct, NOT the POLY_ADDRESS header, which is always the Account Signer. Only signature type 3 puts the wallet in both, because a Deposit Wallet ERC-1271-verifies its own orders.",
-   "rows": [
-    {
-     "wallet": "Deposit Wallet",
-     "signature_type": 3,
-     "maker_address": "trading-wallet",
-     "order_signer_address": "trading-wallet"
+  "reviewedOn": "2026-08-23",
+  "note": "Official Polymarket constraints. Every value carries the source it was read from. Nothing here is derived from this SDK's Java code.",
+  "contracts": {
+    "source": "https://docs.polymarket.com/resources/contracts",
+    "chainId": 137,
+    "ctfExchangeV2": "0xE111180000d2663C0091e4f400237545B87B996B",
+    "negRiskCtfExchangeV2": "0xe2222d279d744050d28e00520010520000310F59",
+    "conditionalTokens": "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
+    "negRiskAdapter": "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296",
+    "combosExchangeV3": "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa",
+    "combosPositionManager": "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF",
+    "pusd": "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
+    "polymarketProxyFactory": "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052",
+    "depositWalletFactory": "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07"
+  },
+  "collateral": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
+    "token": "pUSD",
+    "replaces": "USDC.e",
+    "decimals": 6,
+    "note": "Standard ERC-20 on Polygon, backed 1:1 by USDC, backing enforced onchain."
+  },
+  "signatureTypes": {
+    "source": "https://docs.polymarket.com/trading/combos/market-makers (Sign the Order)",
+    "EOA": 0,
+    "POLY_PROXY": 1,
+    "POLY_GNOSIS_SAFE": 2,
+    "DEPOSIT_WALLET": 3,
+    "depositWalletSignatureIsErc7739Wrapped": true,
+    "walletAddressRoles": {
+      "source": "https://docs.polymarket.com/trading/place-orders.md (Resolve the remaining placeholders for the account's wallet)",
+      "note": "Copied verbatim from the official table. order_signer_address is the signer field of the Order struct, NOT the POLY_ADDRESS header, which is always the Account Signer. Only signature type 3 puts the wallet in both, because a Deposit Wallet ERC-1271-verifies its own orders.",
+      "rows": [
+        { "wallet": "Deposit Wallet", "signature_type": 3, "maker_address": "trading-wallet", "order_signer_address": "trading-wallet" },
+        { "wallet": "Proxy Wallet", "signature_type": 1, "maker_address": "trading-wallet", "order_signer_address": "account-signer" },
+        { "wallet": "Safe Wallet", "signature_type": 2, "maker_address": "trading-wallet", "order_signer_address": "account-signer" },
+        { "wallet": "EOA", "signature_type": 0, "maker_address": "account-signer", "order_signer_address": "account-signer" }
+      ]
     },
-    {
-     "wallet": "Proxy Wallet",
-     "signature_type": 1,
-     "maker_address": "trading-wallet",
-     "order_signer_address": "account-signer"
-    },
-    {
-     "wallet": "Safe Wallet",
-     "signature_type": 2,
-     "maker_address": "trading-wallet",
-     "order_signer_address": "account-signer"
-    },
-    {
-     "wallet": "EOA",
-     "signature_type": 0,
-     "maker_address": "account-signer",
-     "order_signer_address": "account-signer"
+    "depositWalletTypedDataSignFields": {
+      "source": "https://docs.polymarket.com/trading/place-orders.md (Deposit Wallet Typed Data)",
+      "fields": ["contents", "name", "version", "chainId", "verifyingContract", "salt"],
+      "note": "Six fields, no uint256[] extensions: the published payload is what the exchange verifies. verifyingContract of the TypedDataSign wrapper is the maker (the Deposit Wallet), while contents is signed under the exchange domain."
     }
-   ]
   },
-  "depositWalletTypedDataSignFields": {
-   "source": "https://docs.polymarket.com/trading/place-orders.md (Deposit Wallet Typed Data)",
-   "fields": [
-    "contents",
-    "name",
-    "version",
-    "chainId",
-    "verifyingContract",
-    "salt"
-   ],
-   "note": "Six fields, no uint256[] extensions: the published payload is what the exchange verifies. verifyingContract of the TypedDataSign wrapper is the maker (the Deposit Wallet), while contents is signed under the exchange domain."
+  "sideEncoding": {
+    "source": "https://docs.polymarket.com/trading/place-orders",
+    "BUY": 0,
+    "SELL": 1
+  },
+  "orderStruct": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
+    "removedInV2": [
+      "nonce",
+      "feeRateBps",
+      "taker"
+    ],
+    "addedInV2": [
+      "timestamp",
+      "metadata",
+      "builder"
+    ],
+    "expirationIsSignedField": false,
+    "expirationNote": "source: clob-openapi.yaml \u2014 expiration remains in the POST /order wire body for GTD handling but is NOT part of the signed Order struct.",
+    "v2TimestampUnit": "unix-milliseconds",
+    "v3TimestampUnit": "unix-seconds",
+    "timestampUnitNote": "The two exchanges disagree: place-orders documents <unix_milliseconds> for V2, combos/market-makers documents <unix_seconds> for V3. Keep them separate; do not normalise."
+  },
+  "gtd": {
+    "source": "https://docs.polymarket.com/trading/place-orders",
+    "expirationUnit": "unix-seconds",
+    "securityThresholdSeconds": 60,
+    "minimumFutureSeconds": 180,
+    "note": "GTD orders expire one minute before their stated expiration. For an effective lifetime of N seconds use now + 60 + N. The expiration must be at least 3 minutes in the future.",
+    "gtcExpirationValue": "0"
+  },
+  "batchLimits": {
+    "postOrdersMax": 15,
+    "postOrdersSource": "https://docs.polymarket.com/api-reference/trade/post-multiple-orders",
+    "cancelOrdersMax": 1000,
+    "cancelOrdersSource": "https://docs.polymarket.com/changelog/predictions (Jun 15, 2026)"
+  },
+  "pagination": {
+    "marketsKeysetMaxLimit": 100,
+    "marketsKeysetSource": "https://docs.polymarket.com/changelog/predictions (May 14, 2026)",
+    "dataApi": {
+      "source": "https://docs.polymarket.com/api-spec/data-openapi.yaml (read 2026-08-16)",
+      "trades": {
+        "maxLimit": 10000,
+        "maxOffset": 10000
+      },
+      "activity": {
+        "maxLimit": 500,
+        "maxOffset": 5000
+      },
+      "positions": {
+        "maxLimit": 500,
+        "maxOffset": 10000
+      }
+    },
+    "supersededChangelogEntry": "The 2025-08-26 changelog entry capping /trades and /activity at limit 500 / offset 1000 is STALE. The live Data OpenAPI now documents higher, per-endpoint bounds and they no longer agree with each other. Enforce the per-endpoint spec values above; the changelog figure is kept only to explain why earlier code used 500/1000.",
+    "cursorStyle": "Data API is offset-based; CLOB rewards use next_cursor (MA== first, LTE== end)",
+    "clobRewardsCursorParameter": {
+      "name": "next_cursor",
+      "placement": "query string",
+      "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml",
+      "note": "It is a QUERY parameter. 1.0 passed it as an HTTP header, so the server ignored it and every page re-read page 1 \u2014 an unbounded loop. See issue #18."
+    }
+  },
+  "settlement": {
+    "source": "https://docs.polymarket.com/changelog/predictions (Jul 17, 2026)",
+    "postOrderReturnsTransactionHashes": false,
+    "postOrderReturnsTradeIds": true,
+    "note": "POST /order and POST /orders return tradeIDs instead of transactionHashes on FAK/FOK matches. Poll trades by tradeID until each has a hash or returns FAILED."
+  },
+  "minimumSize": {
+    "clobSigningRule": {
+      "source": "https://docs.polymarket.com/api-reference/market-data/get-order-book",
+      "field": "min_order_size",
+      "unit": "normalized shares",
+      "authoritativeForSigning": true
+    },
+    "gammaDiscoveryMetadata": {
+      "source": "https://docs.polymarket.com/api-reference/markets",
+      "field": "orderMinSize",
+      "unit": "USDC notional (as labelled by Gamma)",
+      "authoritativeForSigning": false
+    },
+    "contradiction": "Official sources conflict on units. Keep both; sign against the live CLOB shares value only. Never merge or substitute one for the other."
+  },
+  "orderBookOrdering": {
+    "contradiction": "Official sources disagree about bid/ask level ordering on the wire. Always sort levels numerically before any depth calculation."
+  },
+  "tickGrid": {
+    "values": [
+      "0.1",
+      "0.01",
+      "0.005",
+      "0.0025",
+      "0.001",
+      "0.0001"
+    ],
+    "matchedBy": "numeric value, so \"0.010\" resolves like \"0.01\"",
+    "fallback": "none - an unrecognised tick must throw before any amount is calculated",
+    "officiallyPublished": true,
+    "precisionColumns": ["priceDecimals", "sizeDecimals", "amountDecimals"],
+    "precision": {
+      "0.1": {"priceDecimals": 1, "sizeDecimals": 2, "amountDecimals": 3},
+      "0.01": {"priceDecimals": 2, "sizeDecimals": 2, "amountDecimals": 4},
+      "0.005": {"priceDecimals": 3, "sizeDecimals": 2, "amountDecimals": 5},
+      "0.0025": {"priceDecimals": 4, "sizeDecimals": 2, "amountDecimals": 6},
+      "0.001": {"priceDecimals": 3, "sizeDecimals": 2, "amountDecimals": 5},
+      "0.0001": {"priceDecimals": 4, "sizeDecimals": 2, "amountDecimals": 6}
+    },
+    "provenance": "OFFICIAL as of 2026-08-23. The 'Choose a Price and Size' table on place-orders publishes all six ticks with their price/size/amount decimals. This supersedes the earlier MIXED note that attributed the grid to this repo's own live verification. The CLOB OpenAPI still types tick_size as a free string with no enum, so treat the published table as the grid and an unlisted tick as an error.",
+    "sources": [
+      "https://docs.polymarket.com/trading/place-orders.md (Choose a Price and Size)",
+      "https://docs.polymarket.com/changelog/predictions.md (Jul 2, 2026)",
+      "https://docs.polymarket.com/api-spec/clob-openapi.yaml (OrderBookSummary.tick_size)"
+    ]
   }
- },
- "sideEncoding": {
-  "source": "https://docs.polymarket.com/trading/place-orders",
-  "BUY": 0,
-  "SELL": 1
- },
- "orderStruct": {
-  "source": "https://docs.polymarket.com/changelog/predictions (Apr 17, 2026)",
-  "removedInV2": [
-   "nonce",
-   "feeRateBps",
-   "taker"
-  ],
-  "addedInV2": [
-   "timestamp",
-   "metadata",
-   "builder"
-  ],
-  "expirationIsSignedField": false,
-  "expirationNote": "source: clob-openapi.yaml — expiration remains in the POST /order wire body for GTD handling but is NOT part of the signed Order struct.",
-  "v2TimestampUnit": "unix-milliseconds",
-  "v3TimestampUnit": "unix-seconds",
-  "timestampUnitNote": "The two exchanges disagree: place-orders documents <unix_milliseconds> for V2, combos/market-makers documents <unix_seconds> for V3. Keep them separate; do not normalise."
- },
- "gtd": {
-  "source": "https://docs.polymarket.com/trading/place-orders",
-  "expirationUnit": "unix-seconds",
-  "securityThresholdSeconds": 60,
-  "minimumFutureSeconds": 180,
-  "note": "GTD orders expire one minute before their stated expiration. For an effective lifetime of N seconds use now + 60 + N. The expiration must be at least 3 minutes in the future.",
-  "gtcExpirationValue": "0"
- },
- "batchLimits": {
-  "postOrdersMax": 15,
-  "postOrdersSource": "https://docs.polymarket.com/api-reference/trade/post-multiple-orders",
-  "cancelOrdersMax": 1000,
-  "cancelOrdersSource": "https://docs.polymarket.com/changelog/predictions (Jun 15, 2026)"
- },
- "pagination": {
-  "marketsKeysetMaxLimit": 100,
-  "marketsKeysetSource": "https://docs.polymarket.com/changelog/predictions (May 14, 2026)",
-  "dataApi": {
-   "source": "https://docs.polymarket.com/api-spec/data-openapi.yaml (read 2026-08-16)",
-   "trades": {
-    "maxLimit": 10000,
-    "maxOffset": 10000
-   },
-   "activity": {
-    "maxLimit": 500,
-    "maxOffset": 5000
-   },
-   "positions": {
-    "maxLimit": 500,
-    "maxOffset": 10000
-   }
-  },
-  "supersededChangelogEntry": "The 2025-08-26 changelog entry capping /trades and /activity at limit 500 / offset 1000 is STALE. The live Data OpenAPI now documents higher, per-endpoint bounds and they no longer agree with each other. Enforce the per-endpoint spec values above; the changelog figure is kept only to explain why earlier code used 500/1000.",
-  "cursorStyle": "Data API is offset-based; CLOB rewards use next_cursor (MA== first, LTE== end)",
-  "clobRewardsCursorParameter": {
-   "name": "next_cursor",
-   "placement": "query string",
-   "source": "https://docs.polymarket.com/api-spec/clob-openapi.yaml",
-   "note": "It is a QUERY parameter. 1.0 passed it as an HTTP header, so the server ignored it and every page re-read page 1 — an unbounded loop. See issue #18."
-  }
- },
- "settlement": {
-  "source": "https://docs.polymarket.com/changelog/predictions (Jul 17, 2026)",
-  "postOrderReturnsTransactionHashes": false,
-  "postOrderReturnsTradeIds": true,
-  "note": "POST /order and POST /orders return tradeIDs instead of transactionHashes on FAK/FOK matches. Poll trades by tradeID until each has a hash or returns FAILED."
- },
- "minimumSize": {
-  "clobSigningRule": {
-   "source": "https://docs.polymarket.com/api-reference/market-data/get-order-book",
-   "field": "min_order_size",
-   "unit": "normalized shares",
-   "authoritativeForSigning": true
-  },
-  "gammaDiscoveryMetadata": {
-   "source": "https://docs.polymarket.com/api-reference/markets",
-   "field": "orderMinSize",
-   "unit": "USDC notional (as labelled by Gamma)",
-   "authoritativeForSigning": false
-  },
-  "contradiction": "Official sources conflict on units. Keep both; sign against the live CLOB shares value only. Never merge or substitute one for the other."
- },
- "orderBookOrdering": {
-  "contradiction": "Official sources disagree about bid/ask level ordering on the wire. Always sort levels numerically before any depth calculation."
- },
- "tickGrid": {
-  "values": [
-   "0.1",
-   "0.01",
-   "0.005",
-   "0.0025",
-   "0.001",
-   "0.0001"
-  ],
-  "matchedBy": "numeric value, so \"0.010\" resolves like \"0.01\"",
-  "fallback": "none - an unrecognised tick must throw before any amount is calculated",
-  "officiallyPublished": true,
-  "precisionColumns": [
-   "priceDecimals",
-   "sizeDecimals",
-   "amountDecimals"
-  ],
-  "precision": {
-   "0.1": {
-    "priceDecimals": 1,
-    "sizeDecimals": 2,
-    "amountDecimals": 3
-   },
-   "0.01": {
-    "priceDecimals": 2,
-    "sizeDecimals": 2,
-    "amountDecimals": 4
-   },
-   "0.005": {
-    "priceDecimals": 3,
-    "sizeDecimals": 2,
-    "amountDecimals": 5
-   },
-   "0.0025": {
-    "priceDecimals": 4,
-    "sizeDecimals": 2,
-    "amountDecimals": 6
-   },
-   "0.001": {
-    "priceDecimals": 3,
-    "sizeDecimals": 2,
-    "amountDecimals": 5
-   },
-   "0.0001": {
-    "priceDecimals": 4,
-    "sizeDecimals": 2,
-    "amountDecimals": 6
-   }
-  },
-  "provenance": "OFFICIAL as of 2026-08-23. The 'Choose a Price and Size' table on place-orders publishes all six ticks with their price/size/amount decimals. This supersedes the earlier MIXED note that attributed the grid to this repo's own live verification. The CLOB OpenAPI still types tick_size as a free string with no enum, so treat the published table as the grid and an unlisted tick as an error.",
-  "sources": [
-   "https://docs.polymarket.com/trading/place-orders.md (Choose a Price and Size)",
-   "https://docs.polymarket.com/changelog/predictions.md (Jul 2, 2026)",
-   "https://docs.polymarket.com/api-spec/clob-openapi.yaml (OrderBookSummary.tick_size)"
-  ]
- }
 }

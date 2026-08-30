@@ -1,619 +1,619 @@
 {
- "description": "Current documented Polymarket stream frames: the CLOB market channel, the CLOB authenticated user channel, and the Real-Time Data Service. Every frame is copied verbatim from the official page named in 'sources'; every field list is copied verbatim from the official AsyncAPI document. Owned by issues #21/#22/#23.",
- "reviewedOn": "2026-08-23",
- "sources": [
-  {
-   "url": "https://docs.polymarket.com/asyncapi.json",
-   "fetchedAt": "2026-08-23",
-   "sha256": "c5b556cf140725ef72803e1e5e2d8afc5cc1cd4326abf004cf3809394de8aee1",
-   "revision": "asyncapi 3.0.0, info.version 1.0.0 - Polymarket WebSocket API (market channel)"
-  },
-  {
-   "url": "https://docs.polymarket.com/asyncapi-user.json",
-   "fetchedAt": "2026-08-23",
-   "sha256": "d17d8e8f81c5d06446c6418fb4046a0e34b59ae1dfa97f3917313d0e2f90c021",
-   "revision": "asyncapi 3.0.0, info.version 1.0.0 - Polymarket WebSocket API (user channel)"
-  },
-  {
-   "url": "https://docs.polymarket.com/market-data/realtime-data.md",
-   "fetchedAt": "2026-08-23",
-   "sha256": "59a5ef9e6f63bab5af0fc6e31dde4948cdd54d92349d3aeca4046c12bf22db14",
-   "revision": "Market Stream, Sports Stream, RTDS Streams (crypto prices, equity prices, comments)"
-  },
-  {
-   "url": "https://docs.polymarket.com/trading/realtime-order-updates.md",
-   "fetchedAt": "2026-08-23",
-   "sha256": "b5fde86d9fd5c63f5148b55af5357bcaafd67d090e08f054a2b0774ffc55b741",
-   "revision": "Real-Time Order Updates - authenticated user channel"
-  },
-  {
-   "url": "https://docs.polymarket.com/market-data/chainlink-twap.md",
-   "fetchedAt": "2026-08-23",
-   "sha256": "6b8ffab6fb0fd7c8818a2921f66a920d653deb7b84e22dce91d2a70cf4ddbed9",
-   "revision": "Chainlink TWAP prices, consumed through RTDS"
-  },
-  {
-   "url": "https://docs.polymarket.com/llms.txt",
-   "fetchedAt": "2026-08-23",
-   "sha256": "e80d08b8d48451104ba53d603eb46b6e507e5335184be4c4620840a62888d420",
-   "revision": "documentation index used to locate the RTDS pages"
-  }
- ],
- "marketChannel": {
-  "url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
-  "heartbeat": {
-   "frame": "PING",
-   "reply": "PONG",
-   "intervalSeconds": 10
-  },
-  "initialSubscribe": {
-   "assets_ids": [
-    "<token_id>"
-   ],
-   "type": "market"
-  },
-  "initialSubscribeWithCustomEvents": {
-   "assets_ids": [
-    "<token_id>"
-   ],
-   "type": "market",
-   "custom_feature_enabled": true
-  },
-  "dynamicSubscribe": {
-   "assets_ids": [
-    "<new_token_id>"
-   ],
-   "operation": "subscribe"
-  },
-  "dynamicUnsubscribe": {
-   "assets_ids": [
-    "<old_token_id>"
-   ],
-   "operation": "unsubscribe"
-  },
-  "subscriptionRequestFields": [
-   "assets_ids",
-   "type",
-   "initial_dump",
-   "level",
-   "custom_feature_enabled"
-  ],
-  "subscriptionRequestUpdateFields": [
-   "operation",
-   "assets_ids",
-   "level",
-   "custom_feature_enabled"
-  ],
-  "events": {
-   "book": {
-    "event_type": "book",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-    "timestamp": "1782753357257",
-    "hash": "0xabc123…",
-    "bids": [
-     {
-      "price": "0.08",
-      "size": "33343.4"
-     },
-     {
-      "price": "0.09",
-      "size": "163939.58"
-     }
-    ],
-    "asks": [
-     {
-      "price": "0.99",
-      "size": "218442.27"
-     },
-     {
-      "price": "0.98",
-      "size": "13229.55"
-     }
-    ]
-   },
-   "price_change": {
-    "event_type": "price_change",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "price_changes": [
-     {
-      "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-      "price": "0.08",
-      "size": "33343.4",
-      "side": "BUY",
-      "hash": "56621a121a47ed9333273e21c83b660cff37ae50",
-      "best_bid": "0.08",
-      "best_ask": "0.09"
-     }
-    ],
-    "timestamp": "1782753357257"
-   },
-   "last_trade_price": {
-    "event_type": "last_trade_price",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-    "price": "0.08",
-    "size": "219.217767",
-    "fee_rate_bps": "0",
-    "side": "SELL",
-    "timestamp": "1782753357257",
-    "transaction_hash": "0xeeefff…"
-   },
-   "tick_size_change": {
-    "event_type": "tick_size_change",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-    "old_tick_size": "0.01",
-    "new_tick_size": "0.001",
-    "timestamp": "1782753357257"
-   },
-   "best_bid_ask": {
-    "event_type": "best_bid_ask",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-    "best_bid": "0.08",
-    "best_ask": "0.09",
-    "spread": "0.01",
-    "timestamp": "1782753357257"
-   },
-   "new_market": {
-    "event_type": "new_market",
-    "id": "123456",
-    "question": "Will the US confirm that aliens exist before 2027?",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "slug": "will-the-us-confirm-that-aliens-exist-before-2027",
-    "assets_ids": [
-     "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-     "7305630249804085635496399869905769372294302716159034447326228509068694952392"
-    ],
-    "outcomes": [
-     "Yes",
-     "No"
-    ],
-    "timestamp": "1782753357257"
-   },
-   "market_resolved": {
-    "event_type": "market_resolved",
-    "id": "123456",
-    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
-    "assets_ids": [
-     "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-     "7305630249804085635496399869905769372294302716159034447326228509068694952392"
-    ],
-    "winning_asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
-    "winning_outcome": "Yes",
-    "timestamp": "1782753357257"
-   }
-  },
-  "eventFields": {
-   "book": [
-    "event_type",
-    "asset_id",
-    "market",
-    "bids",
-    "asks",
-    "timestamp",
-    "hash"
-   ],
-   "order_summary": [
-    "price",
-    "size"
-   ],
-   "price_change": [
-    "event_type",
-    "market",
-    "price_changes",
-    "timestamp"
-   ],
-   "price_change_entry": [
-    "asset_id",
-    "price",
-    "size",
-    "side",
-    "hash",
-    "best_bid",
-    "best_ask"
-   ],
-   "last_trade_price": [
-    "event_type",
-    "asset_id",
-    "market",
-    "price",
-    "size",
-    "fee_rate_bps",
-    "side",
-    "timestamp",
-    "transaction_hash"
-   ],
-   "tick_size_change": [
-    "event_type",
-    "asset_id",
-    "market",
-    "old_tick_size",
-    "new_tick_size",
-    "timestamp"
-   ],
-   "best_bid_ask": [
-    "event_type",
-    "asset_id",
-    "market",
-    "best_bid",
-    "best_ask",
-    "spread",
-    "timestamp"
-   ],
-   "new_market": [
-    "event_type",
-    "id",
-    "question",
-    "market",
-    "slug",
-    "description",
-    "assets_ids",
-    "outcomes",
-    "event_message",
-    "timestamp",
-    "tags",
-    "condition_id",
-    "active",
-    "clob_token_ids",
-    "sports_market_type",
-    "line",
-    "game_start_time",
-    "order_price_min_tick_size",
-    "group_item_title"
-   ],
-   "market_resolved": [
-    "event_type",
-    "id",
-    "market",
-    "assets_ids",
-    "winning_asset_id",
-    "winning_outcome",
-    "event_message",
-    "timestamp",
-    "tags"
-   ],
-   "parent_event": [
-    "id",
-    "ticker",
-    "slug",
-    "title",
-    "description"
-   ]
-  }
- },
- "userChannel": {
-  "url": "wss://ws-subscriptions-clob.polymarket.com/ws/user",
-  "heartbeat": {
-   "frame": "PING",
-   "reply": "PONG",
-   "intervalSeconds": 10
-  },
-  "initialSubscribe": {
-   "auth": {
-    "apiKey": "<clob_api_key>",
-    "secret": "<clob_api_secret>",
-    "passphrase": "<clob_api_passphrase>"
-   },
-   "type": "user"
-  },
-  "initialSubscribeWithMarkets": {
-   "auth": {
-    "apiKey": "<clob_api_key>",
-    "secret": "<clob_api_secret>",
-    "passphrase": "<clob_api_passphrase>"
-   },
-   "markets": [
-    "<condition_id>"
-   ],
-   "type": "user"
-  },
-  "dynamicSubscribe": {
-   "operation": "subscribe",
-   "markets": [
-    "<condition_id>"
-   ]
-  },
-  "dynamicUnsubscribe": {
-   "operation": "unsubscribe",
-   "markets": [
-    "<condition_id>"
-   ]
-  },
-  "subscriptionRequestFields": [
-   "auth",
-   "type",
-   "markets"
-  ],
-  "subscriptionRequestUpdateFields": [
-   "operation",
-   "markets"
-  ],
-  "authFields": [
-   "apiKey",
-   "secret",
-   "passphrase"
-  ],
-  "events": {
-   "order": {
-    "event_type": "order",
-    "id": "<order_id>",
-    "owner": "<clob_api_key>",
-    "market": "<condition_id>",
-    "asset_id": "<token_id>",
-    "side": "BUY",
-    "order_owner": "<clob_api_key>",
-    "original_size": "10",
-    "size_matched": "0",
-    "price": "0.52",
-    "associate_trades": null,
-    "outcome": "Yes",
-    "type": "PLACEMENT",
-    "created_at": "1782753357",
-    "expiration": "0",
-    "order_type": "GTC",
-    "status": "LIVE",
-    "maker_address": "<maker_address>",
-    "timestamp": "1782753357257"
-   },
-   "trade": {
-    "event_type": "trade",
-    "type": "TRADE",
-    "id": "<trade_id>",
-    "taker_order_id": "<order_id>",
-    "market": "<condition_id>",
-    "asset_id": "<token_id>",
-    "side": "BUY",
-    "size": "10",
-    "fee_rate_bps": "0",
-    "price": "0.52",
-    "status": "MATCHED",
-    "match_time": "1782753357",
-    "last_update": "1782753357",
-    "outcome": "Yes",
-    "owner": "<clob_api_key>",
-    "trade_owner": "<clob_api_key>",
-    "maker_address": "<maker_address>",
-    "transaction_hash": null,
-    "bucket_index": 0,
-    "maker_orders": [
-     {
-      "order_id": "<maker_order_id>",
-      "owner": "<maker_clob_api_key>",
-      "maker_address": "<maker_address>",
-      "matched_amount": "10",
-      "price": "0.52",
-      "fee_rate_bps": "0",
-      "asset_id": "<token_id>",
-      "outcome": "Yes",
-      "outcome_index": 0,
-      "side": "SELL"
-     }
-    ],
-    "trader_side": "TAKER",
-    "timestamp": "1782753357257"
-   }
-  },
-  "eventFields": {
-   "order": [
-    "event_type",
-    "id",
-    "owner",
-    "market",
-    "asset_id",
-    "side",
-    "order_owner",
-    "original_size",
-    "size_matched",
-    "price",
-    "associate_trades",
-    "outcome",
-    "type",
-    "created_at",
-    "expiration",
-    "order_type",
-    "status",
-    "maker_address",
-    "timestamp"
-   ],
-   "trade": [
-    "event_type",
-    "type",
-    "id",
-    "taker_order_id",
-    "market",
-    "asset_id",
-    "side",
-    "size",
-    "price",
-    "fee_rate_bps",
-    "status",
-    "match_time",
-    "last_update",
-    "outcome",
-    "owner",
-    "trade_owner",
-    "maker_address",
-    "transaction_hash",
-    "bucket_index",
-    "maker_orders",
-    "trader_side",
-    "timestamp"
-   ],
-   "trade_maker_order": [
-    "order_id",
-    "owner",
-    "maker_address",
-    "matched_amount",
-    "price",
-    "fee_rate_bps",
-    "asset_id",
-    "outcome",
-    "side"
-   ]
-  }
- },
- "rtds": {
-  "url": "wss://ws-live-data.polymarket.com",
-  "heartbeat": {
-   "frame": "PING",
-   "intervalSeconds": 5
-  },
-  "cryptoPriceSubscribe": {
-   "action": "subscribe",
-   "subscriptions": [
+  "description": "Current documented Polymarket stream frames: the CLOB market channel, the CLOB authenticated user channel, and the Real-Time Data Service. Every frame is copied verbatim from the official page named in 'sources'; every field list is copied verbatim from the official AsyncAPI document. Owned by issues #21/#22/#23.",
+  "reviewedOn": "2026-08-23",
+  "sources": [
     {
-     "topic": "crypto_prices",
-     "type": "update",
-     "filters": "btcusdt,ethusdt"
+      "url": "https://docs.polymarket.com/asyncapi.json",
+      "fetchedAt": "2026-08-23",
+      "sha256": "c5b556cf140725ef72803e1e5e2d8afc5cc1cd4326abf004cf3809394de8aee1",
+      "revision": "asyncapi 3.0.0, info.version 1.0.0 - Polymarket WebSocket API (market channel)"
     },
     {
-     "topic": "crypto_prices_chainlink",
-     "type": "*",
-     "filters": "{\"symbol\":\"eth/usd\"}"
-    }
-   ]
-  },
-  "commentSubscribe": {
-   "action": "subscribe",
-   "subscriptions": [
+      "url": "https://docs.polymarket.com/asyncapi-user.json",
+      "fetchedAt": "2026-08-23",
+      "sha256": "d17d8e8f81c5d06446c6418fb4046a0e34b59ae1dfa97f3917313d0e2f90c021",
+      "revision": "asyncapi 3.0.0, info.version 1.0.0 - Polymarket WebSocket API (user channel)"
+    },
     {
-     "topic": "comments",
-     "type": "comment_created",
-     "filters": "{\"parentEntityID\":18396,\"parentEntityType\":\"Event\"}"
+      "url": "https://docs.polymarket.com/market-data/realtime-data.md",
+      "fetchedAt": "2026-08-23",
+      "sha256": "59a5ef9e6f63bab5af0fc6e31dde4948cdd54d92349d3aeca4046c12bf22db14",
+      "revision": "Market Stream, Sports Stream, RTDS Streams (crypto prices, equity prices, comments)"
+    },
+    {
+      "url": "https://docs.polymarket.com/trading/realtime-order-updates.md",
+      "fetchedAt": "2026-08-23",
+      "sha256": "b5fde86d9fd5c63f5148b55af5357bcaafd67d090e08f054a2b0774ffc55b741",
+      "revision": "Real-Time Order Updates - authenticated user channel"
+    },
+    {
+      "url": "https://docs.polymarket.com/market-data/chainlink-twap.md",
+      "fetchedAt": "2026-08-23",
+      "sha256": "6b8ffab6fb0fd7c8818a2921f66a920d653deb7b84e22dce91d2a70cf4ddbed9",
+      "revision": "Chainlink TWAP prices, consumed through RTDS"
+    },
+    {
+      "url": "https://docs.polymarket.com/llms.txt",
+      "fetchedAt": "2026-08-23",
+      "sha256": "e80d08b8d48451104ba53d603eb46b6e507e5335184be4c4620840a62888d420",
+      "revision": "documentation index used to locate the RTDS pages"
     }
-   ]
+  ],
+  "marketChannel": {
+    "url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+    "heartbeat": {
+      "frame": "PING",
+      "reply": "PONG",
+      "intervalSeconds": 10
+    },
+    "initialSubscribe": {
+      "assets_ids": [
+        "<token_id>"
+      ],
+      "type": "market"
+    },
+    "initialSubscribeWithCustomEvents": {
+      "assets_ids": [
+        "<token_id>"
+      ],
+      "type": "market",
+      "custom_feature_enabled": true
+    },
+    "dynamicSubscribe": {
+      "assets_ids": [
+        "<new_token_id>"
+      ],
+      "operation": "subscribe"
+    },
+    "dynamicUnsubscribe": {
+      "assets_ids": [
+        "<old_token_id>"
+      ],
+      "operation": "unsubscribe"
+    },
+    "subscriptionRequestFields": [
+      "assets_ids",
+      "type",
+      "initial_dump",
+      "level",
+      "custom_feature_enabled"
+    ],
+    "subscriptionRequestUpdateFields": [
+      "operation",
+      "assets_ids",
+      "level",
+      "custom_feature_enabled"
+    ],
+    "events": {
+      "book": {
+        "event_type": "book",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+        "timestamp": "1782753357257",
+        "hash": "0xabc123…",
+        "bids": [
+          {
+            "price": "0.08",
+            "size": "33343.4"
+          },
+          {
+            "price": "0.09",
+            "size": "163939.58"
+          }
+        ],
+        "asks": [
+          {
+            "price": "0.99",
+            "size": "218442.27"
+          },
+          {
+            "price": "0.98",
+            "size": "13229.55"
+          }
+        ]
+      },
+      "price_change": {
+        "event_type": "price_change",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "price_changes": [
+          {
+            "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+            "price": "0.08",
+            "size": "33343.4",
+            "side": "BUY",
+            "hash": "56621a121a47ed9333273e21c83b660cff37ae50",
+            "best_bid": "0.08",
+            "best_ask": "0.09"
+          }
+        ],
+        "timestamp": "1782753357257"
+      },
+      "last_trade_price": {
+        "event_type": "last_trade_price",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+        "price": "0.08",
+        "size": "219.217767",
+        "fee_rate_bps": "0",
+        "side": "SELL",
+        "timestamp": "1782753357257",
+        "transaction_hash": "0xeeefff…"
+      },
+      "tick_size_change": {
+        "event_type": "tick_size_change",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+        "old_tick_size": "0.01",
+        "new_tick_size": "0.001",
+        "timestamp": "1782753357257"
+      },
+      "best_bid_ask": {
+        "event_type": "best_bid_ask",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+        "best_bid": "0.08",
+        "best_ask": "0.09",
+        "spread": "0.01",
+        "timestamp": "1782753357257"
+      },
+      "new_market": {
+        "event_type": "new_market",
+        "id": "123456",
+        "question": "Will the US confirm that aliens exist before 2027?",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "slug": "will-the-us-confirm-that-aliens-exist-before-2027",
+        "assets_ids": [
+          "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+          "7305630249804085635496399869905769372294302716159034447326228509068694952392"
+        ],
+        "outcomes": [
+          "Yes",
+          "No"
+        ],
+        "timestamp": "1782753357257"
+      },
+      "market_resolved": {
+        "event_type": "market_resolved",
+        "id": "123456",
+        "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+        "assets_ids": [
+          "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+          "7305630249804085635496399869905769372294302716159034447326228509068694952392"
+        ],
+        "winning_asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+        "winning_outcome": "Yes",
+        "timestamp": "1782753357257"
+      }
+    },
+    "eventFields": {
+      "book": [
+        "event_type",
+        "asset_id",
+        "market",
+        "bids",
+        "asks",
+        "timestamp",
+        "hash"
+      ],
+      "order_summary": [
+        "price",
+        "size"
+      ],
+      "price_change": [
+        "event_type",
+        "market",
+        "price_changes",
+        "timestamp"
+      ],
+      "price_change_entry": [
+        "asset_id",
+        "price",
+        "size",
+        "side",
+        "hash",
+        "best_bid",
+        "best_ask"
+      ],
+      "last_trade_price": [
+        "event_type",
+        "asset_id",
+        "market",
+        "price",
+        "size",
+        "fee_rate_bps",
+        "side",
+        "timestamp",
+        "transaction_hash"
+      ],
+      "tick_size_change": [
+        "event_type",
+        "asset_id",
+        "market",
+        "old_tick_size",
+        "new_tick_size",
+        "timestamp"
+      ],
+      "best_bid_ask": [
+        "event_type",
+        "asset_id",
+        "market",
+        "best_bid",
+        "best_ask",
+        "spread",
+        "timestamp"
+      ],
+      "new_market": [
+        "event_type",
+        "id",
+        "question",
+        "market",
+        "slug",
+        "description",
+        "assets_ids",
+        "outcomes",
+        "event_message",
+        "timestamp",
+        "tags",
+        "condition_id",
+        "active",
+        "clob_token_ids",
+        "sports_market_type",
+        "line",
+        "game_start_time",
+        "order_price_min_tick_size",
+        "group_item_title"
+      ],
+      "market_resolved": [
+        "event_type",
+        "id",
+        "market",
+        "assets_ids",
+        "winning_asset_id",
+        "winning_outcome",
+        "event_message",
+        "timestamp",
+        "tags"
+      ],
+      "parent_event": [
+        "id",
+        "ticker",
+        "slug",
+        "title",
+        "description"
+      ]
+    }
   },
-  "events": {
-   "crypto_prices": {
-    "topic": "crypto_prices",
-    "type": "update",
-    "timestamp": 1782753357257,
-    "payload": {
-     "symbol": "btcusdt",
-     "timestamp": 1782753357213,
-     "value": 67234.5
+  "userChannel": {
+    "url": "wss://ws-subscriptions-clob.polymarket.com/ws/user",
+    "heartbeat": {
+      "frame": "PING",
+      "reply": "PONG",
+      "intervalSeconds": 10
+    },
+    "initialSubscribe": {
+      "auth": {
+        "apiKey": "<clob_api_key>",
+        "secret": "<clob_api_secret>",
+        "passphrase": "<clob_api_passphrase>"
+      },
+      "type": "user"
+    },
+    "initialSubscribeWithMarkets": {
+      "auth": {
+        "apiKey": "<clob_api_key>",
+        "secret": "<clob_api_secret>",
+        "passphrase": "<clob_api_passphrase>"
+      },
+      "markets": [
+        "<condition_id>"
+      ],
+      "type": "user"
+    },
+    "dynamicSubscribe": {
+      "operation": "subscribe",
+      "markets": [
+        "<condition_id>"
+      ]
+    },
+    "dynamicUnsubscribe": {
+      "operation": "unsubscribe",
+      "markets": [
+        "<condition_id>"
+      ]
+    },
+    "subscriptionRequestFields": [
+      "auth",
+      "type",
+      "markets"
+    ],
+    "subscriptionRequestUpdateFields": [
+      "operation",
+      "markets"
+    ],
+    "authFields": [
+      "apiKey",
+      "secret",
+      "passphrase"
+    ],
+    "events": {
+      "order": {
+        "event_type": "order",
+        "id": "<order_id>",
+        "owner": "<clob_api_key>",
+        "market": "<condition_id>",
+        "asset_id": "<token_id>",
+        "side": "BUY",
+        "order_owner": "<clob_api_key>",
+        "original_size": "10",
+        "size_matched": "0",
+        "price": "0.52",
+        "associate_trades": null,
+        "outcome": "Yes",
+        "type": "PLACEMENT",
+        "created_at": "1782753357",
+        "expiration": "0",
+        "order_type": "GTC",
+        "status": "LIVE",
+        "maker_address": "<maker_address>",
+        "timestamp": "1782753357257"
+      },
+      "trade": {
+        "event_type": "trade",
+        "type": "TRADE",
+        "id": "<trade_id>",
+        "taker_order_id": "<order_id>",
+        "market": "<condition_id>",
+        "asset_id": "<token_id>",
+        "side": "BUY",
+        "size": "10",
+        "fee_rate_bps": "0",
+        "price": "0.52",
+        "status": "MATCHED",
+        "match_time": "1782753357",
+        "last_update": "1782753357",
+        "outcome": "Yes",
+        "owner": "<clob_api_key>",
+        "trade_owner": "<clob_api_key>",
+        "maker_address": "<maker_address>",
+        "transaction_hash": null,
+        "bucket_index": 0,
+        "maker_orders": [
+          {
+            "order_id": "<maker_order_id>",
+            "owner": "<maker_clob_api_key>",
+            "maker_address": "<maker_address>",
+            "matched_amount": "10",
+            "price": "0.52",
+            "fee_rate_bps": "0",
+            "asset_id": "<token_id>",
+            "outcome": "Yes",
+            "outcome_index": 0,
+            "side": "SELL"
+          }
+        ],
+        "trader_side": "TAKER",
+        "timestamp": "1782753357257"
+      }
+    },
+    "eventFields": {
+      "order": [
+        "event_type",
+        "id",
+        "owner",
+        "market",
+        "asset_id",
+        "side",
+        "order_owner",
+        "original_size",
+        "size_matched",
+        "price",
+        "associate_trades",
+        "outcome",
+        "type",
+        "created_at",
+        "expiration",
+        "order_type",
+        "status",
+        "maker_address",
+        "timestamp"
+      ],
+      "trade": [
+        "event_type",
+        "type",
+        "id",
+        "taker_order_id",
+        "market",
+        "asset_id",
+        "side",
+        "size",
+        "price",
+        "fee_rate_bps",
+        "status",
+        "match_time",
+        "last_update",
+        "outcome",
+        "owner",
+        "trade_owner",
+        "maker_address",
+        "transaction_hash",
+        "bucket_index",
+        "maker_orders",
+        "trader_side",
+        "timestamp"
+      ],
+      "trade_maker_order": [
+        "order_id",
+        "owner",
+        "maker_address",
+        "matched_amount",
+        "price",
+        "fee_rate_bps",
+        "asset_id",
+        "outcome",
+        "side"
+      ]
     }
-   },
-   "crypto_prices_chainlink": {
-    "topic": "crypto_prices_chainlink",
-    "type": "update",
-    "timestamp": 1782753357257,
-    "payload": {
-     "symbol": "eth/usd",
-     "timestamp": 1782753357213,
-     "value": 3420.15
-    }
-   },
-   "comment_created": {
-    "topic": "comments",
-    "type": "comment_created",
-    "timestamp": 1782753357257,
-    "payload": {
-     "id": "1763355",
-     "body": "That's a good point about the definition.",
-     "parentEntityType": "Event",
-     "parentEntityID": 18396,
-     "parentCommentID": null,
-     "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
-     "replyAddress": "0x0bda5d16f76cd1d3485bcc7a44bc6fa7db004cdd",
-     "createdAt": "2025-07-25T14:49:35.801298Z",
-     "reactionCount": 0,
-     "reportCount": 0,
-     "profile": {
-      "baseAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
-      "displayUsernamePublic": true,
-      "name": "salted.caramel",
-      "proxyWallet": "0x4ca749dcfa93c87e5ee23e2d21ff4422c7a4c1ee",
-      "pseudonym": "Adored-Disparity"
-     }
-    }
-   },
-   "comment_removed": {
-    "topic": "comments",
-    "type": "comment_removed",
-    "timestamp": 1782753357257,
-    "payload": {
-     "id": "1763355",
-     "body": "That's a good point about the definition.",
-     "parentEntityType": "Event",
-     "parentEntityID": 18396,
-     "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677"
-    }
-   },
-   "reaction_created": {
-    "topic": "comments",
-    "type": "reaction_created",
-    "timestamp": 1782753357257,
-    "payload": {
-     "id": "8675309",
-     "commentID": 1763355,
-     "reactionType": "HEART",
-     "icon": "❤️",
-     "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
-     "createdAt": "2025-07-25T14:50:04.120000Z"
-    }
-   },
-   "reaction_removed": {
-    "topic": "comments",
-    "type": "reaction_removed",
-    "timestamp": 1782753357257,
-    "payload": {
-     "id": "8675309",
-     "commentID": 1763355,
-     "reactionType": "HEART",
-     "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677"
-    }
-   }
   },
-  "payloadFields": {
-   "price_update": [
-    "symbol",
-    "timestamp",
-    "value"
-   ],
-   "comment": [
-    "id",
-    "body",
-    "parentEntityType",
-    "parentEntityID",
-    "parentCommentID",
-    "userAddress",
-    "replyAddress",
-    "createdAt",
-    "updatedAt",
-    "media",
-    "profile",
-    "reactions",
-    "reportCount",
-    "reactionCount",
-    "tradeAsset"
-   ],
-   "reaction": [
-    "id",
-    "commentID",
-    "reactionType",
-    "icon",
-    "userAddress",
-    "createdAt",
-    "profile"
-   ],
-   "profile": [
-    "baseAddress",
-    "displayUsernamePublic",
-    "name",
-    "proxyWallet",
-    "pseudonym"
-   ]
-  },
-  "unmodelledPayloadFields": {
-   "note": "Named by the AsyncAPI comment field list but carrying no shape in any pinned example frame. Modelling them would mean inventing a schema, so they are deliberately left unmapped until an official example pins them.",
-   "comment": [
-    "media",
-    "reactions",
-    "tradeAsset"
-   ]
+  "rtds": {
+    "url": "wss://ws-live-data.polymarket.com",
+    "heartbeat": {
+      "frame": "PING",
+      "intervalSeconds": 5
+    },
+    "cryptoPriceSubscribe": {
+      "action": "subscribe",
+      "subscriptions": [
+        {
+          "topic": "crypto_prices",
+          "type": "update",
+          "filters": "btcusdt,ethusdt"
+        },
+        {
+          "topic": "crypto_prices_chainlink",
+          "type": "*",
+          "filters": "{\"symbol\":\"eth/usd\"}"
+        }
+      ]
+    },
+    "commentSubscribe": {
+      "action": "subscribe",
+      "subscriptions": [
+        {
+          "topic": "comments",
+          "type": "comment_created",
+          "filters": "{\"parentEntityID\":18396,\"parentEntityType\":\"Event\"}"
+        }
+      ]
+    },
+    "events": {
+      "crypto_prices": {
+        "topic": "crypto_prices",
+        "type": "update",
+        "timestamp": 1782753357257,
+        "payload": {
+          "symbol": "btcusdt",
+          "timestamp": 1782753357213,
+          "value": 67234.5
+        }
+      },
+      "crypto_prices_chainlink": {
+        "topic": "crypto_prices_chainlink",
+        "type": "update",
+        "timestamp": 1782753357257,
+        "payload": {
+          "symbol": "eth/usd",
+          "timestamp": 1782753357213,
+          "value": 3420.15
+        }
+      },
+      "comment_created": {
+        "topic": "comments",
+        "type": "comment_created",
+        "timestamp": 1782753357257,
+        "payload": {
+          "id": "1763355",
+          "body": "That's a good point about the definition.",
+          "parentEntityType": "Event",
+          "parentEntityID": 18396,
+          "parentCommentID": null,
+          "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
+          "replyAddress": "0x0bda5d16f76cd1d3485bcc7a44bc6fa7db004cdd",
+          "createdAt": "2025-07-25T14:49:35.801298Z",
+          "reactionCount": 0,
+          "reportCount": 0,
+          "profile": {
+            "baseAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
+            "displayUsernamePublic": true,
+            "name": "salted.caramel",
+            "proxyWallet": "0x4ca749dcfa93c87e5ee23e2d21ff4422c7a4c1ee",
+            "pseudonym": "Adored-Disparity"
+          }
+        }
+      },
+      "comment_removed": {
+        "topic": "comments",
+        "type": "comment_removed",
+        "timestamp": 1782753357257,
+        "payload": {
+          "id": "1763355",
+          "body": "That's a good point about the definition.",
+          "parentEntityType": "Event",
+          "parentEntityID": 18396,
+          "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677"
+        }
+      },
+      "reaction_created": {
+        "topic": "comments",
+        "type": "reaction_created",
+        "timestamp": 1782753357257,
+        "payload": {
+          "id": "8675309",
+          "commentID": 1763355,
+          "reactionType": "HEART",
+          "icon": "❤️",
+          "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677",
+          "createdAt": "2025-07-25T14:50:04.120000Z"
+        }
+      },
+      "reaction_removed": {
+        "topic": "comments",
+        "type": "reaction_removed",
+        "timestamp": 1782753357257,
+        "payload": {
+          "id": "8675309",
+          "commentID": 1763355,
+          "reactionType": "HEART",
+          "userAddress": "0xce533188d53a16ed580fd5121dedf166d3482677"
+        }
+      }
+    },
+    "payloadFields": {
+      "price_update": [
+        "symbol",
+        "timestamp",
+        "value"
+      ],
+      "comment": [
+        "id",
+        "body",
+        "parentEntityType",
+        "parentEntityID",
+        "parentCommentID",
+        "userAddress",
+        "replyAddress",
+        "createdAt",
+        "updatedAt",
+        "media",
+        "profile",
+        "reactions",
+        "reportCount",
+        "reactionCount",
+        "tradeAsset"
+      ],
+      "reaction": [
+        "id",
+        "commentID",
+        "reactionType",
+        "icon",
+        "userAddress",
+        "createdAt",
+        "profile"
+      ],
+      "profile": [
+        "baseAddress",
+        "displayUsernamePublic",
+        "name",
+        "proxyWallet",
+        "pseudonym"
+      ]
+    },
+    "unmodelledPayloadFields": {
+      "note": "Named by the AsyncAPI comment field list but carrying no shape in any pinned example frame. Modelling them would mean inventing a schema, so they are deliberately left unmapped until an official example pins them.",
+      "comment": [
+        "media",
+        "reactions",
+        "tradeAsset"
+      ]
+    }
   }
- }
 }
