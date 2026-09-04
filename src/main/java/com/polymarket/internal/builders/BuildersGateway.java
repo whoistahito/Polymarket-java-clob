@@ -53,9 +53,8 @@ public final class BuildersGateway implements BuilderDirectory {
                     "could not create a builder API key: HTTP " + outcome.status());
         }
         JsonNode node = runtime.parse(outcome.body());
-        return new BuilderCredentials(
-                node.path("key").asText(), node.path("secret").asText(),
-                node.path("passphrase").asText());
+        return new BuilderCredentials(credentialPart(node, "key"), credentialPart(node, "secret"),
+                credentialPart(node, "passphrase"));
     }
 
     @Override
@@ -145,6 +144,12 @@ public final class BuildersGateway implements BuilderDirectory {
                 text(node, "err_msg"),
                 instant(node, "createdAt"),
                 instant(node, "updatedAt"));
+    }
+
+    /** A 2xx that dropped a part hands back half a credential, so it fails as a read failure. */
+    private static String credentialPart(JsonNode node, String field) throws IOException {
+        return text(node, field).orElseThrow(() -> new IOException(
+                "builder API key response carried no " + field));
     }
 
     /** A required field is not optional: a dropped one would silently rewrite the trade. */

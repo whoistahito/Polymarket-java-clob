@@ -157,5 +157,42 @@ class OrderExecutionTest {
                     ImmediateSell.of(ASSET, ShareQuantity.of("10"), ExecutionPolicy.FOK),
                     partialFokSell, RULES));
         }
+
+        /** Depth quoted finer than the two size decimals the tick profile allows. */
+        private OrderBookSnapshot fineGrainedBook() {
+            return new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
+                    List.of(new PriceLevel(Price.of("0.50"), ShareQuantity.of("12.345"))),
+                    List.of(new PriceLevel(Price.of("0.50"), ShareQuantity.of("12.345"))),
+                    RULES, Optional.empty());
+        }
+
+        @Test
+        @DisplayName("TC-OE-007: an immediate BUY over sub-grid depth signs an on-grid leg")
+        void immediateBuyLegStaysOnTheSizeGrid() {
+            ImmediateBuy intent = ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK);
+            ImmediatePlan.Executable plan = (ImmediatePlan.Executable)
+                    ImmediatePlanner.plan(intent, fineGrainedBook());
+
+            OrderExecution execution = OrderExecution.of(intent, plan, RULES);
+
+            assertEquals(Price.of("0.50"), execution.price());
+            assertEquals(ShareQuantity.of("12.34"), execution.shares());
+            assertEquals(PusdAmount.of("6.17"), execution.pusdLeg());
+        }
+
+        @Test
+        @DisplayName("TC-OE-008: a fully covered but fine-grained SELL is accepted as a partial fill")
+        void immediateSellOverSubGridDepthIsAPartialFill() {
+            ImmediateSell intent = ImmediateSell.of(ASSET, ShareQuantity.of("12.345"),
+                    ExecutionPolicy.FAK);
+            ImmediatePlan.Executable plan = (ImmediatePlan.Executable)
+                    ImmediatePlanner.plan(intent, fineGrainedBook());
+
+            OrderExecution execution = OrderExecution.of(intent, plan, RULES);
+
+            assertTrue(plan.partial(), "the 0.005 the size grid discards is not sold");
+            assertEquals(ShareQuantity.of("12.34"), execution.shares());
+            assertEquals(PusdAmount.of("6.17"), execution.pusdLeg());
+        }
     }
 }

@@ -106,6 +106,19 @@ class BuildersTest {
     }
 
     @Test
+    @DisplayName("TC-BD-018: a 2xx credential response missing or blanking a part fails the read")
+    void anIncompleteCredentialResponseFailsTheRead() {
+        enqueue("""
+                {"key":"builder-key-1","passphrase":"builder-pass"}""");
+        enqueue("""
+                {"key":"builder-key-1","secret":"   ","passphrase":"builder-pass"}""");
+
+        Builders builders = builders(authority());
+        assertThrows(java.io.IOException.class, builders::createCredentials);
+        assertThrows(java.io.IOException.class, builders::createCredentials);
+    }
+
+    @Test
     @DisplayName("TC-BD-002: listing builder credentials returns typed summaries, never a raw map")
     void listCredentialsReturnsTypedSummaries() throws Exception {
         enqueue("""

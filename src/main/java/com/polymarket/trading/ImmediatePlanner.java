@@ -36,10 +36,13 @@ public final class ImmediatePlanner {
         boolean budgetBound = false;
 
         // The snapshot already sorted asks ascending, so "best first" is just iteration order.
-        for (PriceLevel level : eligible(book.asks(), buy.maximumPrice(), true)) {
+        List<PriceLevel> asks = eligible(book.asks(), buy.maximumPrice(), true);
+        for (PriceLevel level : asks) {
             available = available.add(level.size().value());
             BigDecimal affordable = affordableAt(level.price(), buy.budget().value(), rate, rules);
-            BigDecimal candidate = available.min(affordable);
+            // Only depth that survives the size grid can be bought, so a sub-grid tail at a worse
+            // price must not lift the protected price for shares the order cannot carry.
+            BigDecimal candidate = truncateSize(available, rules).min(affordable);
             if (candidate.compareTo(shares) > 0) {
                 shares = candidate;
                 protectedPrice = level.price();
@@ -58,8 +61,7 @@ public final class ImmediatePlanner {
             // An unfillable report describes the book, so it quotes the walk at its own level
             // prices rather than the single price an order would have been signed at.
             return new ImmediatePlan.InsufficientDepth(
-                    blendedValue(eligible(book.asks(), buy.maximumPrice(), true), shares, rules),
-                    Optional.of(filled));
+                    blendedValue(asks, shares, rules), Optional.of(filled));
         }
         return new ImmediatePlan.Executable(protectedPrice, filled,
                 rules.notional(protectedPrice, filled), quotedFee(rate, filled, protectedPrice),
@@ -112,26 +114,34 @@ public final class ImmediatePlanner {
         requireSameAsset(sell.asset(), book);
         MarketRules rules = book.rules();
         rules.requireAtLeastMinimum(sell.size());
+        List<PriceLevel> bids = eligible(book.bids(), sell.minimumPrice(), false);
         BigDecimal remaining = sell.size().value();
+        BigDecimal walked = BigDecimal.ZERO;
         BigDecimal shares = BigDecimal.ZERO;
-        BigDecimal proceeds = BigDecimal.ZERO;
         Price worst = null;
 
-        for (PriceLevel level : eligible(book.bids(), sell.minimumPrice(), false)) {
+        for (PriceLevel level : bids) {
             if (remaining.signum() <= 0) break;
             BigDecimal take = level.size().value().min(remaining);
-            shares = shares.add(take);
-            proceeds = proceeds.add(take.multiply(level.price().value()));
+            walked = walked.add(take);
             remaining = remaining.subtract(take);
-            worst = level.price();
+            // The floor only follows the shares the order keeps: depth the size grid discards
+            // must not drag the protected price down with it.
+            BigDecimal retained = truncateSize(walked, rules);
+            if (retained.compareTo(shares) > 0) {
+                shares = retained;
+                worst = level.price();
+            }
         }
 
-        boolean partial = remaining.signum() > 0;
-        ShareQuantity filled = ShareQuantity.of(truncateSize(shares, rules));
+        // What the order can actually sell is what stayed on the grid, so a size the grid cannot
+        // express is a partial fill even when the book covered every share of it.
+        boolean partial = shares.compareTo(sell.size().value()) < 0;
+        ShareQuantity filled = ShareQuantity.of(shares);
         if (worst == null || (partial && sell.policy() == ExecutionPolicy.FOK)
                 || belowMinimum(filled, rules)) {
             return new ImmediatePlan.InsufficientDepth(
-                    PusdAmount.of(truncateAmount(proceeds, rules)), Optional.of(filled));
+                    blendedValue(bids, shares, rules), Optional.of(filled));
         }
         return new ImmediatePlan.Executable(worst, filled, rules.notional(worst, filled),
                 PusdAmount.of("0"), partial);

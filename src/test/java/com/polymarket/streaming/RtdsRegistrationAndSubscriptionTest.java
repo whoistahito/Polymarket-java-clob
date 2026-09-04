@@ -145,6 +145,28 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
+    @DisplayName("TC-RR-013 a subscription type is the documented wire name under any default locale")
+    void commentTypeSurvivesATurkishDefaultLocale() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+
+        java.util.Locale original = java.util.Locale.getDefault();
+        try {
+            // Turkish lowercases 'I' to a dotless 'ı', which would send "reactıon_created".
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr"));
+            rtds.subscribeComments(CommentEventType.REACTION_CREATED);
+            for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
+        } finally {
+            java.util.Locale.setDefault(original);
+        }
+
+        assertEquals(1, frames.size());
+        assertEquals("reaction_created",
+                MAPPER.readTree(frames.get(0)).get("subscriptions").get(0).get("type").asText());
+    }
+
+    @Test
     @DisplayName("TC-RR-006 a dynamic add sends only the delta, not the whole authoritative set again")
     void dynamicAddIsDeltaOnly() throws Exception {
         List<String> frames = startCapturingServer();

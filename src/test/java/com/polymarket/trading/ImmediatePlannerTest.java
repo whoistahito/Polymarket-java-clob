@@ -268,6 +268,106 @@ class ImmediatePlannerTest {
     }
 
     @Nested
+    @DisplayName("sub-grid depth")
+    class SubGridDepth {
+
+        /** Depth quoted finer than the two size decimals every documented tick allows. */
+        private OrderBookSnapshot book(List<PriceLevel> bids, List<PriceLevel> asks) {
+            return new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash", bids, asks,
+                    new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false),
+                    Optional.empty());
+        }
+
+        @Test
+        @DisplayName("TC-DP-019: a BUY keeps only the on-grid part of sub-grid depth")
+        void buyTruncatesSubGridDepthToTheSizeGrid() {
+            // 12.345 shares rest at 0.50, but 12.345 is not a size the exchange accepts.
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK),
+                            book(List.of(), List.of(level("0.50", "12.345")))));
+
+            assertEquals(ShareQuantity.of("12.34"), plan.shares());
+            assertEquals(Price.of("0.50"), plan.protectedPrice());
+            assertEquals(PusdAmount.of("6.17"), plan.cost());
+        }
+
+        @Test
+        @DisplayName("TC-DP-020: a sub-grid tail at a worse price does not raise the BUY protection")
+        void subGridTailDoesNotRaiseTheProtectedPrice() {
+            // The extra 0.001 at 0.52 buys no further whole size step, so paying 0.52 for all
+            // 12.34 shares would be a worse order for exactly nothing.
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK),
+                            book(List.of(), List.of(
+                                    level("0.50", "12.345"), level("0.52", "0.001")))));
+
+            assertEquals(Price.of("0.50"), plan.protectedPrice());
+            assertEquals(ShareQuantity.of("12.34"), plan.shares());
+            assertEquals(PusdAmount.of("6.17"), plan.cost());
+        }
+
+        @Test
+        @DisplayName("TC-DP-021: a SELL keeps only the on-grid part and reports it as partial")
+        void sellTruncatesSubGridDepthAndIsPartial() {
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateSell.of(ASSET, ShareQuantity.of("12.345"), ExecutionPolicy.FAK),
+                            book(List.of(level("0.60", "12.345")), List.of())));
+
+            assertEquals(ShareQuantity.of("12.34"), plan.shares());
+            assertEquals(Price.of("0.60"), plan.protectedPrice());
+            assertEquals(PusdAmount.of("7.404"), plan.cost());
+            assertTrue(plan.partial(), "the 0.005 the grid discards was never sold");
+        }
+
+        @Test
+        @DisplayName("TC-DP-022: a sub-grid tail at a worse price does not lower the SELL protection")
+        void subGridTailDoesNotLowerTheProtectedPrice() {
+            // 0.001 more depth at 0.55 adds no whole size step, so the floor stays at 0.60.
+            ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateSell.of(ASSET, ShareQuantity.of("12.346"), ExecutionPolicy.FAK),
+                            book(List.of(level("0.60", "12.345"), level("0.55", "0.001")),
+                                    List.of())));
+
+            assertEquals(Price.of("0.60"), plan.protectedPrice());
+            assertEquals(ShareQuantity.of("12.34"), plan.shares());
+        }
+
+        @Test
+        @DisplayName("TC-DP-023: a size the grid cannot express is not a fill an FOK can promise")
+        void aFineGrainedFokIsInsufficientDepth() {
+            assertInstanceOf(ImmediatePlan.InsufficientDepth.class,
+                    ImmediatePlanner.plan(
+                            ImmediateSell.of(ASSET, ShareQuantity.of("12.345"), ExecutionPolicy.FOK),
+                            book(List.of(level("0.60", "12.345")), List.of())));
+        }
+
+        @Test
+        @DisplayName("TC-DP-024: depth below one size step reports no shares and no notional")
+        void subGridOnlyDepthReportsNothing() {
+            OrderBookSnapshot dust = book(
+                    List.of(level("0.60", "0.004")), List.of(level("0.50", "0.004")));
+
+            ImmediatePlan.InsufficientDepth buy = assertInstanceOf(
+                    ImmediatePlan.InsufficientDepth.class, ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK), dust));
+            ImmediatePlan.InsufficientDepth sell = assertInstanceOf(
+                    ImmediatePlan.InsufficientDepth.class, ImmediatePlanner.plan(
+                            ImmediateSell.of(ASSET, ShareQuantity.of("10"), ExecutionPolicy.FAK),
+                            dust));
+
+            assertEquals(ShareQuantity.of("0"), buy.availableShares().orElseThrow());
+            assertEquals(PusdAmount.of("0"), buy.available(),
+                    "no shares were retained, so there is no notional to report");
+            assertEquals(ShareQuantity.of("0"), sell.availableShares().orElseThrow());
+            assertEquals(PusdAmount.of("0"), sell.available());
+        }
+    }
+
+    @Nested
     @DisplayName("book identity and minimum")
     class BookGuards {
 
