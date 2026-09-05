@@ -20,11 +20,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** TC-SL — connection generations, resubscribe ordering, heartbeat, and idempotent close. */
-@DisplayName("TC-SL — Streaming lifecycle, generations, and heartbeat")
 class StreamingLifecycleTest {
 
     private MockWebServer server;
@@ -40,7 +37,6 @@ class StreamingLifecycleTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -50,8 +46,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-001 the market generation is 1 after the first connect")
-    void firstConnectionIsGenerationOne() throws Exception {
+    void shouldStartMarketAtGenerationOneWhenMarketChannelConnects() throws Exception {
         CountDownLatch opened = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
@@ -70,8 +65,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-002 resubscription is signalled before the fresh book event")
-    void resubscribeSignalledBeforeFreshData() throws Exception {
+    void shouldSignalResubscribeBeforeFreshDataWhenMarketChannelConnects() throws Exception {
         List<String> order = new CopyOnWriteArrayList<>();
         CountDownLatch gotBook = new CountDownLatch(1);
 
@@ -102,8 +96,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-003 market and user generations move independently")
-    void generationsAreIndependentPerChannel() throws Exception {
+    void shouldKeepGenerationsIndependentWhenOnlyMarketChannelConnects() throws Exception {
         CountDownLatch marketOpen = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
@@ -124,20 +117,15 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-004 user reconnect increments only the user generation, market state intact")
-    void userReconnectOnlyBumpsUserGeneration() throws Exception {
+    void shouldBumpOnlyUserGenerationWhenUserChannelReconnects() throws Exception {
         CountDownLatch userReconnected = new CountDownLatch(1);
         server = new MockWebServer();
-        // Market and user connect concurrently on independent threads, so a plain FIFO enqueue
-        // race-depends on arrival order; route by request path instead so each channel always
-        // gets its own scripted response regardless of which socket reaches the server first.
         java.util.concurrent.atomic.AtomicInteger userAttempt = new java.util.concurrent.atomic.AtomicInteger();
         server.setDispatcher(new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
                 if (request.getPath() != null && request.getPath().startsWith("/ws/user")) {
                     if (userAttempt.incrementAndGet() == 1) {
-                        // first user connection: dropped by the server right after its subscribe frame
                         return new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
                             @Override public void onMessage(WebSocket ws, String text) { ws.close(1000, "bye"); }
                         });
@@ -146,7 +134,6 @@ class StreamingLifecycleTest {
                         @Override public void onOpen(WebSocket ws, Response response) { userReconnected.countDown(); }
                     });
                 }
-                // market: stays open across the whole test
                 return new MockResponse().withWebSocketUpgrade(new WebSocketListener() {});
             }
         });
@@ -159,15 +146,13 @@ class StreamingLifecycleTest {
         streaming.subscribeUser(List.of("0xm1"));
 
         assertTrue(userReconnected.await(20, TimeUnit.SECONDS), "user channel must reconnect");
-        // Give the generation counter a moment to update after onOpen fires.
         Thread.sleep(200);
         assertEquals(1L, streaming.marketGeneration(), "market must not have reconnected");
         assertEquals(2L, streaming.userGeneration(), "user reconnected once: generation 2");
     }
 
     @Test
-    @DisplayName("TC-SL-005 subscribeUser without L2 credentials throws before any socket opens")
-    void subscribeUserWithoutCredentialsThrowsFirst() {
+    void shouldThrowAuthenticationRequiredExceptionWhenUserSubscriptionLacksCredentials() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
 
@@ -178,8 +163,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-006 the documented text PING repeats while the channel is open")
-    void sendsTextPingWhileOpen() throws Exception {
+    void shouldSendTextPingsWhenStreamingChannelIsOpen() throws Exception {
         List<String> pings = new CopyOnWriteArrayList<>();
         CountDownLatch twoPings = new CountDownLatch(2);
 
@@ -203,8 +187,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-007 the heartbeat restarts on the new connection after a reconnect")
-    void heartbeatRestartsAfterReconnect() throws Exception {
+    void shouldRestartHeartbeatWhenStreamingChannelReconnects() throws Exception {
         CountDownLatch pingOnSecondConnection = new CountDownLatch(1);
 
         server = new MockWebServer();
@@ -227,18 +210,15 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-008 close() is idempotent")
-    void closeIsIdempotent() {
+    void shouldCloseIdempotentlyWhenCloseIsCalledTwice() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
         streaming.close();
         Assertions.assertDoesNotThrow(streaming::close);
     }
 
-
     @Test
-    @DisplayName("TC-SL-010 closing is terminal — a later subscribe cannot reopen either channel")
-    void closingIsTerminal() throws Exception {
+    void shouldThrowIllegalStateExceptionWhenOperationsFollowClose() throws Exception {
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
@@ -261,8 +241,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-011 callback and heartbeat work stop when the capability closes")
-    void callbackAndHeartbeatWorkStopOnClose() throws Exception {
+    void shouldStopCallbacksAndHeartbeatWhenStreamingCloses() throws Exception {
         List<String> pings = new CopyOnWriteArrayList<>();
         List<BookEvent> books = new CopyOnWriteArrayList<>();
         CountDownLatch twoPings = new CountDownLatch(2);
@@ -302,11 +281,8 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-012 a channel dropped while nothing was subscribed comes back on the next subscribe")
-    void anEmptyChannelThatDroppedIsRevivedByTheNextSubscribe() throws Exception {
-        // Unsubscribing everything is a legitimate quiet period, and declining to reconnect an empty
-        // channel is right. But the socket must come back when there is something to carry again,
-        // or the channel is silently dead for the rest of the process's life.
+    void shouldReopenEmptyChannelWhenSubscriptionFollowsDisconnect() throws Exception {
+        // An empty channel need not reconnect, but a later subscription must revive it or leave it dead.
         CountDownLatch firstFrame = new CountDownLatch(1);
         CountDownLatch revivedFrame = new CountDownLatch(1);
         List<String> framesOnSecondSocket = new CopyOnWriteArrayList<>();
@@ -317,7 +293,6 @@ class StreamingLifecycleTest {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
                 if (attempts.incrementAndGet() == 1) {
-                    // Drops the socket as soon as the unsubscribe-to-empty frame arrives.
                     return new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
                         @Override public void onMessage(WebSocket ws, String text) {
                             if (firstFrame.getCount() > 0) {
@@ -345,8 +320,6 @@ class StreamingLifecycleTest {
         assertTrue(firstFrame.await(15, TimeUnit.SECONDS), "the initial frame must go out");
         streaming.unsubscribeMarket(List.of("tokA"));
 
-        // The server drops the socket on that unsubscribe frame; nothing is subscribed, so the
-        // channel correctly does not reconnect on its own.
         Thread.sleep(300);
         streaming.subscribeMarket(List.of("tokB"));
 
@@ -357,8 +330,7 @@ class StreamingLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-SL-009 a throwing lifecycle listener cannot prevent reconnect")
-    void throwingLifecycleListenerCannotPreventReconnect() throws Exception {
+    void shouldContinueReconnectWhenLifecycleListenerThrows() throws Exception {
         CountDownLatch reconnected = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {

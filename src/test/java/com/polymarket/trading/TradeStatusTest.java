@@ -4,15 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("TradeStatus preserves raw values for statuses this release does not know")
 class TradeStatusTest {
 
     @Test
-    @DisplayName("TC-TS-001: a known status is recognised and terminal only for CONFIRMED/FAILED")
-    void knownStatusesAreRecognised() {
+    void shouldRecognizeKnownStatusesWhenCheckingTerminality() {
         assertTrue(new TradeStatus("CONFIRMED").is(TradeStatus.Known.CONFIRMED));
         assertTrue(new TradeStatus("CONFIRMED").isTerminal());
         assertTrue(new TradeStatus("FAILED").isTerminal());
@@ -21,8 +18,7 @@ class TradeStatusTest {
     }
 
     @Test
-    @DisplayName("TC-TS-003: the documented TRADE_STATUS_ vocabulary is recognised, MINED included")
-    void documentedWireVocabularyIsRecognised() {
+    void shouldRecognizeWireVocabularyWhenCheckingTradeStatuses() {
         // protocol/trades.json tradeStatus.wireValues, from clob-openapi.yaml Trade.status.
         assertTrue(new TradeStatus("TRADE_STATUS_CONFIRMED").is(TradeStatus.Known.CONFIRMED));
         assertTrue(new TradeStatus("TRADE_STATUS_FAILED").is(TradeStatus.Known.FAILED));
@@ -39,8 +35,7 @@ class TradeStatusTest {
     }
 
     @Test
-    @DisplayName("TC-TS-002: an unrecognised status keeps its raw text and is not terminal")
-    void unknownStatusKeepsRawValue() {
+    void shouldPreserveRawValueWhenStatusIsUnknown() {
         TradeStatus status = new TradeStatus("SETTLING_NEW_2027");
 
         assertEquals("SETTLING_NEW_2027", status.raw());

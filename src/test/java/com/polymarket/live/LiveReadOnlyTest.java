@@ -23,25 +23,19 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
-/**
- * Opt-in smoke checks against the real production API: {@code mvn -Plive test -Dtest=LiveReadOnlyTest}.
- * Credential-free and read-only by construction — nothing here signs, places, accepts or cancels.
- */
+/** Opt-in credential-free smoke checks; no signing, placement, acceptance, or cancellation occurs. */
 @Tag("live")
 @EnabledIfSystemProperty(named = "polymarket.live", matches = "true")
-@DisplayName("Live read-only smoke checks against production Polymarket")
 class LiveReadOnlyTest {
 
     private static final Duration STREAM_WAIT = Duration.ofSeconds(30);
 
     @Test
-    @DisplayName("TC-LV-001: GET /time returns a clock within a day of ours")
-    void serverTimeIsSane() throws IOException {
+    void shouldReturnSaneServerTimeWhenReadingProductionClock() throws IOException {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
             ServerTime time = polymarket.serverTime();
 
@@ -51,8 +45,7 @@ class LiveReadOnlyTest {
     }
 
     @Test
-    @DisplayName("TC-LV-002: every probed service reports itself available")
-    void everyServiceIsHealthy() {
+    void shouldReportHealthyServicesWhenReadingProductionEndpoints() {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
             List<ServiceHealth> health = polymarket.health();
 
@@ -63,10 +56,9 @@ class LiveReadOnlyTest {
     }
 
     @Test
-    @DisplayName("TC-LV-003: the geoblock endpoint answers with a decodable status")
-    void geoblockAnswers() throws IOException {
+    void shouldDecodeGeoblockStatusWhenReadingProductionEndpoint() throws IOException {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
-            // Blocked or not depends on where this runs, so only the shape is asserted.
+            // Geoblock status varies by runner, so only the response shape is asserted.
             GeoblockStatus status = polymarket.geoblock();
 
             assertNotNull(status);
@@ -74,8 +66,7 @@ class LiveReadOnlyTest {
     }
 
     @Test
-    @DisplayName("TC-LV-004: Gamma returns open markets carrying CLOB token ids")
-    void marketDiscoveryReturnsTradeableMarkets() throws IOException {
+    void shouldDiscoverTradeableMarketsWhenGammaReturnsOpenMarkets() throws IOException {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
             List<DiscoveredMarket> markets =
                     polymarket.markets().markets(MarketQuery.create().limit(20).closed(false));
@@ -87,8 +78,7 @@ class LiveReadOnlyTest {
     }
 
     @Test
-    @DisplayName("TC-LV-005: GET /book supplies the full signing rule set for a live token")
-    void orderBookCarriesSigningRules() throws IOException {
+    void shouldCarrySigningRulesWhenReadingLiveBook() throws IOException {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
             TokenId token = anyLiveToken(polymarket);
 
@@ -102,8 +92,7 @@ class LiveReadOnlyTest {
     }
 
     @Test
-    @DisplayName("TC-LV-006: the market stream connects and delivers a book snapshot")
-    void marketStreamDeliversASnapshot() throws Exception {
+    void shouldDeliverBookSnapshotWhenMarketStreamConnects() throws Exception {
         try (Polymarket polymarket = Polymarket.withDefaults()) {
             TokenId token = anyLiveToken(polymarket);
             CountDownLatch received = new CountDownLatch(1);

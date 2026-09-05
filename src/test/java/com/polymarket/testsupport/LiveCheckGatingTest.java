@@ -8,15 +8,10 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import java.util.List;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-/**
- * Guards the opt-in lane both ways: an untagged live check would hit the network in the
- * deterministic suite, and a stray {@code @Tag("live")} elsewhere would silently stop running.
- */
-@DisplayName("Live checks stay gated out of the deterministic suite")
+/** Guards the live lane so it cannot enter deterministic tests or escape its package. */
 class LiveCheckGatingTest {
 
     private static final String LIVE_PACKAGE = "com.polymarket.live";
@@ -25,8 +20,7 @@ class LiveCheckGatingTest {
             new ClassFileImporter().importPackages("com.polymarket");
 
     @Test
-    @DisplayName("TC-LG-001: every live check class carries @Tag(\"live\")")
-    void everyLiveCheckIsTagged() {
+    void shouldTagEveryLiveCheckWhenItContainsTestMethods() {
         List<JavaClass> liveChecks = testClassesIn(LIVE_PACKAGE);
 
         assertFalse(liveChecks.isEmpty(), "no live checks found — the rule would pass vacuously");
@@ -36,8 +30,7 @@ class LiveCheckGatingTest {
     }
 
     @Test
-    @DisplayName("TC-LG-002: nothing outside the live package claims the live tag")
-    void liveTagIsConfinedToTheLivePackage() {
+    void shouldConfineLiveTagWhenClassIsOutsideLivePackage() {
         List<String> strays = ALL_TESTS.stream()
                 .filter(LiveCheckGatingTest::isTaggedLive)
                 .filter(c -> !c.getPackageName().startsWith(LIVE_PACKAGE))
@@ -48,8 +41,7 @@ class LiveCheckGatingTest {
     }
 
     @Test
-    @DisplayName("TC-LG-003: the live property is off unless -Plive sets it")
-    void liveGuardIsOffByDefault() {
+    void shouldKeepLiveGuardOffWhenPropertyIsUnset() {
         assertFalse(NoExternalNetworkResolverProvider.liveEnabled(),
                 "polymarket.live is set during the deterministic suite");
     }

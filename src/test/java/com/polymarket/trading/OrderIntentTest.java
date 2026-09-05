@@ -15,11 +15,9 @@ import java.time.Duration;
 import java.lang.reflect.Constructor;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Trading intents")
 class OrderIntentTest {
 
     private static final TokenId ASSET = new TokenId("12345");
@@ -27,46 +25,39 @@ class OrderIntentTest {
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Nested
-    @DisplayName("limit intents")
     class Limits {
 
         @Test
-        @DisplayName("TC-TI-001: an ordinary limit order does not promise maker execution")
-        void ordinaryLimitDoesNotPromiseMaker() {
+        void shouldNotPromiseMakerExecutionWhenLimitIsOrdinary() {
             LimitOrder order = new LimitOrder(ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
             assertFalse(order.postOnly(), "an ordinary limit may cross and take liquidity");
         }
 
         @Test
-        @DisplayName("TC-TI-002: a maker-only limit order maps to postOnly")
-        void makerOnlyMapsToPostOnly() {
+        void shouldMapToPostOnlyWhenLimitIsMakerOnly() {
             MakerOnlyLimitOrder order =
                     new MakerOnlyLimitOrder(ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
             assertTrue(order.postOnly(), "the exchange must reject it if it would take");
         }
 
         @Test
-        @DisplayName("TC-TI-003: a limit intent needs a positive size")
-        void limitNeedsPositiveSize() {
+        void shouldThrowForNonPositiveSizeWhenCreatingLimitOrder() {
             assertThrows(IllegalArgumentException.class,
                     () -> new LimitOrder(ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("0")));
         }
 
         @Test
-        @DisplayName("TC-TI-004: side encodes to the official wire values")
-        void sideUsesOfficialEncoding() {
+        void shouldUseOfficialWireValuesWhenEncodingSide() {
             assertEquals(0, Side.BUY.wireValue());
             assertEquals(1, Side.SELL.wireValue());
         }
     }
 
     @Nested
-    @DisplayName("good-til-date")
     class GoodTilDate {
 
         @Test
-        @DisplayName("TC-TI-005: an effective expiration whose wire value is under three minutes is rejected")
-        void rejectsTooSoonExpiration() {
+        void shouldThrowForTooSoonExpirationWhenCreatingGoodTilDateOrder() {
             Instant tooSoon = NOW.plus(Duration.ofSeconds(119));
             IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                     () -> GoodTilDateOrder.expiringAt(
@@ -75,8 +66,7 @@ class OrderIntentTest {
         }
 
         @Test
-        @DisplayName("TC-TI-006: the official minimum itself is accepted")
-        void acceptsTheMinimum() {
+        void shouldAcceptMinimumExpirationWhenWireThresholdIsApplied() {
             // The wire value adds 60 seconds, so an effective expiry 120 seconds out is stated
             // exactly 180 seconds in the future as the official rule requires.
             Instant exactly = NOW.plus(Duration.ofSeconds(120));
@@ -87,8 +77,7 @@ class OrderIntentTest {
         }
 
         @Test
-        @DisplayName("TC-TI-007: the wire expiration carries the documented one-minute buffer")
-        void wireExpirationAddsTheSecurityThreshold() {
+        void shouldAddSecurityThresholdWhenEncodingExpiration() {
             // Official: an order expires one minute BEFORE its stated expiration, so to be live
             // until T the wire value must be T + 60.
             Instant wanted = NOW.plus(Duration.ofHours(1));
@@ -99,8 +88,7 @@ class OrderIntentTest {
         }
 
         @Test
-        @DisplayName("TC-TI-011: there is no construction path that skips the lifetime check")
-        void everyConstructionPathValidatesTheLifetime() {
+        void shouldThrowForInvalidLifetimeWhenAllConstructionPathsAreChecked() {
             for (Constructor<?> constructor : GoodTilDateOrder.class.getConstructors()) {
                 fail("GoodTilDateOrder exposes a constructor that bypasses the lifetime check: "
                         + constructor);
@@ -111,8 +99,7 @@ class OrderIntentTest {
         }
 
         @Test
-        @DisplayName("TC-TI-008: an expiration in the past is rejected against the injected clock")
-        void rejectsPastExpiration() {
+        void shouldThrowForPastExpirationWhenCreatingGoodTilDateOrder() {
             assertThrows(IllegalArgumentException.class, () -> GoodTilDateOrder.expiringAt(
                     ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
                     NOW.minusSeconds(1), CLOCK));
@@ -120,28 +107,24 @@ class OrderIntentTest {
     }
 
     @Nested
-    @DisplayName("immediate intents")
     class Immediate {
 
         @Test
-        @DisplayName("TC-TI-009: an immediate BUY is denominated in pUSD")
-        void immediateBuySpendsPusd() {
+        void shouldDenominateBuyInPusdWhenCreatingImmediateIntent() {
             ImmediateBuy buy = ImmediateBuy.of(ASSET, PusdAmount.of("10"), ExecutionPolicy.FOK);
             assertEquals(PusdAmount.of("10"), buy.budget());
             assertEquals(Side.BUY, buy.side());
         }
 
         @Test
-        @DisplayName("TC-TI-010: an immediate SELL is denominated in shares")
-        void immediateSellSpendsShares() {
+        void shouldDenominateSellInSharesWhenCreatingImmediateIntent() {
             ImmediateSell sell = ImmediateSell.of(ASSET, ShareQuantity.of("10"), ExecutionPolicy.FAK);
             assertEquals(ShareQuantity.of("10"), sell.size());
             assertEquals(Side.SELL, sell.side());
         }
 
         @Test
-        @DisplayName("TC-TI-011: a zero budget or size cannot form an immediate intent")
-        void immediateIntentsNeedSomethingToSpend() {
+        void shouldThrowForZeroAmountWhenCreatingImmediateIntent() {
             assertThrows(IllegalArgumentException.class,
                     () -> ImmediateBuy.of(ASSET, PusdAmount.of("0"), ExecutionPolicy.FOK));
             assertThrows(IllegalArgumentException.class,
@@ -149,8 +132,7 @@ class OrderIntentTest {
         }
 
         @Test
-        @DisplayName("TC-TI-012: a caller boundary is optional and absent by default")
-        void callerBoundaryIsOptional() {
+        void shouldKeepCallerBoundaryOptionalWhenImmediateIntentIsUnbounded() {
             ImmediateBuy plain = ImmediateBuy.of(ASSET, PusdAmount.of("10"), ExecutionPolicy.FOK);
             assertTrue(plain.maximumPrice().isEmpty());
 

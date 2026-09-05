@@ -34,10 +34,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Rewards")
 class RewardsTest {
 
     private static final String CONDITION_ID =
@@ -82,8 +80,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-001: a multi-page market read sends every cursor in the query and terminates")
-    void marketRewardsWalkEveryPageThroughTheQueryCursor() throws Exception {
+    void shouldWalkMarketRewardPagesWhenCursorAdvances() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MQ==","data":[
                   {"condition_id":"0xaaa","question":"First?","tokens":[],"rewards_config":[]}]}""");
@@ -106,8 +103,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-002: the default read returns one typed page with exact decimal rewards")
-    void marketRewardsReturnOneTypedPage() throws Exception {
+    void shouldMapMarketRewardsWhenPageIsRead() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MQ==","data":[{
                   "condition_id":"0xbd31","question":"Will Trump win the 2024 Iowa Caucus?",
@@ -158,8 +154,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-003: a cursor the server did not advance ends the page walk")
-    void aRepeatedCursorEndsTheWalk() throws Exception {
+    void shouldStopMarketRewardWalkWhenCursorDoesNotAdvance() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MA==","data":[
                   {"condition_id":"0xaaa","tokens":[],"rewards_config":[]}]}""");
@@ -180,8 +175,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-012: a server cycling two cursors cannot spin the all-pages walk")
-    void aCursorCycleEndsTheWalk() throws Exception {
+    void shouldStopMarketRewardWalkWhenCursorCycles() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MQ==","data":[
                   {"condition_id":"0xaaa","tokens":[],"rewards_config":[]}]}""");
@@ -200,8 +194,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-004: current market rewards page with sponsor and native daily rates")
-    void currentRewardsCarrySponsorRates() throws Exception {
+    void shouldMapCurrentRewardsWhenPageIsRead() throws Exception {
         enqueue("""
                 {"limit":500,"count":1,"next_cursor":"LTE=","data":[{
                   "condition_id":"0xbd31","rewards_max_spread":99,"rewards_min_size":10,
@@ -233,8 +226,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-005: rewarded markets page carries trading metrics and its next cursor")
-    void rewardedMarketsCarryMetrics() throws Exception {
+    void shouldMapRewardedMarketMetricsWhenPageIsRead() throws Exception {
         enqueue("""
                 {"limit":50,"count":1,"next_cursor":"NQ==","data":[{
                   "condition_id":"0xbd31","market_id":"248849","event_id":"12345",
@@ -259,8 +251,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-006: a user earnings walk carries L2 headers and signs each cursor page")
-    void userEarningsAreL2AuthenticatedPerPage() throws Exception {
+    void shouldAuthenticateEachEarningsPageWhenCursorAdvances() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MQ==","data":[
                   {"date":"2024-03-26T00:00:00Z","condition_id":"0xbd31","asset_address":"0x9c4E",
@@ -299,8 +290,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-007: a user reward read without credentials fails before anything is sent")
-    void userRewardReadsRequireCredentials() throws Exception {
+    void shouldThrowWhenUserRewardReadLacksCredentials() throws Exception {
         try (Polymarket sdk = sdk(SigningAuthority.none())) {
             Rewards rewards = sdk.rewards();
             assertThrows(AuthenticationRequiredException.class,
@@ -316,8 +306,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-008: total earnings come back per asset with no condition and no cursor")
-    void totalEarningsAreGroupedByAsset() throws Exception {
+    void shouldGroupTotalEarningsWhenDateIsRequested() throws Exception {
         enqueue("""
                 [{"date":"2024-04-09T00:00:00Z","asset_address":"0x9c4E","maker_address":"0xD527",
                   "earnings":1.59984,"asset_rate":0.999357},
@@ -339,8 +328,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-009: reward percentages arrive as exact decimals keyed by condition")
-    void rewardPercentagesAreExactDecimals() throws Exception {
+    void shouldMapRewardPercentagesWhenResponseArrives() throws Exception {
         enqueue("""
                 {"0x296e":20,"0xbd31":33.333333}""");
 
@@ -355,8 +343,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-010: a user rewarded market carries its earnings and live percentage")
-    void userRewardedMarketsCarryEarnings() throws Exception {
+    void shouldMapUserRewardedMarketsWhenPageIsRead() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"total_count":42,"next_cursor":"LTE=","data":[{
                   "condition_id":"0xbd31","market_id":"248849","question":"Iowa?",
@@ -386,8 +373,7 @@ class RewardsTest {
     }
 
     @Test
-    @DisplayName("TC-RW-011: unknown fields are ignored and absent values never become zero")
-    void unknownFieldsAreToleratedAndAbsenceIsPreserved() throws Exception {
+    void shouldPreserveAbsentRewardsWhenFieldsAreUnknown() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"LTE=","some_new_envelope_field":true,
                  "data":[{"condition_id":"0xaaa","brand_new_field":{"nested":1},

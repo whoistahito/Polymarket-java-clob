@@ -36,10 +36,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Markets")
 class MarketsTest {
 
     private MockWebServer server;
@@ -74,8 +72,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-001: a discovery market carries its identity and zipped outcomes")
-    void marketsMapToOneSemanticModel() throws Exception {
+    void shouldMapMarketsToOneSemanticModelWhenDiscoveryReturnsMarkets() throws Exception {
         enqueueFixture("markets.json");
 
         List<DiscoveredMarket> markets;
@@ -103,8 +100,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-002: state, times, prices and metadata come through typed")
-    void marketCarriesStateTimesPricesAndMetadata() throws Exception {
+    void shouldMapStateTimesPricesAndMetadataWhenReadingMarket() throws Exception {
         enqueueFixture("markets.json");
 
         DiscoveredMarket market;
@@ -134,8 +130,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-003: Gamma's minimum order notional stays discovery metadata")
-    void minimumOrderNotionalIsNotASigningRule() throws Exception {
+    void shouldKeepMinimumOrderNotionalOutOfSigningRulesWhenReadingMarket() throws Exception {
         enqueueFixture("markets.json");
 
         DiscoveredMarket market;
@@ -160,8 +155,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-004: an omitted or null field stays absent instead of becoming a value")
-    void absentValuesAreNotFabricated() throws Exception {
+    void shouldPreserveAbsentValuesWhenGammaFieldsAreNull() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"7\",\"conditionId\":\"\",\"question\":null,\"outcomes\":null,"
                         + "\"active\":null,\"bestBid\":null,\"orderMinSize\":null}]"));
@@ -187,8 +181,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-005: unknown response fields are tolerated and never surface as raw maps")
-    void unknownFieldsAreToleratedWithoutRawMaps() throws Exception {
+    void shouldTolerateUnknownFieldsWithoutRawMapsWhenReadingMarket() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"7\",\"question\":\"Will it?\","
                         + "\"aFieldPolymarketAddedYesterday\":{\"nested\":[1,2]}}]"));
@@ -203,8 +196,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-006: a single market read is empty when Gamma does not know the id")
-    void marketByIdIsOptional() throws Exception {
+    void shouldReturnEmptyWhenMarketIdIsUnknown() throws Exception {
         enqueueFixture("market.json");
         server.enqueue(new MockResponse().setResponseCode(404)
                 .setBody("{\"type\":\"not found error\",\"error\":\"id not found\"}"));
@@ -220,8 +212,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-007: an event carries its own markets and sends every filter it was given")
-    void eventsCarryTheirMarkets() throws Exception {
+    void shouldCarryMarketsWhenReadingEvents() throws Exception {
         enqueueFixture("events.json");
 
         List<DiscoveredEvent> events;
@@ -246,8 +237,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-008: an event slug resolves, and an unknown slug is empty")
-    void eventBySlugIsOptional() throws Exception {
+    void shouldReturnEmptyWhenEventSlugIsUnknown() throws Exception {
         enqueueFixture("event.json");
         server.enqueue(new MockResponse().setResponseCode(404));
 
@@ -262,8 +252,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-009: tags, series and sports come back typed and bounded")
-    void referenceDataIsTyped() throws Exception {
+    void shouldReturnTypedReferenceDataWhenReadingTagsSeriesAndSports() throws Exception {
         enqueueFixture("tags.json");
         enqueueFixture("series.json");
         enqueueFixture("sports.json");
@@ -288,8 +277,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-010: search returns events and tags for an encoded query")
-    void searchReturnsEventsAndTags() throws Exception {
+    void shouldReturnEventsAndTagsWhenSearching() throws Exception {
         enqueueFixture("public-search.json");
 
         SearchResults results;
@@ -308,8 +296,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-011: a discovery market with no id fails mapping instead of losing identity")
-    void marketWithoutIdFailsMapping() throws Exception {
+    void shouldThrowIOExceptionWhenMappingMarketWithoutId() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"question\":\"Will it?\",\"slug\":\"will-it\"}]"));
 
@@ -321,8 +308,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-012: an event with a blank id fails mapping instead of losing identity")
-    void eventWithBlankIdFailsMapping() throws Exception {
+    void shouldThrowIOExceptionWhenMappingEventWithBlankId() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"\",\"slug\":\"kraken-ipo-in-2025\",\"markets\":[]}]"));
 
@@ -334,8 +320,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-013: a tag with no id fails mapping instead of losing identity")
-    void tagWithoutIdFailsMapping() throws Exception {
+    void shouldThrowIOExceptionWhenMappingTagWithoutId() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"label\":\"Bitcoin\",\"slug\":\"bitcoin\"}]"));
 
@@ -347,8 +332,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-014: a series with a blank id fails mapping instead of losing identity")
-    void seriesWithBlankIdFailsMapping() throws Exception {
+    void shouldThrowIOExceptionWhenMappingSeriesWithBlankId() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"   \",\"ticker\":\"nfl\",\"title\":\"NFL\"}]"));
 
@@ -360,8 +344,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-015: a blank optional outcome value stays absent instead of becoming blank")
-    void blankOptionalOutcomeValuesStayAbsent() throws Exception {
+    void shouldPreserveAbsentOptionalOutcomesWhenValuesAreBlank() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"7\",\"outcomes\":\"[\\\"Yes\\\", \\\"No\\\"]\","
                         + "\"outcomePrices\":\"[\\\"\\\", \\\"0.5\\\"]\","
@@ -383,8 +366,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-016: an additive field the SDK has never heard of does not fail a read")
-    void unknownAdditiveFieldsStayTolerated() throws Exception {
+    void shouldTolerateUnknownAdditiveFieldsWhenReadingReferenceData() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"16183\",\"slug\":\"kraken-ipo-in-2025\","
                         + "\"quantumResolutionOracleV9\":{\"nested\":[1,2]},"
@@ -404,8 +386,7 @@ class MarketsTest {
     }
 
     @Test
-    @DisplayName("TC-MK-017: an optional discovery value stays absent, never a blank required one")
-    void optionalValuesAreNeverCoercedIntoRequiredBlanks() throws Exception {
+    void shouldKeepOptionalValuesAbsentWhenGammaFieldsAreBlank() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "[{\"id\":\"16183\",\"ticker\":\"\",\"slug\":null,\"title\":\"  \"}]"));
         server.enqueue(new MockResponse().setBody(

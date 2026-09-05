@@ -15,14 +15,9 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * TC-RR — registration is separate from subscription, authoritative sets survive a reconnect, and
- * the wire frames use the currently documented RTDS filter formats.
- */
-@DisplayName("TC-RR — Rtds registration and subscription")
+/** Covers RTDS registration/subscription behavior and documented wire filter formats. */
 class RtdsRegistrationAndSubscriptionTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -40,7 +35,6 @@ class RtdsRegistrationAndSubscriptionTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -60,8 +54,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-001 registrations before subscribing send zero frames")
-    void registrationsSendNoFrames() throws Exception {
+    void shouldSendNoFramesWhenHandlersAreRegisteredBeforeSubscription() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -75,8 +68,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-002 Binance filters are the documented comma-separated symbol string")
-    void binanceFiltersAreCommaSeparated() throws Exception {
+    void shouldUseCommaSeparatedFiltersWhenBinanceSymbolsAreSubscribed() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -92,8 +84,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-003 Chainlink filters are the documented escaped single-symbol JSON string")
-    void chainlinkFiltersAreJsonStrings() throws Exception {
+    void shouldUseJsonStringFiltersWhenChainlinkSymbolsAreSubscribed() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -110,8 +101,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-004 an entity-filtered comment subscription carries the documented official filter")
-    void commentEntityFilterMatchesDocumentedShape() throws Exception {
+    void shouldUseDocumentedEntityFilterWhenCommentSubscriptionIsScoped() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -129,8 +119,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-005 an unfiltered comment subscription omits the filters field")
-    void unfilteredCommentSubscriptionHasNoFilters() throws Exception {
+    void shouldOmitFiltersWhenCommentSubscriptionIsUnfiltered() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -145,8 +134,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-013 a subscription type is the documented wire name under any default locale")
-    void commentTypeSurvivesATurkishDefaultLocale() throws Exception {
+    void shouldPreserveCommentTypeWhenDefaultLocaleIsTurkish() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -167,8 +155,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-006 a dynamic add sends only the delta, not the whole authoritative set again")
-    void dynamicAddIsDeltaOnly() throws Exception {
+    void shouldSendOnlyDeltaWhenAddingBinanceSymbols() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -184,8 +171,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-007 subscribe A then B leaves an authoritative set of A+B")
-    void subscribeAccumulatesSymbols() {
+    void shouldAccumulateSymbolsWhenBinanceSubscriptionsAreAdded() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
 
@@ -196,8 +182,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-008 unsubscribing removes only that symbol from the authoritative set")
-    void unsubscribeRemovesFromSet() {
+    void shouldRemoveSymbolWhenBinanceSubscriptionIsRemoved() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
 
@@ -208,8 +193,7 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-009 reconnect restores the accumulated authoritative state across all three streams")
-    void reconnectRestoresAccumulatedState() throws Exception {
+    void shouldRestoreAllSubscriptionsWhenRtdsReconnects() throws Exception {
         List<String> firstConnectionFrames = new CopyOnWriteArrayList<>();
         List<String> reconnectFrames = new CopyOnWriteArrayList<>();
         java.util.concurrent.CountDownLatch reconnected = new java.util.concurrent.CountDownLatch(1);
@@ -242,31 +226,28 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-RR-010 a removal handle stops delivery, idempotently")
-    void removalHandleStopsDelivery() {
+    void shouldStopDeliveryWhenRegistrationIsRemoved() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
         List<String> seen = new java.util.ArrayList<>();
 
         Rtds.Registration registration = rtds.onBinancePrice(List.of(), e -> seen.add(e.symbol()));
         registration.remove();
-        registration.remove(); // idempotent
-        registration.close(); // AutoCloseable alias
+        registration.remove();
+        registration.close();
 
         assertEquals(0, seen.size());
     }
 
     @Test
-    @DisplayName("TC-RR-011 subscribeBinancePrices rejects an empty list")
-    void subscribeBinanceRejectsEmpty() {
+    void shouldThrowIllegalArgumentExceptionWhenBinanceSymbolListIsEmpty() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
         Assertions.assertThrows(IllegalArgumentException.class, () -> rtds.subscribeBinancePrices(List.of()));
     }
 
     @Test
-    @DisplayName("TC-RR-012 subscribeChainlinkPrices rejects an empty list")
-    void subscribeChainlinkRejectsEmpty() {
+    void shouldThrowIllegalArgumentExceptionWhenChainlinkSymbolListIsEmpty() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
         Assertions.assertThrows(IllegalArgumentException.class, () -> rtds.subscribeChainlinkPrices(List.of()));

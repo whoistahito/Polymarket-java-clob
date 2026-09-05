@@ -29,7 +29,8 @@ scope: an issue's acceptance criteria are the contract.
 - **TDD at the highest seam.** Drive a public capability against `MockWebServer` and assert the typed
   outcome plus the exact outbound method, path, query, headers and body. Keep a pure domain test only
   where no network seam can exercise the invariant.
-- Test IDs follow `TC-XX-NNN` in `@DisplayName`. Framework is JUnit 5 + Mockito.
+- Do not use `@DisplayName`. Name tests `should...When...` and exception tests
+  `shouldThrow...When...`; keep necessary test documentation to at most two lines.
 - **Model the domain, not the transport.** `BigDecimal` for every financial value, never
   `double`/`float`; sealed types and records over strings and maps; `Optional` so absent stays distinct
   from zero. Reject rather than round.

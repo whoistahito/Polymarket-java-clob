@@ -32,10 +32,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Social")
 class SocialTest {
 
     private MockWebServer server;
@@ -66,8 +64,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-001: a public profile carries its identity, bio and linked accounts")
-    void publicProfileCarriesIdentityAndLinkedAccounts() throws Exception {
+    void shouldMapProfileIdentityWhenResponseArrives() throws Exception {
         enqueue("""
                 {"createdAt":"2024-01-01T00:00:00Z","proxyWallet":"0xProxy","profileImage":"https://img/1.png",
                  "displayUsernamePublic":true,"bio":"trader","pseudonym":"alice123","name":"Alice",
@@ -95,8 +92,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-002: a profile read is empty when Gamma does not know the address")
-    void profileIsOptional() throws Exception {
+    void shouldReturnEmptyWhenProfileIsUnknown() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(404));
 
         assertEquals(Optional.empty(), social().profile("0xUnknown"));
@@ -105,8 +101,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-003: a comment carries its author, positions and reactions typed")
-    void commentsCarryAuthorPositionsAndReactions() throws Exception {
+    void shouldMapCommentAuthorAndReactionsWhenResponseArrives() throws Exception {
         enqueue("""
                 [{"id":"c-1","body":"Great market!","parentEntityType":"Event","parentEntityId":"evt-1",
                   "parentCommentId":"c-0","userAddress":"0xUser","replyAddress":"0xReply",
@@ -154,8 +149,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-004: a comment query rejects a non-positive limit before any request is sent")
-    void commentQueryRejectsNonPositiveLimit() throws Exception {
+    void shouldThrowWhenCommentLimitIsNonPositive() throws Exception {
         assertThrowsIllegalArgument(() -> CommentQuery.limit(0));
         assertThrowsIllegalArgument(() -> CommentQuery.limit(-1));
         assertEquals(0, server.getRequestCount());
@@ -166,8 +160,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-005: a comment lookup by id tolerates Gamma's mixed-case parent fields")
-    void commentsByIdToleratesMixedCaseParentFields() throws Exception {
+    void shouldMapCommentParentsWhenFieldsUseMixedCase() throws Exception {
         enqueue("""
                 [{"id":"c1","body":"hi","parentEntityType":"Event","parentEntityID":"18396",
                   "parentCommentID":"42","userAddress":"0xUser"}]""");
@@ -183,8 +176,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-006: a comment lookup by id without positions sends no flag")
-    void commentsByIdWithoutPositionsSendsNoFlag() throws Exception {
+    void shouldOmitPositionFlagWhenCommentPositionsAreDisabled() throws Exception {
         enqueue("[{\"id\":\"c1\",\"userAddress\":\"0xUser\"}]");
 
         social().commentsById("c1", CommentPage.limit(50));
@@ -193,8 +185,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-007: comments by user address send every sort filter and default to unpaged")
-    void commentsByUserAddressSendEverySortFilter() throws Exception {
+    void shouldSendCommentFiltersWhenUserAddressIsRequested() throws Exception {
         enqueue("""
                 [{"id":"c-1","body":"Hello","userAddress":"0x5668","createdAt":"2024-01-01T00:00:00Z"}]""");
 
@@ -207,16 +198,14 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-008: a comment page rejects a non-positive limit before any request is sent")
-    void commentPageRejectsNonPositiveLimit() throws Exception {
+    void shouldThrowWhenCommentPageLimitIsNonPositive() throws Exception {
         assertThrowsIllegalArgument(() -> CommentPage.limit(0));
         assertThrowsIllegalArgument(() -> CommentPage.limit(-5));
         assertEquals(0, server.getRequestCount());
     }
 
     @Test
-    @DisplayName("TC-SO-009: a profile search returns typed hits and its pagination signal")
-    void searchReturnsTypedProfilesAndPagination() throws Exception {
+    void shouldMapProfileSearchResultsWhenPageIsRequested() throws Exception {
         enqueue("""
                 {"events":[{"id":"e1","title":"Election 2024"}],
                  "tags":[{"id":"t1","label":"Politics"}],
@@ -246,15 +235,13 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-010: a blank search query is rejected before any request is sent")
-    void searchRejectsBlankQuery() throws Exception {
+    void shouldThrowWhenSearchQueryIsBlank() throws Exception {
         assertThrowsIllegalArgument(() -> SearchQuery.of(" "));
         assertEquals(0, server.getRequestCount());
     }
 
     @Test
-    @DisplayName("TC-SO-011: an omitted or null field stays absent instead of becoming a value")
-    void absentValuesAreNotFabricated() throws Exception {
+    void shouldPreserveAbsentSocialValuesWhenFieldsAreMissing() throws Exception {
         enqueue("{}");
         enqueue("[{\"id\":\"c-1\"}]");
 
@@ -274,8 +261,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-012: unknown response fields are tolerated and never surface as raw maps")
-    void unknownFieldsAreToleratedWithoutRawMaps() throws Exception {
+    void shouldAvoidRawMapsWhenSocialFieldsAreUnknown() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"body\":\"hi\",\"aFieldPolymarketAddedYesterday\":{\"nested\":[1,2]}}]");
 
         Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
@@ -288,8 +274,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-014: a parent entity type Gamma has not documented yet stays absent")
-    void unrecognisedParentEntityTypeStaysAbsentRatherThanFailing() throws Exception {
+    void shouldReturnEmptyParentTypeWhenValueIsUnknown() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"parentEntityType\":\"SomeFutureKind\"}]");
 
         Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
@@ -298,8 +283,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-013: a blank address, id or user address is rejected before any request is sent")
-    void blankIdentifiersAreRejected() throws Exception {
+    void shouldThrowWhenSocialIdentifierIsBlank() throws Exception {
         Social social = social();
         assertThrows(IllegalArgumentException.class, () -> social.profile(" "));
         assertThrows(IllegalArgumentException.class, () -> social.commentsById(" ", CommentPage.limit(50)));
@@ -309,8 +293,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-015: a reaction maps its documented identifiers from Gamma's own casing")
-    void reactionIdentifiersMapFromGammasOwnFieldCasing() throws Exception {
+    void shouldMapReactionIdentifiersWhenFieldsUseGammaCasing() throws Exception {
         // The documented reaction payload: id, commentID, reactionType, icon, userAddress, createdAt.
         enqueue("""
                 [{"id":"c-1","reactions":[{"id":"8675309","commentID":1763355,
@@ -331,8 +314,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-016: a reaction's nested profile is preserved when present and absent when not")
-    void nestedReactionProfileIsPreservedWhenPresent() throws Exception {
+    void shouldPreserveReactionProfileWhenProfileIsPresent() throws Exception {
         enqueue("""
                 [{"id":"c-1","reactions":[
                   {"id":"r-1","commentID":1763355,"reactionType":"HEART",
@@ -357,8 +339,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-017: a social read whose identity is missing or blank fails explicitly")
-    void aMissingOrBlankRequiredIdentityFailsTheRead() throws Exception {
+    void shouldThrowWhenSocialResponseLacksIdentity() throws Exception {
         Social social = social();
 
         enqueue("[{\"body\":\"a comment nobody can name\"}]");
@@ -378,8 +359,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-018: an identified comment keeps every optional field absent, never blank")
-    void anIdentifiedCommentKeepsOptionalFieldsAbsent() throws Exception {
+    void shouldPreserveOptionalFieldsWhenCommentIsIdentified() throws Exception {
         enqueue("[{\"id\":\"c-1\",\"body\":\"\",\"userAddress\":null,\"reactions\":[]}]");
 
         Comment comment = social().commentsById("c-1", CommentPage.limit(50)).get(0);
@@ -392,8 +372,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-019: an undocumented parent entity type stays readable as the text Gamma sent")
-    void anUndocumentedParentEntityTypeStaysReadable() throws Exception {
+    void shouldPreserveParentTypeTextWhenTypeIsUnknown() throws Exception {
         enqueue("""
                 [{"id":"c-1","body":"hi","parentEntityType":"SomeFutureKind",
                   "parentEntityID":18396}]""");
@@ -407,8 +386,7 @@ class SocialTest {
     }
 
     @Test
-    @DisplayName("TC-SO-020: every comment read is caller-bounded — no read walks Gamma unbounded")
-    void everyCommentReadIsCallerBounded() throws Exception {
+    void shouldRequireCommentBoundWhenSocialReadIsInspected() throws Exception {
         for (Method method : Social.class.getDeclaredMethods()) {
             if (!List.class.isAssignableFrom(method.getReturnType())) continue;
             List<Class<?>> parameters = List.of(method.getParameterTypes());

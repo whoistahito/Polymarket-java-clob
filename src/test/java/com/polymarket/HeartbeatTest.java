@@ -26,17 +26,9 @@ import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Issue #24: the Heartbeat is an order-safety dead-man signal, so every case here is a safety
- * property. Every wire expectation comes from src/test/resources/protocol/heartbeat.json, itself
- * pinned from https://docs.polymarket.com/api-spec/clob-openapi.yaml (operation sendHeartbeat) and
- * https://docs.polymarket.com/api-reference/trade/send-heartbeat.md: a bodyless L2-signed
- * POST /heartbeats whose acknowledgement is HeartbeatResponse {"status": "ok"} and nothing else.
- */
-@DisplayName("Heartbeat: explicit lifecycle (issue #24)")
+/** Verifies the bodyless, L2-signed POST /heartbeats dead-man signal pinned by heartbeat.json. */
 class HeartbeatTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -60,8 +52,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-001: nothing beats until startHeartbeat() is called explicitly")
-    void doesNotStartOnConstruction() throws Exception {
+    void shouldRemainInactiveWhenConstructed() throws Exception {
         try (Polymarket sdk = authenticatedSdk()) {
             assertFalse(sdk.isHeartbeatActive());
         }
@@ -69,8 +60,8 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-002: startHeartbeat() without L2 credentials throws before any request")
-    void startWithoutCredentialsThrows() throws Exception {
+    void shouldThrowAuthenticationRequiredExceptionWhenStartingHeartbeatWithoutCredentials()
+            throws Exception {
         try (Polymarket sdk = unauthenticatedSdk()) {
             assertThrows(AuthenticationRequiredException.class, sdk::startHeartbeat);
         }
@@ -78,8 +69,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-003: isHeartbeatActive() is true once started")
-    void activeAfterStart() throws Exception {
+    void shouldBecomeActiveWhenHeartbeatStarts() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -88,8 +78,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-004: starting twice keeps one schedule that a single stop() silences")
-    void startingTwiceKeepsOneSchedule() throws Exception {
+    void shouldKeepOneScheduleWhenHeartbeatStartsTwice() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -106,8 +95,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-005: each tick sends the documented bodyless POST /heartbeats")
-    void tickSendsTheDocumentedBodylessRequest() throws Exception {
+    void shouldSendBodylessHeartbeatWhenTicking() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -121,8 +109,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-006: a status acknowledgement keeps beating and starts no identifier chain")
-    void acknowledgementStartsNoIdentifierChain() throws Exception {
+    void shouldNotStartIdentifierChainWhenAcknowledged() throws Exception {
         // Even an id the unlisted /v1/heartbeats variant would chain must not leak into a tick.
         server.enqueue(new MockResponse().setBody("{\"status\":\"ok\",\"heartbeat_id\":\"hb-first\"}"));
         enqueueAcknowledgements();
@@ -138,8 +125,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-007: a documented 500 does not silently stop later ticks")
-    void failedTickDoesNotStopScheduling() throws Exception {
+    void shouldKeepSchedulingWhenTickFails() throws Exception {
         // 500 "Internal server error" is a documented heartbeat response (clob-openapi.yaml).
         server.enqueue(new MockResponse().setResponseCode(500)
                 .setBody("{\"error\":\"Internal server error\"}"));
@@ -156,8 +142,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-008: stopHeartbeat() cancels future ticks")
-    void stopCancelsFutureTicks() throws Exception {
+    void shouldCancelFutureTicksWhenStopped() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -171,8 +156,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-009: stopHeartbeat() is idempotent when not active")
-    void stopIdempotentWhenNotActive() throws Exception {
+    void shouldBeIdempotentWhenAlreadyStopped() throws Exception {
         try (Polymarket sdk = authenticatedSdk()) {
             assertDoesNotThrow(sdk::stopHeartbeat);
             assertDoesNotThrow(sdk::stopHeartbeat);
@@ -182,11 +166,10 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-014: an interval below the scheduler's resolution is refused, not half-started")
-    void aSubMillisecondIntervalLeavesNoPhantomSchedule() throws Exception {
+    void shouldThrowIllegalArgumentExceptionWhenStartingHeartbeatWithSubMillisecondInterval()
+            throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
-            // Positive, but it truncates to a zero-millisecond period the scheduler cannot honour.
             assertThrows(IllegalArgumentException.class,
                     () -> sdk.startHeartbeat(Duration.ofNanos(1)));
 
@@ -201,8 +184,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-010: closing the root twice stops the heartbeat and throws no error")
-    void closeIsIdempotentAndStopsHeartbeat() throws Exception {
+    void shouldStopHeartbeatWhenRootIsClosedTwice() throws Exception {
         enqueueAcknowledgements();
         Polymarket sdk = authenticatedSdk();
         sdk.startHeartbeat(TICK);
@@ -218,8 +200,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-011: a transport failure does not silently stop later ticks")
-    void transportFailureDoesNotStopScheduling() throws Exception {
+    void shouldKeepSchedulingWhenTransportFails() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
@@ -233,8 +214,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-012: startHeartbeat() after stopHeartbeat() resumes beating")
-    void restartResumesBeating() throws Exception {
+    void shouldResumeBeatingWhenRestarted() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -251,8 +231,7 @@ class HeartbeatTest {
     }
 
     @Test
-    @DisplayName("TC-HB-013: each tick carries the L2 header set signed over the empty body")
-    void tickCarriesL2HeadersSignedOverTheEmptyBody() throws Exception {
+    void shouldSignEmptyBodyWhenTicking() throws Exception {
         enqueueAcknowledgements();
         try (Polymarket sdk = authenticatedSdk()) {
             sdk.startHeartbeat(TICK);
@@ -281,8 +260,6 @@ class HeartbeatTest {
     }
 
     private PolymarketConfig configPointingAtServer() {
-        // MockWebServer listens on IPv4 in CI; after a forced disconnect OkHttp may otherwise
-        // postpone that route and retry localhost only over IPv6.
         URI host = server.url("/").newBuilder().host("127.0.0.1").build().uri();
         return PolymarketConfig.defaults()
                 .clobHost(host).gammaHost(host).dataHost(host).geoblockHost(host);
@@ -297,7 +274,6 @@ class HeartbeatTest {
 
     private void drainInFlightTicks() throws Exception {
         while (server.takeRequest(TICK.toMillis() * 2, TimeUnit.MILLISECONDS) != null) {
-            // a tick already in flight when the stop landed; keep draining briefly
         }
     }
 

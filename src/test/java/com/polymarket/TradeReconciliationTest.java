@@ -30,10 +30,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Trading: trade-ID settlement reconciliation (issue #16)")
 class TradeReconciliationTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -90,7 +88,6 @@ class TradeReconciliationTest {
         return row(id, "TRADE_STATUS_CONFIRMED", ",\"transaction_hash\":\"" + hash + "\"");
     }
 
-    /** Advances a fixed step on every read so a poll loop reaches its deadline with no real sleep. */
     private static final class SteppingClock extends Clock {
         private Instant now;
         private final Duration step;
@@ -119,8 +116,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-001: a trade read sends the required maker filter and parses the page envelope")
-    void everyTradeConfirmedIsConfirmed() throws Exception {
+    void shouldConfirmTradesWhenEveryTradeReachesConfirmed() throws Exception {
         enqueuePage("LTE=", confirmed("t1", "0xhash1"));
         enqueuePage("LTE=", confirmed("t2", "0xhash2"));
 
@@ -154,8 +150,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-007: a page that does not carry the trade is continued at its next cursor")
-    void anEnvelopeIsWalkedUntilTheCursorEnds() throws Exception {
+    void shouldWalkTradePagesWhenCursorContinues() throws Exception {
         enqueuePage("MTAw", confirmed("other", "0xother"));
         enqueuePage("LTE=", confirmed("t1", "0xhash1"));
 
@@ -173,8 +168,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-002: any trade reaching FAILED makes the whole reconciliation Failed")
-    void anyFailedTradeIsFailed() throws Exception {
+    void shouldFailReconciliationWhenAnyTradeFails() throws Exception {
         enqueuePage("LTE=", confirmed("t1", "0xhash1"));
         enqueuePage("LTE=", row("t2", "TRADE_STATUS_FAILED", ",\"err_msg\":\"not enough balance\""));
 
@@ -190,8 +184,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-003: CONFIRMED without a hash keeps polling until a later read carries one")
-    void delayedTransactionHashResolvesOnALaterPoll() throws Exception {
+    void shouldPollUntilHashAppearsWhenConfirmedTradeLacksHash() throws Exception {
         // changelog 2026-07-17: poll by trade ID until each has a hash or returns FAILED.
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_CONFIRMED", ""));
         enqueuePage("LTE=", confirmed("t1", "0xlate"));
@@ -209,8 +202,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-004: a missing trade record is not terminal; the poll continues")
-    void missingTradeRecordIsNotTerminal() throws Exception {
+    void shouldPollUntilTradeAppearsWhenRecordIsMissing() throws Exception {
         enqueuePage("LTE=");
         enqueuePage("LTE=", confirmed("t1", "0xhash1"));
 
@@ -225,8 +217,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-008: RETRYING is not terminal, so the poll waits for the retry to settle")
-    void retryingIsNotTerminal() throws Exception {
+    void shouldPollUntilSettlementWhenTradeIsRetrying() throws Exception {
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_RETRYING", ""));
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_MINED", ""));
         enqueuePage("LTE=", confirmed("t1", "0xretried"));
@@ -242,8 +233,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-009: two records for one trade id that disagree are Inconsistent, not Failed")
-    void disagreeingDuplicateRecordsAreInconsistent() throws Exception {
+    void shouldReportInconsistentWhenDuplicateTradeRecordsDisagree() throws Exception {
         enqueuePage("LTE=", confirmed("t1", "0xhash1"),
                 row("t1", "TRADE_STATUS_FAILED", ""));
 
@@ -261,8 +251,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-010: a record contradicting itself is Inconsistent rather than collapsed to FAILED")
-    void selfContradictingRecordIsInconsistent() throws Exception {
+    void shouldReportInconsistentWhenTradeRecordContradictsItself() throws Exception {
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_CONFIRMED",
                 ",\"transaction_hash\":\"0xhash1\",\"err_msg\":\"execution reverted\""));
 
@@ -276,8 +265,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-011: an absent required trade field stays absent and is reported Inconsistent")
-    void absentRequiredFieldsAreNotFabricated() throws Exception {
+    void shouldReportInconsistentWhenRequiredTradeFieldsAreMissing() throws Exception {
         enqueuePage("LTE=",
                 "{\"id\":\"t1\",\"status\":\"TRADE_STATUS_CONFIRMED\",\"transaction_hash\":\"0xh\"}");
 
@@ -297,8 +285,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-005: a local timeout is Pending, retaining the order and trade ids, not a failure")
-    void timeoutIsPendingNotFailure() throws Exception {
+    void shouldReturnPendingWhenReconciliationTimesOut() throws Exception {
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_MATCHED", ""));
 
         ReconciliationOutcome outcome;
@@ -315,8 +302,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-012: a Combo settlement keeps its RFQ id and every trade id in Pending")
-    void pendingRetainsTheRfqAndAllTradeIds() throws Exception {
+    void shouldRetainRfqAndTradeIdsWhenReconciliationIsPending() throws Exception {
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_MATCHED", ""));
         enqueuePage("LTE=", row("t2", "TRADE_STATUS_MINED", ""));
 
@@ -334,9 +320,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-013: the local deadline is respected across the network work, not just the sleep")
-    void aSlowResponseCannotOvershootTheDeadline() throws Exception {
-        // The clock jumps a whole minute per reading, so the first read alone spends the budget.
+    void shouldReturnPendingWhenNetworkWorkSpendsDeadline() throws Exception {
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_MATCHED", ""));
 
         ReconciliationOutcome outcome;
@@ -350,8 +334,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-016: Pending reports what each trade was last seen as, not just that it waited")
-    void pendingCarriesTheLastObservedRecords() throws Exception {
+    void shouldRetainLastObservedTradesWhenReconciliationIsPending() throws Exception {
         // t1 is matched but not mined, t2 has no record at all. Both are non-terminal, and a
         // caller deciding whether to wait or investigate needs to be able to tell them apart.
         enqueuePage("LTE=", row("t1", "TRADE_STATUS_MATCHED", ""));
@@ -373,8 +356,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-017: the deadline stops the page walk, not only the poll between reads")
-    void theDeadlineBoundsThePageWalkItself() throws Exception {
+    void shouldStopPageWalkWhenDeadlineIsSpent() throws Exception {
         // Three pages for one trade id. The clock spends the whole budget reading the first, so
         // the walk must stop there rather than finishing a chain the caller no longer has time for.
         enqueuePage("cursor-2", row("t1", "TRADE_STATUS_MATCHED", ""));
@@ -393,8 +375,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-006: a status this release does not know keeps its raw value and is not terminal")
-    void unknownStatusPreservesRawValue() throws Exception {
+    void shouldPreserveUnknownStatusWhenTradeIsNonTerminal() throws Exception {
         enqueuePage("LTE=", row("t1", "SETTLING_NEW_2027", ""));
 
         ReconciliationOutcome outcome;
@@ -408,10 +389,9 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-015: reconciling a sell settles against an absolute snapshot that may be zero")
-    void positionReconciliationUsesAbsoluteSnapshots() throws Exception {
+    void shouldUseAbsolutePositionSnapshotWhenSellSettles() throws Exception {
         enqueuePage("LTE=", confirmed("t1", "0xsold"));
-        // The Data API always reports the CURRENT holding, so a closed-out position reads zero.
+        // Data API reports the current holding, so a closed position reads zero.
         server.enqueue(new MockResponse().setBody(
                 "[{\"asset\":\"123\",\"conditionId\":\"0x" + "b".repeat(64) + "\",\"size\":0}]"));
 
@@ -428,8 +408,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-014: bad identifiers and durations are rejected before anything is sent")
-    void identifiersAndDurationsAreValidatedBeforeSending() throws Exception {
+    void shouldThrowWhenReconciliationInputsAreInvalid() throws Exception {
         try (Polymarket sdk = sdk(Clock.fixed(START, ZoneOffset.UTC))) {
             var trading = sdk.trading();
             assertThrows(IllegalArgumentException.class, () -> SigningIdentity.eoa("0xnope"));
@@ -454,8 +433,7 @@ class TradeReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-RC-015: a Proxy Trading Wallet signs as the Account Signer but filters on the wallet")
-    void proxyWalletSignsAsSignerAndFiltersOnTheTradingWallet() throws Exception {
+    void shouldFilterByTradingWalletWhenProxyWalletSignsRequest() throws Exception {
         SigningIdentity proxy = SigningIdentity.deriveProxyWallet(SIGNER.address());
         server.enqueue(new MockResponse().setBody(
                 "{\"limit\":100,\"next_cursor\":\"LTE=\",\"count\":0,\"data\":[]}"));

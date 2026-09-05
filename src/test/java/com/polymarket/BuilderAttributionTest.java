@@ -31,14 +31,9 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Proves builder attribution and metadata survive intent (SigningContext), through signing
- * (SignedOrder) and into submission (the POST /order wire body), for issue #19.
- */
-@DisplayName("Builder attribution survives intent, signing and submission (issue #19)")
+/** Proves builder attribution and metadata survive intent, signing, and the POST /order wire body. */
 class BuilderAttributionTest {
 
     private static final String BUILDER_CODE = "0x" + "ab".repeat(32);
@@ -80,8 +75,7 @@ class BuilderAttributionTest {
     }
 
     @Test
-    @DisplayName("TC-BA-001: a builder-attributed order carries its builder code through signing")
-    void builderCodeSurvivesSigningIntoTheSignedOrder() {
+    void shouldPreserveBuilderCodeWhenSigningOrder() {
         SigningContext context = SigningContext.of(
                         SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant())
                 .withBuilder(BUILDER_CODE);
@@ -96,8 +90,7 @@ class BuilderAttributionTest {
     }
 
     @Test
-    @DisplayName("TC-BA-002: builder and metadata codes reach POST /order on the wire, unaltered")
-    void builderAndMetadataReachTheWireBody() throws Exception {
+    void shouldSendBuilderAndMetadataWhenSubmittingOrder() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}"""));
 
@@ -119,8 +112,7 @@ class BuilderAttributionTest {
     }
 
     @Test
-    @DisplayName("TC-BA-003: with no builder supplied, the wire carries the documented zero bytes32")
-    void absentBuilderIsTheZeroBytes32OnTheWire() throws Exception {
+    void shouldSendZeroBuilderCodeWhenBuilderIsAbsent() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}"""));
 

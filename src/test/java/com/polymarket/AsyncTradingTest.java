@@ -41,10 +41,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("AsyncTrading: narrow async decorator (issue #27)")
 class AsyncTradingTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -93,8 +91,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-001: a caller-supplied executor is honored, not ForkJoinPool.commonPool")
-    void supplierExecutorIsHonored() throws Exception {
+    void shouldHonorCallerExecutorWhenSigning() throws Exception {
         CountingExecutor executor = new CountingExecutor();
         SigningContext context = SigningContext.of(
                 SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
@@ -109,8 +106,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-002: async sign produces the identical SignedOrder as the sync call")
-    void asyncSignMatchesSync() throws Exception {
+    void shouldMatchSynchronousSignWhenSigningAsynchronously() throws Exception {
         SigningContext context = SigningContext.of(
                 SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
 
@@ -126,8 +122,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-003: async submit preserves the same Accepted/Rejected/Unknown disposition as sync")
-    void asyncSubmitPreservesDisposition() throws Exception {
+    void shouldPreserveSubmissionDispositionWhenSubmittingAsynchronously() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}"""));
 
@@ -146,8 +141,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-004: a connection failure during reconcile surfaces the IOException, not silently")
-    void reconcileFailurePropagatesAsCompletionException() throws Exception {
+    void shouldThrowExecutionExceptionWhenReconcileTransportDisconnects() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
 
         try (Polymarket sdk = sdk()) {
@@ -161,8 +155,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-005: no synchronous Trading or Executor accessor is exposed")
-    void noSyncAccessorsExposed() {
+    void shouldExposeNoSyncAccessorsWhenInspectingAsyncTrading() {
         for (var method : AsyncTrading.class.getMethods()) {
             assertTrue(!java.util.concurrent.Executor.class.isAssignableFrom(method.getReturnType())
                     && !com.polymarket.trading.Trading.class.isAssignableFrom(method.getReturnType()),
@@ -171,8 +164,7 @@ class AsyncTradingTest {
     }
 
     @Test
-    @DisplayName("TC-AT-006: every synchronous Trading operation has an asynchronous counterpart")
-    void everySyncOperationHasAnAsyncCounterpart() {
+    void shouldWrapEverySyncOperationWhenInspectingAsyncTrading() {
         java.util.Set<String> async = java.util.stream.Stream
                 .of(AsyncTrading.class.getDeclaredMethods())
                 .filter(m -> java.lang.reflect.Modifier.isPublic(m.getModifiers())

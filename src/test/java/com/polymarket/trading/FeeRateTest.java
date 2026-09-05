@@ -12,16 +12,11 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/**
- * The official taker fee is nonlinear in price. Every expected value here is read from the pinned
- * {@code fees.json}, whose examples carry Polymarket's own published figures.
- */
-@DisplayName("Official taker fee formula (issue #11)")
+/** Expected values come from Polymarket's pinned protocol/fees.json examples. */
 class FeeRateTest {
 
     private static final JsonNode FEES = load();
@@ -42,8 +37,7 @@ class FeeRateTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("exampleIds")
-    @DisplayName("TC-FE-001: the fee matches the pinned example for its category, size and price")
-    void feeMatchesThePinnedExample(String id) {
+    void shouldMatchPinnedExampleWhenFeeInputsAreProvided(String id) {
         JsonNode example = example(id);
         FeeRate rate = FeeRate.of(example.get("feeRate").asText());
 
@@ -55,8 +49,7 @@ class FeeRateTest {
     }
 
     @Test
-    @DisplayName("TC-FE-002: the fee is symmetric around one half, as published")
-    void theFeeIsSymmetricAroundOneHalf() {
+    void shouldRemainSymmetricWhenPriceMirrorsAroundHalf() {
         FeeRate crypto = FeeRate.of("0.07");
         ShareQuantity shares = ShareQuantity.of("100");
 
@@ -65,8 +58,7 @@ class FeeRateTest {
     }
 
     @Test
-    @DisplayName("TC-FE-003: a CLOB base_fee in basis points is never read as a coefficient")
-    void basisPointsAreConvertedNotSubstituted() {
+    void shouldConvertBasisPointsWhenCreatingFeeRate() {
         // GET /fee-rate publishes base_fee as an integer in basis points; the Gamma fee schedule
         // publishes the same coefficient as a decimal. 700 bps is 0.07, not 700.
         assertEquals(FeeRate.of("0.07"), FeeRate.ofBasisPoints(700));

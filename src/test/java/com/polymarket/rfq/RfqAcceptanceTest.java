@@ -31,11 +31,9 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** Ground truth: src/test/resources/protocol/builder-gateway.json. */
-@DisplayName("Rfq acceptance and Settlement Outcomes (issue #26)")
 class RfqAcceptanceTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -97,11 +95,9 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-001: POLY_ADDRESS is the Account Signer even when the Signed Order names the Trading Wallet")
-    void acceptanceAuthenticatesWithTheAccountSignerNotTheOrderAddresses() throws Exception {
+    void shouldAuthenticateWithAccountSignerWhenOrderNamesTradingWallet() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
-        // A Deposit Wallet order whose signer field is the wallet, as the builders page shows.
         SignedOrder order = new SignedOrder(1L, DEPOSIT_WALLET, DEPOSIT_WALLET, SIGNER.address(),
                 new PositionId("333"), Side.BUY, 3, 966191L, 1932381L, 1773890758L,
                 "0x" + "0".repeat(64), BUILDER_CODE, "0x" + "ab".repeat(65));
@@ -117,8 +113,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-002: a Deposit Wallet acceptance carries the complete ERC-7739 authorization and builder code")
-    void depositWalletAcceptanceCarriesErc7739AuthorizationAndBuilderCode() throws Exception {
+    void shouldCarryErc7739AuthorizationAndBuilderCodeWhenAcceptingDepositWalletQuote() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
 
@@ -141,8 +136,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-003: a SELL Quote signs side 1 with the same maker and taker amounts as a BUY")
-    void sellQuoteSignsSideOneWithTheSameAmounts() throws Exception {
+    void shouldSignSideOneWithSameAmountsWhenQuoteIsSell() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}"""));
 
@@ -157,8 +151,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-004: acceptance takes no direction, amount, Combo position or deadline from its caller")
-    void acceptanceTakesNoQuoteTermsFromItsCaller() throws Exception {
+    void shouldExposeNoCallerQuoteTermsWhenAcceptanceSignatureIsInspected() throws Exception {
         for (var method : Rfq.class.getMethods()) {
             if (!method.getName().equals("accept")) continue;
             for (Class<?> parameter : method.getParameterTypes()) {
@@ -170,8 +163,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-005: the acceptance response's taker_order_hash is kept")
-    void acceptanceResponseTakerOrderHashIsKept() throws Exception {
+    void shouldKeepTakerOrderHashWhenAcceptanceResponseProvidesIt() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION",
                  "taker_order_hash":"0xabc123"}"""));
@@ -186,8 +178,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-006: a safe retry that omits taker_order_hash still yields the same outcome, sent once")
-    void safeRetryOmittingTakerOrderHashIsStillTheSameOutcome() throws Exception {
+    void shouldKeepOutcomeAndSendOnceWhenTakerOrderHashIsOmitted() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}"""));
 
@@ -201,8 +192,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-007: a Quote is rejected one millisecond past expires_at, not on a fixed window")
-    void quoteIsRejectedOneMillisecondPastExpiry() {
+    void shouldThrowIllegalArgumentExceptionWhenQuoteIsOneMillisecondPastExpiry() {
         RfqOutcome.Quoted justExpired = quote(Side.BUY, FIXED.instant().minusMillis(1));
 
         assertThrows(IllegalArgumentException.class, () -> rfq().accept(justExpired,
@@ -212,8 +202,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-008: confirmed, failed, expired, canceled and unknown settlements stay distinguishable")
-    void settlementOutcomesStayDistinguishable() throws Exception {
+    void shouldKeepSettlementOutcomesDistinctWhenStatusesDiffer() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}"""));
         assertInstanceOf(RfqOutcome.Confirmed.class,
@@ -242,8 +231,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-009: transport loss on acceptance preserves the RFQ ID and never re-sends")
-    void transportLossPreservesTheRfqIdWithoutReplay() throws Exception {
+    void shouldPreserveRfqIdWithoutReplayWhenAcceptanceLosesTransport() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(
                 okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
 
@@ -257,8 +245,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-008: accepting as a wallet the gateway never quoted for sends nothing")
-    void acceptanceIsBoundToTheRequestingIdentity() {
+    void shouldThrowIllegalArgumentExceptionWhenIdentityDiffersFromRequester() {
         RfqOutcome.Quoted quote = quote(Side.BUY, FIXED.instant().plusSeconds(60));
         SigningContext other = SigningContext.of(
                 SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
@@ -270,8 +257,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-009: a CONFIRMED status read keeps the settlement transaction hash")
-    void confirmedKeepsTheSettlementTransactionHash() throws Exception {
+    void shouldKeepSettlementTransactionHashWhenStatusIsConfirmed() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}"""));
 
@@ -283,8 +269,7 @@ class RfqAcceptanceTest {
     }
 
     @Test
-    @DisplayName("TC-RA-010: acceptance signs with the SDK's own signer, never one a caller supplies")
-    void acceptanceTakesNoCallerSuppliedSigner() {
+    void shouldOmitCallerSuppliedSignerWhenAcceptMethodsAreInspected() {
         for (java.lang.reflect.Method method : Rfq.class.getMethods()) {
             if (!method.getName().equals("accept")) continue;
             assertFalse(List.of(method.getParameterTypes()).contains(ComboQuoteSigner.class),

@@ -23,16 +23,10 @@ import java.math.MathContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/**
- * Proves production V2/V3 signing reproduces the official vectors byte-for-byte. Every expected
- * value is read straight from the fixture, never retyped, so there is no independent transcription
- * to drift from {@code ProtocolContractsTest}'s own reading of the same file.
- */
-@DisplayName("Production V2/V3 signing matches the official vectors (issues #12, #13)")
+/** Proves production V2/V3 signing against the official fixture values byte-for-byte. */
 class Eip712OrderSignerVectorTest {
 
     private static final JsonNode VECTORS = load();
@@ -55,8 +49,7 @@ class Eip712OrderSignerVectorTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("vectorIds")
-    @DisplayName("TC-ES-001: signature matches the vector's exact bytes")
-    void signatureMatchesVector(String id) {
+    void shouldMatchSignatureWhenUsingOfficialVector(String id) {
         JsonNode vector = vector(id);
         PrivateKeySigner localSigner = PrivateKeySigner.of(VECTORS.get("privateKey").asText());
         JsonNode domain = vector.get("domain");

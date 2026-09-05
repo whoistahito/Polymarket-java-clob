@@ -38,10 +38,8 @@ import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Trading: atomic batches and typed cancellations (issue #17)")
 class OrderBatchTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -101,8 +99,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-001: a batch over the official limit of 15 sends nothing")
-    void oversizeBatchSendsNothing() throws Exception {
+    void shouldThrowWhenBatchExceedsOrderLimit() throws Exception {
         List<BatchItem> items = new ArrayList<>();
         for (long i = 0; i < 16; i++) items.add(item("123", i + 1));
 
@@ -113,8 +110,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-002: a valid batch sends exactly one request and attaches per-item outcomes")
-    void validBatchSendsOneRequestWithPerItemOutcomes() throws Exception {
+    void shouldAttachPerItemOutcomesWhenBatchResponseMatchesItems() throws Exception {
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
                  {"success":false,"errorMsg":"invalid signature"}]""");
@@ -137,8 +133,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-003: transport uncertainty never invents which item succeeded")
-    void transportFailureDoesNotInventPerItemOutcomes() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenResponseCannotBeParsed() throws Exception {
         enqueue("not json at all");
 
         BatchSubmissionOutcome outcome;
@@ -150,8 +145,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-004: a mismatched response array length is indeterminate, not partially attributed")
-    void mismatchedResponseLengthIsIndeterminate() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenResponseLengthDiffers() throws Exception {
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]}]""");
 
@@ -164,8 +158,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-005: cancelling more than 1000 ids fails before sending")
-    void oversizeCancelSendsNothing() throws Exception {
+    void shouldThrowWhenCancelBatchExceedsIdLimit() throws Exception {
         List<String> ids = new ArrayList<>();
         for (int i = 0; i < 1001; i++) ids.add(String.format("0x%064x", i));
 
@@ -177,8 +170,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-006: blank and duplicate ids fail before sending")
-    void blankAndDuplicateIdsRejected() throws Exception {
+    void shouldThrowWhenCancelIdsAreBlankOrDuplicated() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class, () -> sdk.trading()
                     .cancel(CREDENTIALS, SIGNER.address(), List.of(ID_1, "")));
@@ -189,8 +181,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-007: cancellation distinguishes canceled from not-canceled ids")
-    void cancellationDistinguishesOutcomePerId() throws Exception {
+    void shouldDistinguishCanceledAndNotCanceledWhenCancelCompletes() throws Exception {
         enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
                 + ID_2 + "\":\"order already matched\"}}");
 
@@ -212,8 +203,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-008: an id the server never mentions is unaccounted, not a stated refusal")
-    void silentlyDroppedIdIsUnaccountedNotRefused() throws Exception {
+    void shouldMarkUnmentionedIdsUnaccountedWhenCancellationCompletes() throws Exception {
         enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
                 + ID_2 + "\":\"order already matched\"}}");
 
@@ -231,8 +221,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-009: the HMAC signature covers exactly the bytes sent as the cancel body")
-    void hmacCoversExactBytesSent() throws Exception {
+    void shouldBindHmacToBodyBytesWhenCanceling() throws Exception {
         enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{}}");
 
         try (Polymarket sdk = sdk()) {
@@ -254,8 +243,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-010: a batch spanning two signers fails before sending")
-    void mixedSignerBatchRejected() throws Exception {
+    void shouldThrowWhenBatchContainsMixedSigners() throws Exception {
         PrivateKeySigner otherSigner = PrivateKeySigner.of(
                 "161bbf3b1117bf6f46dbc9cfef9cec88234d6120f06ba4f7a071a605aa7d40b3");
         SigningContext otherContext = SigningContext.of(
@@ -276,8 +264,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-011: an equal-length batch response holding a malformed element is indeterminate")
-    void malformedBatchElementMakesTheWholeBatchIndeterminate() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenElementIsNotAnOrderObject() throws Exception {
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
                  "not an order object"]""");
@@ -291,8 +278,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-012: a batch element missing a required field is indeterminate, not a rejection")
-    void batchElementWithoutRequiredSuccessIsIndeterminate() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenElementLacksRequiredFields() throws Exception {
         // clob-openapi.yaml SendOrderResponse requires success, orderID and status.
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
@@ -307,8 +293,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-021: a successful batch element whose id is not text makes the batch indeterminate")
-    void batchElementWithANonTextualIdIsIndeterminate() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenOrderFieldsAreNotText() throws Exception {
         // Structurally an order object, but orderID and status are documented as strings. A number
         // is not the id the server meant, and a batch cannot be half-attributed.
         for (String malformed : List.of(
@@ -328,8 +313,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-023: an undocumented successful status makes the batch indeterminate")
-    void undocumentedBatchStatusIsIndeterminate() throws Exception {
+    void shouldLeaveBatchIndeterminateWhenStatusIsUndocumented() throws Exception {
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
                  {"success":true,"orderID":"0xb","status":"invented","tradeIDs":[]}]""");
@@ -343,8 +327,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-022: a cancellation member that is not text is uncertain, never coerced")
-    void malformedCancellationMembersAreUncertain() throws Exception {
+    void shouldLeaveCancellationUncertainWhenMembersAreNotText() throws Exception {
         for (String body : List.of(
                 "{\"canceled\":[123],\"not_canceled\":{}}",
                 "{\"canceled\":[{\"id\":\"" + ID_1 + "\"}],\"not_canceled\":{}}",
@@ -359,8 +342,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-013: cancellation transport loss is an explicit uncertain outcome, never thrown")
-    void cancellationTransportLossIsUncertain() throws Exception {
+    void shouldLeaveCancellationUncertainWhenTransportFails() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
 
         CancellationOutcome outcome;
@@ -374,8 +356,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-014: a non-success cancellation status is uncertain, never thrown")
-    void nonSuccessCancellationStatusIsUncertain() throws Exception {
+    void shouldLeaveCancellationUncertainWhenHttpStatusFails() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(503)
                 .setBody("{\"error\":\"Trading is currently disabled\"}"));
 
@@ -390,8 +371,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-015: a malformed cancellation success body is uncertain, not an empty result")
-    void malformedCancellationSuccessIsUncertain() throws Exception {
+    void shouldLeaveCancellationUncertainWhenSuccessBodyIsMalformed() throws Exception {
         // clob-openapi.yaml CancelOrdersResponse requires canceled and not_canceled.
         for (String body : List.of("not json at all", "[]", "{}", "{\"canceled\":\"" + ID_1 + "\"}")) {
             enqueue(body);
@@ -404,8 +384,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-016: definitive canceled and not-canceled identifiers stay in separate sets")
-    void canceledAndNotCanceledStayDistinct() throws Exception {
+    void shouldKeepCancellationSetsDistinctWhenResponseCompletes() throws Exception {
         enqueue("{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
                 + ID_2 + "\":\"Order not found\"}}");
 
@@ -422,8 +401,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-024: contradictory or unrelated cancellation facts are uncertain")
-    void contradictoryCancellationFactsAreUncertain() throws Exception {
+    void shouldLeaveCancellationUncertainWhenFactsContradict() throws Exception {
         for (String body : List.of(
                 "{\"canceled\":[\"" + ID_1 + "\"],\"not_canceled\":{\""
                         + ID_1 + "\":\"not found\"}}",
@@ -438,8 +416,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-017: an order id outside the documented 0x-hex shape fails before sending")
-    void malformedOrderIdSendsNothing() throws Exception {
+    void shouldThrowWhenCancelIdHasMalformedShape() throws Exception {
         // order-submission.json orderIdentifierSyntax: every official example is 0x-hex; only the
         // length disagrees between sources, so the shape is enforced and the length is not.
         try (Polymarket sdk = sdk()) {
@@ -453,8 +430,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-018: both documented order-id lengths are accepted, since the sources disagree")
-    void bothDocumentedOrderIdLengthsAreAccepted() throws Exception {
+    void shouldAcceptDocumentedIdLengthsWhenCanceling() throws Exception {
         enqueue("""
                 {"canceled":[],"not_canceled":{}}""");
 
@@ -468,8 +444,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-019: the HMAC signature covers exactly the bytes sent as the batch body")
-    void batchHmacCoversExactBytesSent() throws Exception {
+    void shouldBindHmacToBodyBytesWhenSubmittingBatch() throws Exception {
         enqueue("""
                 [{"success":true,"orderID":"0xa","status":"live","tradeIDs":[]},
                  {"success":true,"orderID":"0xb","status":"live","tradeIDs":[]}]""");
@@ -482,8 +457,7 @@ class OrderBatchTest {
     }
 
     @Test
-    @DisplayName("TC-BA-020: the HMAC signature covers exactly the bytes sent as the order body")
-    void singleOrderHmacCoversExactBytesSent() throws Exception {
+    void shouldBindHmacToBodyBytesWhenSubmittingSingleOrder() throws Exception {
         enqueue("""
                 {"success":true,"orderID":"0xa","status":"live","tradeIDs":[]}""");
 

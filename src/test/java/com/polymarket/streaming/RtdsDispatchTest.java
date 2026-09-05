@@ -14,12 +14,8 @@ import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** TC-RD — an RTDS event dispatches only to handlers whose filter matches, distinctly typed per
- * topic/type, and one throwing handler cannot stop the rest. */
-@DisplayName("TC-RD — Rtds event dispatch")
 class RtdsDispatchTest {
 
     private MockWebServer server;
@@ -35,7 +31,6 @@ class RtdsDispatchTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -58,8 +53,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-001 Binance and Chainlink prices are distinct typed events")
-    void binanceAndChainlinkAreDistinctEvents() throws Exception {
+    void shouldDispatchDistinctTypesWhenBinanceAndChainlinkEventsArrive() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"crypto_prices","type":"update","timestamp":1700000000000,
              "payload":{"symbol":"btcusdt","timestamp":1700000000000,"value":67234.5}}
@@ -87,8 +81,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-002 Binance price callbacks are filtered by symbol")
-    void binancePriceFilteredBySymbol() throws Exception {
+    void shouldFilterBinanceCallbacksWhenEventSymbolsDiffer() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"crypto_prices","type":"update","timestamp":1,
              "payload":{"symbol":"btcusdt","timestamp":1,"value":1}}
@@ -113,9 +106,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-003 comment-created, comment-removed, reaction-created, and reaction-removed "
-            + "are distinct typed events")
-    void commentEventsAreDistinctTypedEvents() throws Exception {
+    void shouldDispatchDistinctTypesWhenCommentAndReactionEventsArrive() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"comments","type":"comment_created","timestamp":1,
              "payload":{"id":"1","body":"hi","parentEntityType":"Event","parentEntityID":18396,
@@ -159,8 +150,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-006 the pinned RTDS frames keep their observation time and every mapped field")
-    void pinnedFramesPreserveObservationTimeAndDocumentedFields() throws Exception {
+    void shouldPreserveObservedTimesAndFieldsWhenPinnedRtdsFramesArrive() throws Exception {
         String price = StreamProtocol.at("rtds", "events", "crypto_prices").toString();
         String comment = StreamProtocol.at("rtds", "events", "comment_created").toString();
         String reaction = StreamProtocol.at("rtds", "events", "reaction_created").toString();
@@ -197,8 +187,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-007 a reaction keeps the nested profile RTDS documents for it")
-    void reactionsKeepTheirNestedProfile() throws Exception {
+    void shouldPreserveNestedProfileWhenReactionEventArrives() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"comments","type":"reaction_created","timestamp":7,
              "payload":{"id":"r1","commentID":1,"reactionType":"HEART","userAddress":"0xabc",
@@ -220,8 +209,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-004 one throwing callback does not stop the others")
-    void oneThrowingCallbackDoesNotStopOthers() throws Exception {
+    void shouldContinueDispatchWhenCallbackThrows() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"crypto_prices","type":"update","timestamp":1,
              "payload":{"symbol":"btcusdt","timestamp":1,"value":1}}
@@ -241,8 +229,7 @@ class RtdsDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-RD-005 official entity filters decode from the comment payload")
-    void entityFilterDecodesFromPayload() throws Exception {
+    void shouldDecodeEntityFilterWhenCommentPayloadContainsIt() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"topic":"comments","type":"comment_created","timestamp":1,
              "payload":{"id":"1","parentEntityType":"Market","parentEntityID":42}}

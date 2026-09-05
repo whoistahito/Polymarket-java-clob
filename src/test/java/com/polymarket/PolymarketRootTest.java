@@ -29,10 +29,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Polymarket root")
 class PolymarketRootTest {
 
     private MockWebServer server;
@@ -53,8 +51,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-001: construction needs no credentials and makes no request")
-    void constructionIsCredentialFreeAndOffline() {
+    void shouldConstructOfflineWhenCredentialsAreAbsent() {
         try (Polymarket sdk = sdk()) {
             assertNotNull(sdk);
         }
@@ -62,8 +59,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-002: server time is returned as a typed instant")
-    void serverTimeIsTyped() throws Exception {
+    void shouldReturnTypedTimeWhenServerResponds() throws Exception {
         server.enqueue(new MockResponse().setBody("1773890758"));
         try (Polymarket sdk = sdk()) {
             ServerTime time = sdk.serverTime();
@@ -73,15 +69,13 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-003: hosts are plain JDK URIs")
-    void configUsesJdkTypes() {
+    void shouldUseJdkUrisWhenConfiguringHosts() {
         PolymarketConfig config = PolymarketConfig.defaults();
         assertEquals(URI.create("https://clob.polymarket.com"), config.clobHost());
     }
 
     @Test
-    @DisplayName("TC-PR-004: every service is probed and an unreachable one is reported, not thrown")
-    void healthReportsEveryService() {
+    void shouldReportServiceAvailabilityWhenHealthProbeRuns() {
         server.enqueue(new MockResponse().setBody("1773890758"));
         server.enqueue(new MockResponse().setResponseCode(503));
         server.enqueue(new MockResponse().setBody("{\"status\":\"ok\"}"));
@@ -98,8 +92,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-020: health probes documented endpoints, never an undocumented liveness path")
-    void healthProbesOnlyDocumentedEndpoints() throws Exception {
+    void shouldProbeDocumentedEndpointsWhenHealthRuns() throws Exception {
         for (int i = 0; i < 3; i++) server.enqueue(new MockResponse().setBody("{}"));
 
         try (Polymarket sdk = Polymarket.with(config(), noSleepRuntime(ReadRetryPolicy.none()))) {
@@ -114,8 +107,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-005: geoblock is typed and missing fields stay absent")
-    void geoblockIsTyped() throws Exception {
+    void shouldPreserveTypedGeoblockFieldsWhenResponseOmitsRegion() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "{\"blocked\":true,\"ip\":\"203.0.113.42\",\"country\":\"US\"}"));
 
@@ -130,8 +122,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-006: a read retries within its budget and honours Retry-After")
-    void readsRetryAndHonourRetryAfter() throws Exception {
+    void shouldHonorRetryAfterWhenReadIsRateLimited() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "2"));
         server.enqueue(new MockResponse().setBody("1773890758"));
 
@@ -147,8 +138,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-007: a read stops at its attempt budget")
-    void readsAreBounded() {
+    void shouldThrowWhenReadAttemptsExceedBudget() {
         for (int i = 0; i < 5; i++) server.enqueue(new MockResponse().setResponseCode(500));
 
         try (Polymarket sdk = Polymarket.with(config(),
@@ -159,8 +149,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-008: a write is executed once even when reads may retry three times")
-    void writesAreNeverReplayed() throws Exception {
+    void shouldSendWriteOnceWhenRetriesAreConfigured() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(500));
 
         try (HttpRuntime runtime = noSleepRuntime(ReadRetryPolicy.defaults())) {
@@ -170,8 +159,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-009: closing twice releases resources once and blocks later reads")
-    void closeIsIdempotent() {
+    void shouldThrowWhenReadingAfterRootIsClosed() {
         Polymarket sdk = sdk();
         sdk.close();
         sdk.close();
@@ -180,8 +168,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-010: RTDS is reached and closed through the root, never constructed by hand")
-    void rtdsIsOwnedByTheRoot() {
+    void shouldCloseRtdsWhenRootIsClosed() {
         Polymarket sdk = sdk();
         com.polymarket.streaming.Rtds rtds = sdk.rtds();
         assertSame(rtds, sdk.rtds(), "the root must own one RTDS capability, not hand out new ones");
@@ -194,8 +181,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-011: Builders is reached through the root, never by constructing a gateway")
-    void buildersAreOwnedByTheRoot() {
+    void shouldReuseBuildersWhenRootOwnsCapability() {
         Polymarket sdk = sdk();
         com.polymarket.builders.Builders builders = sdk.builders();
         assertSame(builders, sdk.builders(), "the root must own one Builders capability");
@@ -206,8 +192,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-012: Social is reached through the root, never by constructing a gateway")
-    void socialIsOwnedByTheRoot() {
+    void shouldReuseSocialWhenRootOwnsCapability() {
         Polymarket sdk = sdk();
         com.polymarket.social.Social social = sdk.social();
         assertSame(social, sdk.social(), "the root must own one Social capability");
@@ -218,8 +203,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-013: RFQ is reached through the root at a caller-supplied gateway host")
-    void rfqIsOwnedByTheRoot() {
+    void shouldReuseRfqWhenGatewayHostIsSame() {
         Polymarket sdk = sdk();
         URI gateway = URI.create("https://gateway.example");
 
@@ -234,8 +218,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-014: the Combo markets catalog host is configured, never hardcoded internally")
-    void comboMarketsHostIsConfigurable() {
+    void shouldUseConfiguredComboHostWhenBuildingConfig() {
         assertEquals(URI.create("https://combos-rfq-api.polymarket.com"),
                 PolymarketConfig.defaults().comboMarketsHost());
         assertEquals(URI.create("https://elsewhere.example"),
@@ -245,8 +228,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-015: a capability held across close cannot still reach the wire")
-    void closedRootDisablesCapabilitiesAlreadyHandedOut() {
+    void shouldThrowWhenCapabilityReadsAfterRootCloses() {
         Polymarket sdk = sdk();
         com.polymarket.markets.Markets markets = sdk.markets();
 
@@ -259,8 +241,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-016: Retry-After in the HTTP-date form is honoured, not ignored")
-    void retryAfterAcceptsTheHttpDateForm() throws Exception {
+    void shouldHonorRetryAfterDateWhenReadIsRateLimited() throws Exception {
         String farFuture = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
                 .format(java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).plusSeconds(60));
         server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", farFuture));
@@ -278,8 +259,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-017: configuration mutators reject null instead of storing it")
-    void configurationMutatorsRejectNull() {
+    void shouldThrowWhenConfigMutatorReceivesNull() {
         PolymarketConfig config = PolymarketConfig.defaults();
 
         assertThrows(NullPointerException.class, () -> config.clobHost(null));
@@ -293,8 +273,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-018: the stream and RTDS hosts are configured, never hardcoded in the root")
-    void streamHostsAreConfigurable() {
+    void shouldUseConfiguredStreamHostsWhenBuildingConfig() {
         PolymarketConfig defaults = PolymarketConfig.defaults();
         assertEquals(URI.create("wss://ws-subscriptions-clob.polymarket.com"), defaults.streamHost());
         assertEquals(URI.create("wss://ws-live-data.polymarket.com"), defaults.rtdsHost());
@@ -309,8 +288,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-019: closing the root releases the RTDS transport, not only its capability")
-    void closingTheRootReleasesTheRtdsTransport() {
+    void shouldCloseRtdsTransportWhenRootCloses() {
         Polymarket sdk = sdk();
         com.polymarket.streaming.Rtds rtds = sdk.rtds();
 
@@ -323,8 +301,7 @@ class PolymarketRootTest {
     }
 
     @Test
-    @DisplayName("TC-PR-021: closing the root cancels an HTTP call already in flight")
-    void closeCancelsInFlightHttpCalls() throws Exception {
+    void shouldCancelHttpCallWhenRootCloses() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
         HttpRuntime runtime = new HttpRuntime(
                 Duration.ofSeconds(2), Duration.ofMinutes(1), ReadRetryPolicy.none());

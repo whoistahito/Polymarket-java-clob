@@ -17,14 +17,9 @@ import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * TC-SR — registration is separate from subscription, and the authoritative market set survives
- * a reconnect. Ported from the 1.0 {@code WsClient} Ticket 026 behaviour.
- */
-@DisplayName("TC-SR — Streaming registration and subscription")
+/** Registration/subscription coverage, ported from the 1.0 {@code WsClient} Ticket 026 behaviour. */
 class StreamingRegistrationAndSubscriptionTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -42,7 +37,6 @@ class StreamingRegistrationAndSubscriptionTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -62,8 +56,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-001 four registrations before subscribing send zero frames")
-    void registrationsSendNoFrames() throws Exception {
+    void shouldSendNoFramesWhenHandlersAreRegisteredBeforeSubscription() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.none());
@@ -78,8 +71,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-002 one explicit subscribe sends exactly one initial frame")
-    void oneSubscribeSendsOneInitialFrame() throws Exception {
+    void shouldSendOneInitialFrameWhenOneMarketSubscriptionIsRequested() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.none());
@@ -97,8 +89,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-003 a dynamic add is an update frame, not a second initial dump")
-    void dynamicAddIsNotAnInitialDump() throws Exception {
+    void shouldSendOnlyDeltaWhenAddingMarketSubscriptionDynamically() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.none());
@@ -117,8 +108,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-004 handlers registered before subscribing receive the first snapshot")
-    void handlersRegisteredBeforeSubscribeSeeTheSnapshot() throws Exception {
+    void shouldDeliverSnapshotWhenHandlerWasRegisteredBeforeSubscription() throws Exception {
         CountDownLatch received = new CountDownLatch(1);
         List<BookEvent> books = new CopyOnWriteArrayList<>();
 
@@ -143,8 +133,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-005 subscribe A then B leaves an authoritative set of A+B")
-    void subscribeAccumulatesTokens() {
+    void shouldAccumulateTokensWhenMarketSubscriptionsAreAdded() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
 
@@ -155,8 +144,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-006 unsubscribing A leaves only B in the authoritative set")
-    void unsubscribeRemovesFromSet() {
+    void shouldRemoveTokenWhenMarketSubscriptionIsRemoved() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
 
@@ -167,8 +155,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-007 reconnect restores the accumulated set, not just the last subscribe")
-    void reconnectRestoresAccumulatedSet() throws Exception {
+    void shouldRestoreAccumulatedTokensWhenMarketChannelReconnects() throws Exception {
         List<String> firstConnectionFrames = new CopyOnWriteArrayList<>();
         List<String> reconnectFrames = new CopyOnWriteArrayList<>();
         CountDownLatch reconnected = new CountDownLatch(1);
@@ -206,8 +193,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-008 a removal handle stops delivery, idempotently")
-    void removalHandleStopsDelivery() throws Exception {
+    void shouldStopDeliveryWhenRegistrationIsRemoved() throws Exception {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
         List<String> seen = new java.util.ArrayList<>();
@@ -215,15 +201,14 @@ class StreamingRegistrationAndSubscriptionTest {
         Streaming.Registration registration =
                 streaming.onBookUpdate(List.of("tokA"), b -> seen.add(b.assetId()));
         registration.remove();
-        registration.remove(); // idempotent
-        registration.close();  // AutoCloseable alias
+        registration.remove();
+        registration.close();
 
         assertEquals(0, seen.size());
     }
 
     @Test
-    @DisplayName("TC-SR-010 unsubscribing everything leaves the authoritative set empty")
-    void unsubscribingEverythingClearsTheSet() {
+    void shouldClearTokensWhenAllMarketSubscriptionsAreRemoved() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
 
@@ -234,8 +219,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-009 subscribeMarket rejects an empty list")
-    void subscribeMarketRejectsEmpty() {
+    void shouldThrowIllegalArgumentExceptionWhenMarketSubscriptionListIsEmpty() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
@@ -243,8 +227,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-011 concurrent subscribes cannot send an update ahead of the initial market frame")
-    void concurrentSubscribesCannotOvertakeTheInitialFrame() throws Exception {
+    void shouldSendInitialFrameBeforeUpdatesWhenMarketSubscriptionsAreConcurrent() throws Exception {
         int threads = 8;
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
@@ -283,10 +266,8 @@ class StreamingRegistrationAndSubscriptionTest {
         assertEquals(new java.util.HashSet<>(streaming.subscribedAssetIds()), new java.util.HashSet<>(onTheWire));
     }
 
-
     @Test
-    @DisplayName("TC-SR-012 requesting custom market events sets the documented flag on the initial frame")
-    void customMarketEventsRideTheInitialFrame() throws Exception {
+    void shouldSetCustomEventsFlagWhenInitialMarketFrameIsSent() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.none());
@@ -303,8 +284,7 @@ class StreamingRegistrationAndSubscriptionTest {
     }
 
     @Test
-    @DisplayName("TC-SR-013 a subscribe landing while the channel is reconnecting joins the restored frame")
-    void subscribeDuringReconnectJoinsTheRestoredFrame() throws Exception {
+    void shouldIncludeNewTokenInRestoreWhenSubscribedDuringReconnect() throws Exception {
         List<String> first = new CopyOnWriteArrayList<>();
         List<String> second = new CopyOnWriteArrayList<>();
         CountDownLatch dropped = new CountDownLatch(1);
@@ -328,7 +308,7 @@ class StreamingRegistrationAndSubscriptionTest {
         streaming = new Streaming(gateway, SigningAuthority.none());
         streaming.subscribeMarket(List.of("tokA"));
         assertTrue(dropped.await(20, TimeUnit.SECONDS), "the first socket must drop");
-        streaming.subscribeMarket(List.of("tokB")); // lands while no socket exists
+        streaming.subscribeMarket(List.of("tokB"));
 
         assertTrue(reopened.await(30, TimeUnit.SECONDS), "the channel must reconnect");
         List<JsonNode> restored = awaitSubscriptionFrames(second, 1);
@@ -339,7 +319,6 @@ class StreamingRegistrationAndSubscriptionTest {
         assertEquals(List.of("tokA", "tokB"), ids);
     }
 
-    /** Waits for the wire to settle, then returns every non-heartbeat frame parsed, in order. */
     private static List<JsonNode> awaitSubscriptionFrames(List<String> frames, int atLeast) throws Exception {
         for (int i = 0; i < 100 && frames.size() < atLeast; i++) Thread.sleep(50);
         Thread.sleep(300);

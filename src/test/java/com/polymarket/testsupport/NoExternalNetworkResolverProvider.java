@@ -8,10 +8,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
-/**
- * Test-scope DNS guard: the deterministic suite may resolve loopback names only.
- * The {@code live} Maven profile sets {@code polymarket.live=true} to allow real hosts.
- */
+/** Test-scope DNS guard: deterministic tests resolve loopback only; -Plive permits real hosts. */
 public final class NoExternalNetworkResolverProvider extends InetAddressResolverProvider {
 
     public static final String LIVE_PROPERTY = "polymarket.live";

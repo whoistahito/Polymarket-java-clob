@@ -20,11 +20,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Order Intents carried through to the wire (issue #11)")
 class OrderExecutionTest {
 
     private static final TokenId ASSET = new TokenId("12345");
@@ -36,12 +34,10 @@ class OrderExecutionTest {
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Nested
-    @DisplayName("limit intents")
     class Limits {
 
         @Test
-        @DisplayName("TC-OE-001: Maker-Only reaches the wire as post-only and a plain limit does not")
-        void makerOnlyIsTheOnlyPostOnlyLimit() {
+        void shouldApplyPostOnlyWhenIntentIsMakerOnly() {
             OrderExecution plain = OrderExecution.of(
                     new LimitOrder(ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10")), RULES);
             OrderExecution makerOnly = OrderExecution.of(
@@ -58,12 +54,10 @@ class OrderExecutionTest {
     }
 
     @Nested
-    @DisplayName("good-til-date")
     class GoodTilDate {
 
         @Test
-        @DisplayName("TC-OE-002: GTD carries its validated expiration all the way to the wire")
-        void gtdKeepsItsValidatedExpiration() {
+        void shouldPreserveValidatedExpirationWhenIntentIsGoodTilDate() {
             Instant wanted = NOW.plus(Duration.ofHours(1));
             GoodTilDateOrder intent = GoodTilDateOrder.expiringAt(
                     ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), wanted, CLOCK);
@@ -75,14 +69,11 @@ class OrderExecutionTest {
         }
 
         @Test
-        @DisplayName("TC-OE-003: invalid order-type and lifetime combinations cannot reach the wire")
-        void invalidCombinationsAreRefused() {
-            // GTD without an expiration would rest forever; GTC with one is a contradiction.
+        void shouldThrowForInvalidPlacementWhenTypeAndLifetimeContradict() {
             assertThrows(IllegalArgumentException.class,
                     () -> new OrderPlacement(CREDENTIALS, OrderType.GTD, 0L, false));
             assertThrows(IllegalArgumentException.class,
                     () -> new OrderPlacement(CREDENTIALS, OrderType.GTC, 1_800_000_000L, false));
-            // An immediate order never rests, so it cannot be post-only.
             assertThrows(IllegalArgumentException.class,
                     () -> OrderPlacement.of(CREDENTIALS, OrderType.FOK).asPostOnly());
             assertThrows(IllegalArgumentException.class,
@@ -91,7 +82,6 @@ class OrderExecutionTest {
     }
 
     @Nested
-    @DisplayName("immediate intents")
     class Immediate {
 
         private OrderBookSnapshot book() {
@@ -104,8 +94,7 @@ class OrderExecutionTest {
         }
 
         @Test
-        @DisplayName("TC-OE-004: an immediate BUY leg pays the Protected Price, not the blended cost")
-        void immediateBuyLegUsesTheProtectedPrice() {
+        void shouldPriceBuyAtProtectedLevelWhenImmediateIntentCrossesDepth() {
             ImmediateBuy intent = ImmediateBuy.of(ASSET, PusdAmount.of("11"), ExecutionPolicy.FAK);
             ImmediatePlan.Executable plan = (ImmediatePlan.Executable)
                     ImmediatePlanner.plan(intent, book());
@@ -114,8 +103,7 @@ class OrderExecutionTest {
 
             assertEquals(Price.of("0.52"), execution.price());
             assertEquals(ShareQuantity.of("21.15"), execution.shares());
-            // The whole size clears at 0.52, and that leg is what the budget has to cover: a
-            // blended walk would have signed 21.538461 shares for 11.1999, over the 11.00 asked.
+            // The signed leg is repriced at 0.52, so a blended walk would exceed the 11.00 budget.
             assertEquals(PusdAmount.of("10.998"), execution.pusdLeg());
             assertTrue(execution.pusdLeg().value().compareTo(intent.budget().value()) <= 0,
                     "the signed leg may never authorise more than the budget");
@@ -123,8 +111,7 @@ class OrderExecutionTest {
         }
 
         @Test
-        @DisplayName("TC-OE-005: an immediate SELL leg receives the Protected Price, not the blended proceeds")
-        void immediateSellLegUsesTheProtectedPrice() {
+        void shouldPriceSellAtProtectedLevelWhenImmediateIntentCrossesDepth() {
             ImmediateSell intent = ImmediateSell.of(ASSET, ShareQuantity.of("40"),
                     ExecutionPolicy.FOK);
             ImmediatePlan.Executable plan = (ImmediatePlan.Executable)
@@ -133,16 +120,14 @@ class OrderExecutionTest {
             OrderExecution execution = OrderExecution.of(intent, plan, RULES);
 
             assertEquals(Price.of("0.48"), execution.price());
-            // 30 at 0.50 plus 10 at 0.48 blends to 19.80, but the signed floor is 40 x 0.48, and
-            // the plan reports that floor rather than a blend the order does not guarantee.
+            // The signed floor is 40 x 0.48; a blended value is not guaranteed by the order.
             assertEquals(PusdAmount.of("19.2"), plan.cost());
             assertEquals(PusdAmount.of("19.2"), execution.pusdLeg());
             assertEquals(OrderType.FOK, execution.orderType());
         }
 
         @Test
-        @DisplayName("TC-OE-006: a hand-built plan cannot exceed the immediate intent")
-        void handBuiltPlanCannotDiscardIntentGuarantees() {
+        void shouldThrowWhenHandBuiltPlanExceedsImmediateIntent() {
             ImmediatePlan.Executable oversizedBuy = new ImmediatePlan.Executable(
                     Price.of("0.50"), ShareQuantity.of("10"), PusdAmount.of("5"),
                     PusdAmount.of("0"), false);
@@ -158,7 +143,6 @@ class OrderExecutionTest {
                     partialFokSell, RULES));
         }
 
-        /** Depth quoted finer than the two size decimals the tick profile allows. */
         private OrderBookSnapshot fineGrainedBook() {
             return new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
                     List.of(new PriceLevel(Price.of("0.50"), ShareQuantity.of("12.345"))),
@@ -167,8 +151,7 @@ class OrderExecutionTest {
         }
 
         @Test
-        @DisplayName("TC-OE-007: an immediate BUY over sub-grid depth signs an on-grid leg")
-        void immediateBuyLegStaysOnTheSizeGrid() {
+        void shouldKeepBuyLegOnSizeGridWhenDepthHasFinePrecision() {
             ImmediateBuy intent = ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK);
             ImmediatePlan.Executable plan = (ImmediatePlan.Executable)
                     ImmediatePlanner.plan(intent, fineGrainedBook());
@@ -181,8 +164,7 @@ class OrderExecutionTest {
         }
 
         @Test
-        @DisplayName("TC-OE-008: a fully covered but fine-grained SELL is accepted as a partial fill")
-        void immediateSellOverSubGridDepthIsAPartialFill() {
+        void shouldAcceptPartialSellWhenDepthHasFinePrecision() {
             ImmediateSell intent = ImmediateSell.of(ASSET, ShareQuantity.of("12.345"),
                     ExecutionPolicy.FAK);
             ImmediatePlan.Executable plan = (ImmediatePlan.Executable)

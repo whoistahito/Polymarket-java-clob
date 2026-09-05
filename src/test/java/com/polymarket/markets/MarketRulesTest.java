@@ -8,11 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Executable market context")
 class MarketRulesTest {
 
     private static MarketRules rules() {
@@ -20,26 +18,22 @@ class MarketRulesTest {
     }
 
     @Nested
-    @DisplayName("rules")
     class Rules {
 
         @Test
-        @DisplayName("TC-MR-001: an off-grid price is rejected, never rounded")
-        void rejectsOffGridPrice() {
+        void shouldThrowIllegalArgumentExceptionWhenPriceIsOffGrid() {
             IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                     () -> rules().requireOnGrid(Price.of("0.535")));
             assertTrue(e.getMessage().contains("0.535"));
         }
 
         @Test
-        @DisplayName("TC-MR-002: an on-grid price passes through unchanged")
-        void acceptsOnGridPrice() {
+        void shouldAcceptPriceWhenPriceIsOnGrid() {
             assertEquals(Price.of("0.53"), rules().requireOnGrid(Price.of("0.53")));
         }
 
         @Test
-        @DisplayName("TC-MR-003: a quantity below the live CLOB minimum is rejected")
-        void enforcesMinimumShares() {
+        void shouldEnforceMinimumSharesWhenQuantityIsBelowOrAtMinimum() {
             assertThrows(IllegalArgumentException.class,
                     () -> rules().requireAtLeastMinimum(ShareQuantity.of("4.999999")));
             assertEquals(ShareQuantity.of("5"),
@@ -47,8 +41,7 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-011: 0 and 1 are settled outcomes, not order prices")
-        void rejectsTheUniversalBounds() {
+        void shouldThrowIllegalArgumentExceptionWhenPriceIsAtUniversalBound() {
             assertThrows(IllegalArgumentException.class,
                     () -> rules().requireWithinBounds(Price.of("0")));
             assertThrows(IllegalArgumentException.class,
@@ -56,13 +49,11 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-012: the market-specific bounds run from one tick to one tick below certainty")
-        void enforcesMarketSpecificBounds() {
+        void shouldEnforceMarketSpecificBoundsWhenPriceTouchesTradeableLimits() {
             MarketRules coarse = new MarketRules(TickSize.of("0.1"), ShareQuantity.of("5"), false);
 
             assertEquals(Price.of("0.1"), coarse.requireWithinBounds(Price.of("0.1")));
             assertEquals(Price.of("0.9"), coarse.requireWithinBounds(Price.of("0.9")));
-            // 0.05 is inside (0, 1) but below the coarsest grid's first tradeable price.
             assertThrows(IllegalArgumentException.class,
                     () -> coarse.requireWithinBounds(Price.of("0.05")));
             assertThrows(IllegalArgumentException.class,
@@ -70,8 +61,7 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-013: the pUSD leg is encoded at the grid's documented amount decimals")
-        void notionalUsesTheDocumentedAmountPrecision() {
+        void shouldCalculateNotionalWhenUsingDocumentedAmountPrecision() {
             // Official: round the amount up to amount decimals + 4, then down to amount decimals.
             // A 0.01 market carries 4 amount decimals, so 0.52 x 21.538461 = 11.19999972 -> 11.1999.
             assertEquals(PusdAmount.of("11.1999"),
@@ -81,15 +71,13 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-004: the minimum is expressed in shares, not notional")
-        void minimumIsInShares() {
-            // Gamma publishes a USDC notional minimum; it must never reach signing.
+        void shouldExpressMinimumInSharesWhenRuleIsConstructed() {
+            // Gamma's notional minimum must never reach signing; the rule is expressed in shares.
             assertEquals("5", rules().minimumShares().toString());
         }
     }
 
     @Nested
-    @DisplayName("book snapshot")
     class Book {
 
         private OrderBookSnapshot shuffled() {
@@ -105,29 +93,25 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-005: bids sort best-first regardless of wire order")
-        void bidsSortDescending() {
+        void shouldSortBidsDescendingWhenWireOrderIsShuffled() {
             assertEquals(List.of(Price.of("0.44"), Price.of("0.42"), Price.of("0.40")),
                     shuffled().bids().stream().map(PriceLevel::price).toList());
         }
 
         @Test
-        @DisplayName("TC-MR-006: asks sort best-first regardless of wire order")
-        void asksSortAscending() {
+        void shouldSortAsksAscendingWhenWireOrderIsShuffled() {
             assertEquals(List.of(Price.of("0.51"), Price.of("0.53"), Price.of("0.55")),
                     shuffled().asks().stream().map(PriceLevel::price).toList());
         }
 
         @Test
-        @DisplayName("TC-MR-007: best bid and best ask come off the sorted book")
-        void exposesTopOfBook() {
+        void shouldExposeTopOfBookWhenBookSidesAreSorted() {
             assertEquals(Price.of("0.44"), shuffled().bestBid().orElseThrow().price());
             assertEquals(Price.of("0.51"), shuffled().bestAsk().orElseThrow().price());
         }
 
         @Test
-        @DisplayName("TC-MR-008: an empty side has no best level rather than a fabricated one")
-        void emptySideHasNoBest() {
+        void shouldLeaveBestLevelEmptyWhenBookSideIsEmpty() {
             OrderBookSnapshot empty = new OrderBookSnapshot(
                     "0xcondition", new TokenId("12345"), Instant.EPOCH, "hash-1",
                     List.of(), List.of(), rules(), Optional.of(Price.of("0.50")));
@@ -136,8 +120,7 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-009: the snapshot carries its own rules, so signing needs no second read")
-        void snapshotCarriesRules() {
+        void shouldCarrySigningRulesWhenSnapshotIsConstructed() {
             OrderBookSnapshot book = shuffled();
             assertEquals(TickSize.of("0.01"), book.rules().tickSize());
             assertEquals(ShareQuantity.of("5"), book.rules().minimumShares());
@@ -146,8 +129,7 @@ class MarketRulesTest {
         }
 
         @Test
-        @DisplayName("TC-MR-010: the level lists cannot be mutated after construction")
-        void levelsAreImmutable() {
+        void shouldThrowUnsupportedOperationExceptionWhenLevelsAreMutated() {
             assertThrows(UnsupportedOperationException.class,
                     () -> shuffled().bids().add(level("0.99", "1")));
         }
