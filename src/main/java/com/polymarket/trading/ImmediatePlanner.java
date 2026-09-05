@@ -42,14 +42,18 @@ public final class ImmediatePlanner {
             BigDecimal affordable = affordableAt(level.price(), buy.budget().value(), rate, rules);
             // Only depth that survives the size grid can be bought, so a sub-grid tail at a worse
             // price must not lift the protected price for shares the order cannot carry.
-            BigDecimal candidate = truncateSize(available, rules).min(affordable);
+            BigDecimal onGridDepth = truncateSize(available, rules);
+            BigDecimal candidate = onGridDepth.min(affordable);
             if (candidate.compareTo(shares) > 0) {
                 shares = candidate;
                 protectedPrice = level.price();
+                // A complete fill is one the budget — not the book — sized. Read it where the
+                // quantity is actually set: deeper, pricier depth the budget can never protect at
+                // must not fake a full spend the chosen order never made.
+                budgetBound = affordable.compareTo(onGridDepth) <= 0;
             }
             // Deeper levels cost more per share, so once the budget binds it can only buy less.
             if (affordable.compareTo(available) <= 0) {
-                budgetBound = true;
                 break;
             }
         }

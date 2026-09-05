@@ -183,6 +183,39 @@ class ImmediatePlannerTest {
         }
 
         @Test
+        @DisplayName("TC-DP-026: unreachable deep liquidity cannot fake a complete budget spend")
+        void deepUnreachableDepthDoesNotFakeCompleteness() {
+            MarketRules rules = new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false);
+            // Both books offer the SAME reachable fill: 10 shares at 0.50 spend 5.00 of the 6.00
+            // budget. Book B adds depth at 0.90 the budget can never protect at — buying there
+            // would carry FEWER shares (6.00 / 0.90 = 6.66), so it is never chosen.
+            OrderBookSnapshot shallow = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
+                    List.of(), List.of(level("0.50", "10")), rules, Optional.empty());
+            OrderBookSnapshot withDeepTail = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH,
+                    "hash", List.of(), List.of(level("0.50", "10"), level("0.90", "100")), rules,
+                    Optional.empty());
+
+            // A FAK reports the same partial fill either way — 5.00 of the 6.00 was never spent.
+            ImmediatePlan.Executable fakShallow = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(
+                            ImmediateBuy.of(ASSET, PusdAmount.of("6"), ExecutionPolicy.FAK), shallow));
+            ImmediatePlan.Executable fakDeep = assertInstanceOf(ImmediatePlan.Executable.class,
+                    ImmediatePlanner.plan(ImmediateBuy.of(ASSET, PusdAmount.of("6"),
+                            ExecutionPolicy.FAK), withDeepTail));
+            assertEquals(ShareQuantity.of("10"), fakDeep.shares());
+            assertEquals(Price.of("0.50"), fakDeep.protectedPrice());
+            assertTrue(fakShallow.partial(), "budget 6.00 buys only 5.00 of depth: partial");
+            assertTrue(fakDeep.partial(),
+                    "the 0.90 depth is unreachable, so the fill is still book-bound and partial");
+
+            // FOK is all-or-nothing on the budget: neither book can spend it, so both are killed.
+            assertInstanceOf(ImmediatePlan.InsufficientDepth.class, ImmediatePlanner.plan(
+                    ImmediateBuy.of(ASSET, PusdAmount.of("6"), ExecutionPolicy.FOK), shallow));
+            assertInstanceOf(ImmediatePlan.InsufficientDepth.class, ImmediatePlanner.plan(
+                    ImmediateBuy.of(ASSET, PusdAmount.of("6"), ExecutionPolicy.FOK), withDeepTail));
+        }
+
+        @Test
         @DisplayName("TC-DP-017: planned shares carry the tick profile's size precision, not six decimals")
         void plannedSharesFollowTheDocumentedSizePrecision() {
             // The official "Choose a Price and Size" table gives every documented tick two size
