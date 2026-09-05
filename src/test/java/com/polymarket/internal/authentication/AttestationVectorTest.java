@@ -8,21 +8,16 @@ import java.util.Base64;
 import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.Hash;
 import org.web3j.crypto.Sign;
 import org.web3j.utils.Numeric;
 
-/**
- * Signing is protocol-critical, so both attestations are held to digests and HMACs computed
- * independently in this test from the documented algorithms — never from production code.
- */
-@DisplayName("CLOB L1 and L2 attestations match independently computed vectors")
+/** Protocol-critical L1/L2 vectors are computed independently from the documented algorithms. */
 class AttestationVectorTest {
 
-    // The same key the pinned protocol vectors use (src/test/resources/protocol/signing-vectors.json).
+    // Uses the key from src/test/resources/protocol/signing-vectors.json.
     private static final String TEST_KEY =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     private static final long TIMESTAMP = 1773890758L;
@@ -34,8 +29,7 @@ class AttestationVectorTest {
             "ClobAuth(address address,string timestamp,uint256 nonce,string message)";
 
     @Test
-    @DisplayName("TC-AV-001: L1 headers sign the independently derived ClobAuth digest")
-    void l1HeadersSignTheIndependentDigest() throws Exception {
+    void shouldSignL1HeadersWhenDigestIsIndependentlyDerived() throws Exception {
         PrivateKeySigner signer = PrivateKeySigner.of(TEST_KEY);
         int nonce = 0;
 
@@ -47,13 +41,9 @@ class AttestationVectorTest {
         assertEquals(String.valueOf(nonce), headers.get("POLY_NONCE"));
     }
 
-    /**
-     * HMAC-SHA256(base64Decode(secret), timestamp + METHOD + PATH + BODY), base64url with padding
-     * preserved — quoted verbatim from src/test/resources/protocol/builder-gateway.json.
-     */
+    /** HMAC-SHA256 uses the documented base64url algorithm from builder-gateway.json. */
     @Test
-    @DisplayName("TC-AV-002: the L2 HMAC matches the documented algorithm")
-    void l2SignatureMatchesTheDocumentedAlgorithm() throws Exception {
+    void shouldMatchL2SignatureWhenUsingDocumentedAlgorithm() throws Exception {
         String secret = "c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldA==";
 
         assertEquals(
@@ -71,7 +61,7 @@ class AttestationVectorTest {
                 .encodeToString(mac.doFinal(message.getBytes(StandardCharsets.UTF_8)));
     }
 
-    /** EIP-712 assembled byte-by-byte here, so a change inside the encoder cannot hide a defect. */
+    /** EIP-712 is assembled byte-by-byte so encoder changes cannot hide a defect. */
     private static String expectedSignature(int nonce) {
         String address = PrivateKeySigner.of(TEST_KEY).address();
 

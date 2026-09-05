@@ -37,10 +37,8 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("AsyncRfq: narrow async decorator (issue #27)")
 class AsyncRfqTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -86,8 +84,7 @@ class AsyncRfqTest {
     }
 
     @Test
-    @DisplayName("TC-AR-001: a caller-supplied executor is honored")
-    void supplierExecutorIsHonored() throws Exception {
+    void shouldHonorCallerExecutorWhenRequestingRfq() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}"""));
         CountingExecutor executor = new CountingExecutor();
@@ -101,8 +98,7 @@ class AsyncRfqTest {
     }
 
     @Test
-    @DisplayName("TC-AR-002: async status preserves the same typed RfqOutcome as sync")
-    void asyncStatusPreservesOutcomeType() throws Exception {
+    void shouldPreserveSyncOutcomeTypeWhenReadingStatus() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"EXPIRED"}"""));
 
@@ -113,8 +109,7 @@ class AsyncRfqTest {
     }
 
     @Test
-    @DisplayName("TC-AR-003: no synchronous Rfq or Executor accessor is exposed")
-    void noSyncAccessorsExposed() {
+    void shouldExposeNoSyncAccessorsWhenInspectingAsyncRfq() {
         for (var method : AsyncRfq.class.getMethods()) {
             assertTrue(!Executor.class.isAssignableFrom(method.getReturnType())
                     && !Rfq.class.isAssignableFrom(method.getReturnType()),
@@ -123,8 +118,7 @@ class AsyncRfqTest {
     }
 
     @Test
-    @DisplayName("TC-AR-004: every synchronous Rfq operation has an asynchronous counterpart")
-    void everySyncOperationHasAnAsyncCounterpart() {
+    void shouldWrapEverySyncOperationWhenInspectingAsyncSurface() {
         Set<String> async = Stream.of(AsyncRfq.class.getDeclaredMethods())
                 .filter(m -> Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()))
                 .map(Method::getName)
@@ -141,8 +135,7 @@ class AsyncRfqTest {
     }
 
     @Test
-    @DisplayName("TC-AR-005: async Combo discovery returns the page the synchronous read would")
-    void asyncComboMarketsMatchesTheSynchronousRead() throws Exception {
+    void shouldMatchSyncComboMarketsWhenDiscoveringCombos() throws Exception {
         server.enqueue(new MockResponse().setBody(
                 "{\"data\":[],\"next_cursor\":\"LTE=\"}"));
 

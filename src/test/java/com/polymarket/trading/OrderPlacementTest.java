@@ -12,10 +12,8 @@ import com.polymarket.markets.TokenId;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Trading: submission attributes derived from the Order Intent (issue #14)")
 class OrderPlacementTest {
 
     private static final ApiCredentials CREDENTIALS = new ApiCredentials(
@@ -27,8 +25,7 @@ class OrderPlacementTest {
             Clock.fixed(Instant.ofEpochSecond(1_799_000_000L), ZoneOffset.UTC);
 
     @Test
-    @DisplayName("TC-OP-001: a Maker-Only Order Intent derives a post-only GTC placement")
-    void makerOnlyIntentDerivesPostOnlyGtc() {
+    void shouldDerivePostOnlyGtcWhenIntentIsMakerOnly() {
         OrderIntent intent = new MakerOnlyLimitOrder(
                 ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
 
@@ -40,8 +37,7 @@ class OrderPlacementTest {
     }
 
     @Test
-    @DisplayName("TC-OP-002: a plain Limit Order Intent derives a GTC placement that is not post-only")
-    void limitIntentDerivesPlainGtc() {
+    void shouldDerivePlainGtcWhenIntentIsLimit() {
         OrderIntent intent = new LimitOrder(
                 ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
 
@@ -52,8 +48,7 @@ class OrderPlacementTest {
     }
 
     @Test
-    @DisplayName("TC-OP-003: a GTD Order Intent derives its wire expiration, threshold included")
-    void goodTilDateIntentDerivesShiftedExpiration() {
+    void shouldIncludeSecurityThresholdWhenDerivingExpiration() {
         Instant expiresAt = Instant.ofEpochSecond(1_800_000_000L);
         OrderIntent intent = GoodTilDateOrder.expiringAt(
                 ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"), expiresAt, CLOCK);
@@ -67,8 +62,7 @@ class OrderPlacementTest {
     }
 
     @Test
-    @DisplayName("TC-OP-004: an immediate Order Intent derives its execution policy as the order type")
-    void immediateIntentDerivesItsExecutionPolicy() {
+    void shouldDeriveExecutionPolicyWhenIntentIsImmediate() {
         OrderPlacement fok = OrderPlacement.forIntent(CREDENTIALS,
                 ImmediateBuy.of(ASSET, PusdAmount.of("5.2"), ExecutionPolicy.FOK));
         OrderPlacement fak = OrderPlacement.forIntent(CREDENTIALS,
@@ -79,8 +73,7 @@ class OrderPlacementTest {
     }
 
     @Test
-    @DisplayName("TC-OP-005: a hand-built placement contradicting its Order Intent is refused")
-    void contradictoryPlacementIsRefused() {
+    void shouldThrowForContradictoryPlacementWhenIntentRequiresDifferentAttributes() {
         OrderIntent makerOnly = new MakerOnlyLimitOrder(
                 ASSET, Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
         OrderIntent gtd = GoodTilDateOrder.expiringAt(ASSET, Side.BUY, Price.of("0.52"),
@@ -95,8 +88,7 @@ class OrderPlacementTest {
     }
 
     @Test
-    @DisplayName("TC-OP-006: a placement derived from an Order Intent is consistent with it")
-    void derivedPlacementIsConsistent() {
+    void shouldRemainConsistentWhenPlacementIsDerivedFromIntent() {
         OrderIntent gtd = GoodTilDateOrder.expiringAt(ASSET, Side.BUY, Price.of("0.52"),
                 ShareQuantity.of("10"), Instant.ofEpochSecond(1_800_000_000L), CLOCK);
 

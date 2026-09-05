@@ -27,11 +27,9 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** Ground truth: src/test/resources/protocol/combo-markets.json. */
-@DisplayName("Combo market discovery: eligible legs without local CTF calculation (issue #25)")
 class ComboMarketCatalogTest {
 
     private static final JsonNode FIXTURE = load();
@@ -58,7 +56,6 @@ class ComboMarketCatalogTest {
         }
     }
 
-    /** Driven through the capability, over the real adapter, so discovery is reachable as shipped. */
     private Rfq rfq() {
         URI host = server.url("/").uri();
         HttpRuntime runtime = new HttpRuntime(Duration.ofSeconds(2), Duration.ofSeconds(5),
@@ -75,8 +72,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-001: a catalog read is an unauthenticated GET that maps YES and NO leg Position IDs by index")
-    void catalogReadMapsLegPositionIdsByIndex() throws Exception {
+    void shouldMapLegPositionIdsByIndexWhenCatalogIsRead() throws Exception {
         enqueuePinnedPage();
 
         ComboMarketPage page = rfq().comboMarkets(ComboMarketQuery.pageSize(2));
@@ -110,8 +106,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-002: cursor and exclude travel as the documented query parameters")
-    void cursorAndExcludeTravelAsQueryParameters() throws Exception {
+    void shouldEncodeCursorAndExcludeAsQueryParametersWhenReadingCatalog() throws Exception {
         enqueuePinnedPage();
 
         rfq().comboMarkets(ComboMarketQuery.pageSize(50)
@@ -123,8 +118,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-003: a null next_cursor ends the walk rather than repeating the last page")
-    void nullNextCursorEndsTheWalk() throws Exception {
+    void shouldEndCatalogWalkWhenNextCursorIsNull() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"markets":[],"next_cursor":null}"""));
 
@@ -135,16 +129,14 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-004: a page size outside the gateway's accepted 1-100 range is rejected before any request")
-    void pageSizeOutsideAcceptedRangeIsRejectedLocally() {
+    void shouldThrowIllegalArgumentExceptionWhenPageSizeIsOutsideAcceptedRange() {
         assertThrows(IllegalArgumentException.class, () -> ComboMarketQuery.pageSize(0));
         assertThrows(IllegalArgumentException.class, () -> ComboMarketQuery.pageSize(101));
         assertEquals(0, server.getRequestCount());
     }
 
     @Test
-    @DisplayName("TC-CM-005: a market whose outcomes are not the documented YES/NO pair is skipped, not guessed at")
-    void malformedOutcomePairIsSkipped() throws Exception {
+    void shouldSkipMarketWhenOutcomePairIsMalformed() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"markets":[{"id":"1","condition_id":"0xa","position_ids":["7"],
                              "slug":"s","title":"t","outcomes":["Yes"],"outcome_prices":["0.5"]}],
@@ -156,8 +148,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-007: a market carrying an unusable identifier or price is skipped, not thrown")
-    void oneUnusableMarketDoesNotDiscardThePage() throws Exception {
+    void shouldKeepReadableMarketsWhenAnotherMarketIsUnusable() throws Exception {
         // The method's contract is "anything else is skipped, never guessed". A position id that is
         // not a uint256, or a price that is not a number, must not take the whole page with it.
         server.enqueue(new MockResponse().setBody("""
@@ -177,8 +168,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-008: a non-JSON error body reports the HTTP status, not a parse failure")
-    void aNonJsonErrorBodyReportsItsStatus() {
+    void shouldThrowIOExceptionWhenErrorBodyIsNotJson() {
         // A gateway or proxy failure is exactly when the status matters, and exactly when the body
         // is least likely to be JSON.
         server.enqueue(new MockResponse().setResponseCode(502)
@@ -191,8 +181,7 @@ class ComboMarketCatalogTest {
     }
 
     @Test
-    @DisplayName("TC-CM-006: the pinned Combo catalog fixture cites official Polymarket sources only")
-    void fixtureCitesOfficialSourcesOnly() {
+    void shouldAcceptOnlyOfficialSourcesWhenCatalogFixtureIsLoaded() {
         List<String> sources = new java.util.ArrayList<>();
         FIXTURE.get("sources").forEach(s -> sources.add(s.asText()));
 

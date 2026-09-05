@@ -31,10 +31,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Rfq: Builder Gateway Combo request and status (issue #25)")
 class RfqTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -89,8 +87,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-001: a request carries both account and builder HMAC header sets")
-    void requestCarriesBothHeaderSets() throws Exception {
+    void shouldCarryBothHeaderSetsWhenRequesting() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
@@ -111,8 +108,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-002: the request body carries notional size for BUY in 6-decimal base units")
-    void requestBodyCarriesNotionalForBuy() throws Exception {
+    void shouldCarryBuyNotionalInBodyWhenRequesting() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
@@ -130,8 +126,7 @@ class RfqTest {
     private static final String TRADING_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 
     @Test
-    @DisplayName("TC-RQ-015: a Deposit Wallet request carries the Trading Wallet in both address fields")
-    void depositWalletRequestCarriesTradingWalletInBothAddressFields() throws Exception {
+    void shouldCarryTradingWalletInBothAddressFieldsWhenRequestingAsDepositWallet() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
@@ -148,8 +143,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-016: a Proxy Wallet request keeps the Account Signer in signer_address")
-    void proxyWalletRequestKeepsAccountSignerInSignerAddress() throws Exception {
+    void shouldKeepAccountSignerInSignerAddressWhenRequestingAsProxyWallet() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
@@ -165,8 +159,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-003: fewer than 2 or more than 50 legs is rejected before sending")
-    void legCountIsValidatedBeforeSending() {
+    void shouldThrowIllegalArgumentExceptionWhenLegCountIsInvalid() {
         assertThrows(IllegalArgumentException.class,
                 () -> new RfqRequest.Buy(List.of(new PositionId("111")), PusdAmount.of("1.0")));
         assertThrows(IllegalArgumentException.class, () -> new RfqRequest.Buy(
@@ -175,8 +168,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-004: a status read before acceptance is NotYetAccepted, not a generic failure")
-    void statusReadBeforeAcceptanceIsNotYetAccepted() throws Exception {
+    void shouldReturnNotYetAcceptedWhenStatusIsReadBeforeAcceptance() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(409).setBody("""
                 {"error":"rfq has not been accepted"}"""));
 
@@ -191,10 +183,7 @@ class RfqTest {
         assertEquals(null, request.getHeader("POLY_BUILDER_API_KEY"));
     }
 
-    /**
-     * Shaped from builder-gateway.json: expires_at and builder_code are TOP LEVEL, the position
-     * IDs live under request, and the quote carries all six pinned fields.
-     */
+    /** Protocol shape pinned by builder-gateway.json: expiry and builder are top-level; IDs are under request. */
     private static final String OFFICIAL_CREATE_RESPONSE = """
             {"rfq_id":"rfq-1",
              "status":"AWAITING_REQUESTER_ACCEPTANCE",
@@ -210,8 +199,7 @@ class RfqTest {
                       "total_required_e6":"1932381","net_receive_e6":"950000"}}""";
 
     @Test
-    @DisplayName("TC-RQ-017: the official create response maps top-level expiry and builder attribution")
-    void officialCreateResponseMapsTopLevelExpiryAndBuilderCode() throws Exception {
+    void shouldMapTopLevelExpiryAndBuilderCodeWhenCreateResponseIsOfficial() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
@@ -223,8 +211,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-018: the Combo position and legs come from the request block, not the top level")
-    void comboPositionAndLegsComeFromTheRequestBlock() throws Exception {
+    void shouldMapComboPositionAndLegsFromRequestBlockWhenCreateResponseIsOfficial() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
@@ -236,8 +223,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-019: every pinned Quote amount is mapped, including total_required and net_receive")
-    void everyQuoteAmountIsMapped() throws Exception {
+    void shouldMapEveryQuoteAmountWhenCreateResponseIncludesQuote() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
@@ -253,8 +239,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-020: a valid Quote retains the request's own direction")
-    void quoteRetainsTheRequestDirection() throws Exception {
+    void shouldRetainRequestDirectionWhenQuoteIsValid() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome.Quoted quoted = assertInstanceOf(RfqOutcome.Quoted.class,
@@ -265,8 +250,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-025: a Quote missing its direction is not executable, never a guessed BUY")
-    void quoteMissingItsDirectionIsNotExecutable() throws Exception {
+    void shouldReturnUnknownWhenQuoteOmitsDirection() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"direction\":\"SELL\",", ""));
 
         RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
@@ -277,8 +261,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-026: a Quote missing a signing amount is not executable, never a guessed zero")
-    void quoteMissingASigningAmountIsNotExecutable() throws Exception {
+    void shouldReturnUnknownWhenQuoteOmitsSigningAmount() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE.replace("\"maker_amount_e6\":\"966191\",", ""));
 
         RfqOutcome outcome = rfq(FIXED).request(officialRequest(),
@@ -289,8 +272,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-005: a FAILED status (no quote / decline / execution failure) is Failed with its reason")
-    void failedStatusCarriesReason() throws Exception {
+    void shouldReturnFailureReasonWhenStatusIsFailed() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"FAILED","error":{"message":"no maker responded"}}""");
 
@@ -301,8 +283,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-006: EXPIRED and CANCELED are their own typed outcomes")
-    void expiredAndCanceledAreDistinctTypes() throws Exception {
+    void shouldReturnDistinctOutcomesWhenStatusIsExpiredOrCanceled() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"EXPIRED"}""");
         assertInstanceOf(RfqOutcome.Expired.class,
@@ -315,8 +296,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-007: a status this release does not know is Unknown, keeping the raw value")
-    void unknownStatusIsKeptRaw() throws Exception {
+    void shouldKeepRawStatusWhenStatusIsUnknown() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"SOME_NEW_STATE_2027"}""");
 
@@ -326,7 +306,6 @@ class RfqTest {
         assertEquals("SOME_NEW_STATE_2027", unknown.rawStatus());
     }
 
-    /** Advances a fixed step on every read so awaitSettlement reaches its deadline with no real sleep. */
     private static final class SteppingClock extends Clock {
         private Instant now;
         private final Duration step;
@@ -355,8 +334,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-008: awaitSettlement polls the post-acceptance state machine to a terminal answer")
-    void awaitSettlementPollsToATerminalAnswer() throws Exception {
+    void shouldPollToTerminalOutcomeWhenAwaitingSettlement() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
         enqueue("""
@@ -373,8 +351,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-009: a local wait timeout is Pending, retaining the rfq_id, not a failure")
-    void waitTimeoutIsPending() throws Exception {
+    void shouldReturnPendingWhenSettlementWaitTimesOut() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
 
@@ -387,8 +364,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-025: a settlement poll never sleeps past the deadline it was given")
-    void settlementPollingIsClampedToTheDeadline() throws Exception {
+    void shouldClampPollingDelayWhenSettlementDeadlineIsNear() throws Exception {
         for (int i = 0; i < 5; i++) {
             enqueue("""
                     {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
@@ -406,10 +382,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-026: a quote missing anything acceptance would sign is Unknown, never executable")
-    void anIncompleteQuoteIsUnknown() throws Exception {
-        // Each variant drops exactly one field acceptance depends on. None of them may look like a
-        // quote to sign, and none may look like an RFQ that simply has not resolved yet.
+    void shouldReturnUnknownWhenQuoteOmitsRequiredField() throws Exception {
         for (String missing : List.of("quote_id", "yes_position_id", "expires_at", "builder_code",
                 "leg_position_ids")) {
             enqueue(OFFICIAL_CREATE_RESPONSE
@@ -426,8 +399,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-029: a Quote contradicting the request direction is Unknown")
-    void quoteCannotReverseTheRequestedDirection() throws Exception {
+    void shouldReturnUnknownWhenQuoteReversesRequestDirection() throws Exception {
         enqueue(OFFICIAL_CREATE_RESPONSE);
 
         RfqOutcome outcome = rfq(FIXED).request(buyRequest(),
@@ -437,8 +409,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-030: malformed Quote amounts and expiry are Unknown")
-    void malformedQuoteNumbersAreUnknown() throws Exception {
+    void shouldReturnUnknownWhenQuoteContainsMalformedNumbers() throws Exception {
         for (String response : List.of(
                 OFFICIAL_CREATE_RESPONSE.replace("\"maker_amount_e6\":\"966191\"",
                         "\"maker_amount_e6\":\"-1\""),
@@ -452,8 +423,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-027: a transient gateway error does not end a settlement wait as a refusal")
-    void aTransientGatewayErrorDoesNotEndTheWait() throws Exception {
+    void shouldContinueWaitingWhenGatewayErrorIsTransient() throws Exception {
         // 503 is the gateway declining to answer, not a verdict on an RFQ that is already accepted
         // and executing. Reporting it as Rejected would call a live trade refused.
         server.enqueue(new MockResponse().setResponseCode(503).setBody("""
@@ -470,8 +440,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-028: a gateway refusal that will not change ends the wait immediately")
-    void aDefinitiveRefusalEndsTheWait() throws Exception {
+    void shouldReturnRejectedWhenGatewayRefusalIsDefinitive() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(403).setBody("""
                 {"rfq_id":"rfq-1","code":"forbidden","error":{"message":"not your rfq"}}"""));
 
@@ -484,8 +453,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-010: a requester write is never replayed, even with read retries configured")
-    void requestIsNeverReplayedDespiteReadRetries() throws Exception {
+    void shouldSendRequestOnceWhenReadRetriesAreConfigured() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"AWAITING_MAKER_CONFIRMATION"}""");
         URI host = server.url("/").uri();
@@ -521,8 +489,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-011: an expired quote is rejected before anything is sent")
-    void expiredQuoteRejectedBeforeSending() {
+    void shouldThrowIllegalArgumentExceptionWhenQuoteIsExpired() {
         RfqOutcome.Quoted expired = quotedFixture(FIXED.instant().minusSeconds(1));
 
         assertThrows(IllegalArgumentException.class, () -> rfq(FIXED).accept(expired,
@@ -531,8 +498,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-012: acceptance signs through V3 and sends both HMAC header sets")
-    void acceptanceSignsThroughV3AndSendsBothHeaderSets() throws Exception {
+    void shouldSignThroughV3AndSendBothHeaderSetsWhenAccepting() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"EXECUTING"}""");
         RfqOutcome.Quoted quote = quotedFixture(FIXED.instant().plusSeconds(60));
@@ -557,8 +523,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-013: a CONFIRMED or FILLED response after acceptance is Confirmed")
-    void confirmedResponseIsConfirmed() throws Exception {
+    void shouldReturnConfirmedWhenAcceptanceResponseIsFilled() throws Exception {
         enqueue("""
                 {"rfq_id":"rfq-1","status":"FILLED"}""");
 
@@ -570,8 +535,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-014: connection loss during acceptance is Unknown, never thrown or replayed")
-    void connectionLossDuringAcceptanceIsUnknownNotReplayed() throws Exception {
+    void shouldReturnUnknownWithoutReplayWhenAcceptanceLosesConnection() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(
                 okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
 
@@ -584,8 +548,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-021: an HTTP validation refusal is Rejected, never a business Failed")
-    void httpValidationRefusalIsRejectedNotFailed() throws Exception {
+    void shouldReturnRejectedWhenHttpValidationFails() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(403).setBody("""
                 {"rfq_id":"rfq-1","code":"BUILDER_CODE_DISABLED",
                  "error":"the builder key has no enabled builder code"}"""));
@@ -600,8 +563,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-022: an acceptance refused with HTTP 409 is Rejected, not a read-before-acceptance")
-    void acceptanceRefusedWithConflictIsRejected() throws Exception {
+    void shouldReturnRejectedWhenAcceptanceReturnsConflict() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(409).setBody("""
                 {"rfq_id":"rfq-1","code":"QUOTE_MISMATCH","error":"quote mismatch"}"""));
 
@@ -614,8 +576,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-023: an unreadable acceptance body keeps the durable RFQ ID as Unknown")
-    void unreadableAcceptanceBodyKeepsTheRfqId() throws Exception {
+    void shouldKeepRfqIdWhenAcceptanceBodyIsUnreadable() throws Exception {
         server.enqueue(new MockResponse().setBody("<html>gateway</html>"));
 
         RfqOutcome outcome = rfq(FIXED).accept(quotedFixture(FIXED.instant().plusSeconds(60)),
@@ -626,8 +587,7 @@ class RfqTest {
     }
 
     @Test
-    @DisplayName("TC-RQ-024: a create refused before an RFQ exists reports the HTTP status, inventing no RFQ ID")
-    void createRefusedBeforeAnRfqExistsReportsTheHttpStatus() {
+    void shouldThrowRfqGatewayExceptionWhenCreateIsRefusedBeforeRfqExists() {
         server.enqueue(new MockResponse().setResponseCode(400).setBody("""
                 {"code":"INVALID_LEGS","error":"leg position ids are not compatible"}"""));
 

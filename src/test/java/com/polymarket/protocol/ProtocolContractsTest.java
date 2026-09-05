@@ -15,7 +15,6 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -23,14 +22,10 @@ import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
 import org.web3j.utils.Numeric;
 
-/**
- * Pins the official 2026 protocol contracts. Expected values come from Polymarket's published
- * documentation and an independent signer, never from this SDK's production code.
- */
-@DisplayName("Official 2026 protocol contracts and signing vectors")
+/** Pins official 2026 protocol contracts from published documentation and an independent signer. */
 class ProtocolContractsTest {
 
-    /** The date every fixture's sources were last re-read; see docs/protocol/SOURCES.md. */
+    /** Date every fixture's sources were last re-read; see docs/protocol/SOURCES.md. */
     private static final String REVIEWED_ON = "2026-08-23";
 
     // The production hosts the OpenAPI `servers` blocks declare; every other URL must be a doc page.
@@ -74,8 +69,7 @@ class ProtocolContractsTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("vectorIds")
-    @DisplayName("TC-PC-001: each vector encodes the official Order type verbatim")
-    void vectorsEncodeTheOfficialOrderType(String id) {
+    void shouldEncodeOfficialOrderTypeWhenVectorIsLoaded(String id) {
         JsonNode v = vector(id);
         String expected = "TypedDataSign".equals(v.get("primaryType").asText())
                 ? OFFICIAL_TYPED_DATA_SIGN_ENCODE_TYPE
@@ -85,8 +79,7 @@ class ProtocolContractsTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("vectorIds")
-    @DisplayName("TC-PC-002: each vector's signature recovers to its stated signer over its digest")
-    void vectorSignaturesRecoverToTheStatedSigner(String id) {
+    void shouldRecoverStatedSignerWhenSignatureUsesVectorDigest(String id) {
         JsonNode v = vector(id);
         byte[] digest = Numeric.hexStringToByteArray(v.get("digest").asText());
         byte[] sig = Numeric.hexStringToByteArray(v.get("signature").asText());
@@ -109,8 +102,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-003: V2 and V3 sign under different domains and exchange contracts")
-    void v2AndV3AreDistinctDomains() {
+    void shouldKeepV2AndV3DomainsDistinctWhenVersionsDiffer() {
         JsonNode contracts = CONSTRAINTS.get("contracts");
         JsonNode v2 = vector("v2-eoa").get("domain");
         JsonNode v3 = vector("v3-eoa").get("domain");
@@ -126,8 +118,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-004: Deposit Wallet vectors wrap the order for ERC-7739 validation")
-    void depositWalletVectorsAreWrapped() {
+    void shouldWrapDepositWalletVectorsWhenSignatureTypeIsThree() {
         for (String id : List.of("v2-deposit-wallet", "v3-deposit-wallet")) {
             JsonNode message = vector(id).get("message");
             assertEquals("DepositWallet", message.get("name").asText(), id);
@@ -141,8 +132,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-005: V2 and V3 order timestamps keep their conflicting official units")
-    void timestampUnitsStaySeparate() {
+    void shouldKeepTimestampUnitsSeparateWhenComparingV2AndV3() {
         JsonNode struct = CONSTRAINTS.get("orderStruct");
         assertEquals("unix-milliseconds", struct.get("v2TimestampUnit").asText());
         assertEquals("unix-seconds", struct.get("v3TimestampUnit").asText());
@@ -159,8 +149,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-006: Gamma notional never substitutes for the CLOB minimum-share rule")
-    void minimumSizeSourcesStaySeparate() {
+    void shouldKeepMinimumSizeSourcesSeparateWhenComparingClobAndGamma() {
         JsonNode clob = CONSTRAINTS.get("minimumSize").get("clobSigningRule");
         JsonNode gamma = CONSTRAINTS.get("minimumSize").get("gammaDiscoveryMetadata");
 
@@ -171,8 +160,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-007: the Builder Gateway requester flow is pinned to three endpoints")
-    void builderGatewayRequesterFlowIsPinned() {
+    void shouldPinBuilderGatewayFlowWhenReadingFixture() {
         List<String> routes = new ArrayList<>();
         GATEWAY.get("endpoints").forEach(e -> routes.add(
                 e.get("method").asText() + " " + e.get("path").asText()
@@ -190,16 +178,14 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-008: settlement resolves through trade IDs, not inline transaction hashes")
-    void settlementIsReconciledThroughTradeIds() {
+    void shouldReconcileSettlementWhenTradeIdsAreReturned() {
         JsonNode settlement = CONSTRAINTS.get("settlement");
         assertFalse(settlement.get("postOrderReturnsTransactionHashes").asBoolean());
         assertTrue(settlement.get("postOrderReturnsTradeIds").asBoolean());
     }
 
     @Test
-    @DisplayName("TC-PC-009: official batch and GTD limits are recorded as testable numbers")
-    void officialLimitsArePinned() {
+    void shouldPinOfficialLimitsWhenReadingConstraints() {
         assertEquals(15, CONSTRAINTS.get("batchLimits").get("postOrdersMax").asInt());
         assertEquals(1000, CONSTRAINTS.get("batchLimits").get("cancelOrdersMax").asInt());
 
@@ -210,8 +196,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-010: the taker fee follows the official price-curve formula, never a flat rate")
-    void takerFeeFollowsTheOfficialPriceCurve() {
+    void shouldFollowOfficialTakerFeeCurveWhenPriceChanges() {
         assertEquals("fee = C x feeRate x p x (1 - p)", FEES.get("formula").asText());
         assertEquals("shares traded", FEES.get("variables").get("C").asText());
         assertEquals("price of the shares", FEES.get("variables").get("p").asText());
@@ -226,8 +211,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-011: fees round to five decimals with a 0.00001 USDC floor")
-    void feePrecisionIsPinned() {
+    void shouldPinFeePrecisionWhenReadingFixture() {
         JsonNode precision = FEES.get("precision");
         assertEquals(5, precision.get("decimalPlaces").asInt());
         assertEquals(new BigDecimal("0.00001"),
@@ -237,8 +221,7 @@ class ProtocolContractsTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("feeExampleIds")
-    @DisplayName("TC-PC-012: each derived fee example reproduces Polymarket's published table")
-    void derivedFeeExamplesMatchThePublishedTable(String id) {
+    void shouldMatchPublishedFeeExampleWhenReadingFixture(String id) {
         JsonNode example = feeExample(id);
         BigDecimal shares = new BigDecimal(example.get("shares").asText());
         BigDecimal rate = new BigDecimal(example.get("feeRate").asText());
@@ -262,16 +245,14 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-013: the fee in USDC is symmetric around a 0.50 price")
-    void feeIsSymmetricAroundFiftyPercent() {
+    void shouldKeepFeeSymmetricWhenPricesAreEquidistantFromHalf() {
         assertTrue(FEES.get("symmetricAroundHalf").asBoolean());
         assertEquals(new BigDecimal(feeExample("crypto-100-shares-0.30").get("exactFeeUsdc").asText()),
                 new BigDecimal(feeExample("crypto-100-shares-0.70").get("exactFeeUsdc").asText()));
     }
 
     @Test
-    @DisplayName("TC-PC-014: CLOB trades arrive in a four-field page envelope, never a bare array")
-    void clobTradesArriveInAPageEnvelope() {
+    void shouldUsePageEnvelopeWhenReadingClobTrades() {
         JsonNode page = TRADES.get("clobTradePage");
         assertEquals(List.of("limit", "next_cursor", "count", "data"),
                 textList(page.get("envelopeFields")));
@@ -286,8 +267,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-015: the trade-status vocabulary is exactly five TRADE_STATUS_ values")
-    void tradeStatusVocabularyIsComplete() {
+    void shouldKeepTradeStatusVocabularyCompleteWhenReadingFixture() {
         JsonNode status = TRADES.get("tradeStatus");
         assertEquals(List.of(
                 "TRADE_STATUS_CONFIRMED",
@@ -301,8 +281,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-016: GET /data/trades requires maker_address and is level-2 authenticated")
-    void clobTradeReadRequiresTheMakerAddress() {
+    void shouldRequireMakerAddressWhenReadingClobTrades() {
         JsonNode endpoint = TRADES.get("clobTradeRead");
         assertEquals("GET", endpoint.get("method").asText());
         assertEquals("/data/trades", endpoint.get("path").asText());
@@ -314,8 +293,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-017: the Data API trade feed is a different contract from the CLOB trade page")
-    void dataApiTradeFeedIsNotTheClobPage() {
+    void shouldKeepDataApiFeedDistinctWhenComparingTradeContracts() {
         JsonNode data = TRADES.get("dataApiTradeFeed");
         assertNotEquals(TRADES.get("clobTradeRead").get("host").asText(), data.get("host").asText());
         assertTrue(data.get("responseIsBareArray").asBoolean(),
@@ -328,8 +306,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-018: GET /builder/trades is filtered by a required builder_code")
-    void builderTradesRequireTheBuilderCode() {
+    void shouldRequireBuilderCodeWhenReadingBuilderTrades() {
         assertEquals("GET", BUILDER_TRADES.get("method").asText());
         assertEquals("/builder/trades", BUILDER_TRADES.get("path").asText());
         assertEquals(List.of("builder_code"), textList(BUILDER_TRADES.get("requiredQuery")));
@@ -339,8 +316,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-019: builder trades continue through before/after windows and a page cursor")
-    void builderTradeContinuationIsPinned() {
+    void shouldPinBuilderTradeContinuationWhenReadingFixture() {
         JsonNode continuation = BUILDER_TRADES.get("continuation");
         assertEquals("unix-seconds, as a decimal string", continuation.get("beforeUnit").asText());
         assertEquals("unix-seconds, as a decimal string", continuation.get("afterUnit").asText());
@@ -355,8 +331,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-020: a builder trade carries a unix match time and ISO creation/update times")
-    void builderTradeTimestampUnitsAreDistinct() {
+    void shouldKeepBuilderTradeTimestampUnitsDistinctWhenReadingFixture() {
         JsonNode units = BUILDER_TRADES.get("timestampUnits");
         assertEquals("unix-seconds, as a decimal string", units.get("matchTime").asText());
         assertEquals("ISO-8601 date-time", units.get("createdAt").asText());
@@ -369,8 +344,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-021: the published Heartbeat is a bodyless POST /heartbeats under level-2 auth")
-    void heartbeatIsBodyless() {
+    void shouldKeepHeartbeatBodylessWhenReadingCurrentContract() {
         JsonNode current = HEARTBEAT.get("current");
         assertEquals("POST", current.get("method").asText());
         assertEquals("/heartbeats", current.get("path").asText());
@@ -385,8 +359,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-022: the Heartbeat is a dead-man switch with no published beat interval")
-    void heartbeatIsADeadManSwitchWithNoPublishedInterval() {
+    void shouldRecognizeHeartbeatDeadManSwitchWhenIntervalIsUnpublished() {
         assertTrue(HEARTBEAT.get("cancelsOpenOrdersWhenBeatsStop").asBoolean());
         assertFalse(HEARTBEAT.get("intervalIsPublished").asBoolean(),
                 "no official page states a beat interval or a silence timeout");
@@ -394,8 +367,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-023: the id-chaining /v1/heartbeats variant is a separate, unlisted contract")
-    void versionedHeartbeatIsASeparateContract() {
+    void shouldKeepVersionedHeartbeatSeparateWhenComparingContracts() {
         JsonNode legacy = HEARTBEAT.get("idChainingVariant");
         assertEquals("/v1/heartbeats", legacy.get("path").asText());
         assertTrue(legacy.get("hasRequestBody").asBoolean());
@@ -406,8 +378,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-024: only POLY_ADDRESS carries the Account Signer; every body address is the Trading Wallet")
-    void rfqAddressRolesAreSeparated() {
+    void shouldSeparateRfqAddressRolesWhenReadingWalletTypes() {
         JsonNode roles = GATEWAY.get("addressRoles");
         assertEquals(List.of("POLY_ADDRESS"), textList(roles.get("accountSigner")));
         assertEquals(List.of(
@@ -429,8 +400,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-025: the RFQ acceptance deadline and builder code sit above the quote, not inside it")
-    void rfqCreateResponseShapeIsPinned() {
+    void shouldPinRfqCreateResponseShapeWhenReadingFixture() {
         JsonNode response = GATEWAY.get("createResponse");
         assertEquals(List.of("rfq_id", "status", "expires_at", "builder_code", "request", "quote"),
                 textList(response.get("topLevelFields")));
@@ -445,8 +415,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-026: acceptance and status responses are distinct, narrow shapes")
-    void rfqAcceptanceAndStatusShapesArePinned() {
+    void shouldKeepRfqResponseShapesDistinctWhenComparingAcceptanceAndStatus() {
         assertEquals(List.of("rfq_id", "status", "taker_order_hash"),
                 textList(GATEWAY.get("acceptResponse").get("fields")));
         assertEquals(List.of("rfq_id", "status", "tx_hash", "error"),
@@ -457,8 +426,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-027: the six-value tick grid and its precision table are officially published")
-    void tickGridIsOfficiallyPublished() {
+    void shouldPinOfficialTickGridWhenReadingConstraints() {
         JsonNode grid = CONSTRAINTS.get("tickGrid");
         assertEquals(List.of("0.1", "0.01", "0.005", "0.0025", "0.001", "0.0001"),
                 textList(grid.get("values")));
@@ -480,8 +448,7 @@ class ProtocolContractsTest {
     }
 
     @Test
-    @DisplayName("TC-PC-030: each wallet type resolves the order's signer as the official table says")
-    void walletTypesResolveTheDocumentedOrderSigner() {
+    void shouldResolveOrderSignerWhenReadingWalletType() {
         String accountSigner = "0x" + "a".repeat(40);
         String tradingWallet = "0x" + "b".repeat(40);
 
@@ -517,18 +484,16 @@ class ProtocolContractsTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("fixtureNames")
-    @DisplayName("TC-PC-028: every protocol fixture records the date its sources were re-read")
-    void everyFixtureRecordsItsReviewDate(String name) {
+    void shouldRecordFixtureReviewDateWhenFixtureIsLoaded(String name) {
         JsonNode fixture = load("/protocol/" + name);
-        // A later date is a fixture refreshed on its own; an earlier one is a stale fixture.
+        // A later date means the fixture was refreshed with its sources; an earlier date is stale.
         assertTrue(fixture.get("reviewedOn").asText().compareTo(REVIEWED_ON) >= 0,
                 name + ": refresh the fixture or its review date, never one without the other");
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("fixtureNames")
-    @DisplayName("TC-PC-029: every fixture cites official Polymarket documentation and nothing else")
-    void everyFixtureCitesOfficialDocumentationOnly(String name) {
+    void shouldCiteOfficialDocumentationWhenFixtureIsLoaded(String name) {
         List<String> urls = new ArrayList<>();
         collectUrls(load("/protocol/" + name), urls);
         assertFalse(urls.isEmpty(), name + ": carries no source URL");
@@ -551,10 +516,7 @@ class ProtocolContractsTest {
         node.forEach(child -> collectUrls(child, urls));
     }
 
-    /**
-     * Every fixture on the classpath, never a hand-kept list: a new one joins the review-date and
-     * provenance checks the moment it is added, instead of the day someone remembers to list it.
-     */
+    /** Enumerates every classpath fixture so new files automatically join provenance checks. */
     static List<String> fixtureNames() {
         List<String> names = new ArrayList<>();
         try (InputStream in = ProtocolContractsTest.class.getResourceAsStream("/protocol");

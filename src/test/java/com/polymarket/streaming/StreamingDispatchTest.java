@@ -17,13 +17,8 @@ import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** TC-SD — an event dispatches only to handlers whose filter matches, and one throwing handler
- * cannot stop the rest. Driven end to end through a real (mock) socket since dispatch has no
- * reflection seam in the new capability. */
-@DisplayName("TC-SD — Streaming event dispatch")
 class StreamingDispatchTest {
 
     private MockWebServer server;
@@ -39,7 +34,6 @@ class StreamingDispatchTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -48,7 +42,6 @@ class StreamingDispatchTest {
         return "ws://" + server.getHostName() + ":" + server.getPort();
     }
 
-    /** A server that echoes back whatever text it's told to send once the client sends a frame. */
     private CountDownLatch serveOnFirstFrame(String... framesToSend) throws Exception {
         CountDownLatch sent = new CountDownLatch(1);
         server = new MockWebServer();
@@ -63,8 +56,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-001 token A callbacks do not receive token B book events")
-    void bookCallbacksAreFilteredByToken() throws Exception {
+    void shouldFilterBookCallbacksWhenAssetIdsDiffer() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"book","asset_id":"tokA","market":"0xm","timestamp":"1",
              "bids":[],"asks":[],"hash":"h"}
@@ -89,8 +81,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-002 price-change batches are filtered per entry asset")
-    void priceChangeFilteredPerEntry() throws Exception {
+    void shouldFilterPriceChangesPerEntryWhenBatchContainsOneAsset() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"price_change","market":"0xm","timestamp":"1",
              "price_changes":[{"asset_id":"tokA","price":"0.5","size":"200","side":"BUY"}]}
@@ -112,8 +103,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-003 an empty filter receives every asset")
-    void emptyFilterReceivesEverything() throws Exception {
+    void shouldReceiveAllAssetsWhenBookFilterIsEmpty() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"last_trade_price","asset_id":"tokA","market":"0xm","price":"0.4","timestamp":"1"}
             """);
@@ -131,8 +121,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-004 one throwing callback does not stop the others")
-    void oneThrowingCallbackDoesNotStopOthers() throws Exception {
+    void shouldContinueDispatchWhenCallbackThrows() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"book","asset_id":"tokA","market":"0xm","timestamp":"1",
              "bids":[],"asks":[],"hash":"h"}
@@ -152,8 +141,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-005 tick-size-change callback receives the parsed event")
-    void tickSizeChangeDelivered() throws Exception {
+    void shouldDeliverTickSizeChangeWhenEventArrives() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"tick_size_change","asset_id":"tokA","market":"0xm",
              "old_tick_size":"0.01","new_tick_size":"0.001","timestamp":"1"}
@@ -173,13 +161,12 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-006 user order and trade callbacks are filtered by market condition ID")
-    void userCallbacksFilteredByMarket() throws Exception {
+    void shouldFilterUserCallbacksWhenMarketIdsDiffer() throws Exception {
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"order","id":"0x1","market":"0xm1","asset_id":"tokA","side":"BUY",
              "price":"0.52","size_matched":"1","type":"UPDATE"}
             """);
-        server.enqueue(new MockResponse()); // unused; only one connection is made in this test
+        server.enqueue(new MockResponse());
 
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway,
@@ -199,8 +186,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-009 a frame missing a documented required field is dropped, not half-mapped")
-    void malformedFramesNeverBecomeNullBearingEvents() throws Exception {
+    void shouldDropMalformedFramesWhenRequiredFieldIsMissing() throws Exception {
         // The documented order event always carries a price; without one there is no order to report.
         CountDownLatch sent = serveOnFirstFrame("""
             {"event_type":"order","id":"0x1","market":"0xm1","asset_id":"tokA","side":"BUY",
@@ -227,8 +213,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-007 the pinned custom market events reach their own typed handlers")
-    void customMarketEventsReachTypedHandlers() throws Exception {
+    void shouldDispatchTypedCustomEventsWhenFlagIsEnabled() throws Exception {
         String bestBidAsk = StreamProtocol.at("marketChannel", "events", "best_bid_ask").toString();
         String newMarket = StreamProtocol.at("marketChannel", "events", "new_market").toString();
         String resolved = StreamProtocol.at("marketChannel", "events", "market_resolved").toString();
@@ -256,8 +241,7 @@ class StreamingDispatchTest {
     }
 
     @Test
-    @DisplayName("TC-SD-008 custom market events are not delivered to a channel that did not request them")
-    void customMarketEventsNeedTheDocumentedFlag() {
+    void shouldThrowIllegalStateExceptionWhenCustomEventsAreEnabledAfterSubscription() {
         gateway = StreamingGateway.builder().wsBase("wss://127.0.0.1:1").build();
         streaming = new Streaming(gateway, SigningAuthority.none());
         streaming.subscribeMarket(List.of("tokA"));

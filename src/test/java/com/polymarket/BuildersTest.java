@@ -34,10 +34,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Builders: credential lifecycle and builder trades (issue #19)")
 class BuildersTest {
 
     /** The documented 32-byte hex Builder code shape: ^0x[a-fA-F0-9]{64}$. */
@@ -83,8 +81,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-001: creating a builder credential returns a typed, fully redacted value")
-    void createCredentialsReturnsTypedAndRedactedCredentials() throws Exception {
+    void shouldReturnRedactedCredentialsWhenCreatingBuilderCredential() throws Exception {
         enqueue("""
                 {"key":"builder-key-1","secret":"c2VjcmV0LXNlY3JldA==","passphrase":"builder-pass"}""");
 
@@ -106,8 +103,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-018: a 2xx credential response missing or blanking a part fails the read")
-    void anIncompleteCredentialResponseFailsTheRead() {
+    void shouldThrowIOExceptionWhenCredentialResponseIsIncomplete() {
         enqueue("""
                 {"key":"builder-key-1","passphrase":"builder-pass"}""");
         enqueue("""
@@ -119,8 +115,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-002: listing builder credentials returns typed summaries, never a raw map")
-    void listCredentialsReturnsTypedSummaries() throws Exception {
+    void shouldReturnTypedSummariesWhenListingBuilderCredentials() throws Exception {
         enqueue("""
                 [{"key":"builder-key-1","createdAt":"2024-01-01T00:00:00Z","revokedAt":null},
                  {"key":"builder-key-2","createdAt":"2024-02-01T00:00:00Z","revokedAt":"2024-03-01T00:00:00Z"}]""");
@@ -141,8 +136,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-003: revoking succeeds on a 2xx response")
-    void revokeCredentialsSucceedsOnSuccess() throws Exception {
+    void shouldReportSuccessfulRevocationWhenRevokingCredentials() throws Exception {
         enqueue("{}");
 
         BuilderCredentialRevocation outcome = builders(authority()).revokeCredentials();
@@ -156,8 +150,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-004: revoking reports failure as data, not an exception, on a non-2xx response")
-    void revokeCredentialsFailsAsData() throws Exception {
+    void shouldReportRevocationFailureAsDataWhenRevokingCredentials() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(404).setBody("not found"));
 
         BuilderCredentialRevocation outcome = builders(authority()).revokeCredentials();
@@ -167,8 +160,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-005: every builder operation fails before sending when credentials are absent")
-    void everyOperationRequiresCredentialsBeforeSending() {
+    void shouldThrowAuthenticationRequiredExceptionWhenBuilderOperationLacksCredentials() {
         Builders builders = builders(SigningAuthority.none());
 
         assertThrows(AuthenticationRequiredException.class, builders::createCredentials);
@@ -181,8 +173,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-006: a builder trades page carries exact decimal values and its next cursor")
-    void tradesReturnTypedPageWithExactValues() throws Exception {
+    void shouldPreserveExactTradeValuesWhenReadingBuilderTrades() throws Exception {
         enqueue("""
                 {"limit":100,"count":1,"next_cursor":"MQ==","data":[{
                   "id":"trade-1","tradeType":"MATCH","takerOrderHash":"0xabc",
@@ -220,8 +211,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-007: a filtered trades read signs its filters and cursor in the path")
-    void tradesFilterIsSignedInThePath() throws Exception {
+    void shouldSendTradeFiltersInPathWhenReadingFilteredTrades() throws Exception {
         enqueue("""
                 {"limit":100,"count":0,"next_cursor":"LTE=","data":[]}""");
 
@@ -236,8 +226,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-008: an explicit next cursor is walked forward and its value travels on the wire")
-    void tradesWalkForwardWithAnExplicitCursor() throws Exception {
+    void shouldSendExplicitCursorWhenWalkingBuilderTrades() throws Exception {
         enqueue("""
                 {"limit":100,"count":0,"next_cursor":"LTE=","data":[]}""");
 
@@ -249,8 +238,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-010: a builder trades read sends the required Builder code")
-    void tradesSendTheRequiredBuilderCode() throws Exception {
+    void shouldSendBuilderCodeWhenReadingBuilderTrades() throws Exception {
         enqueue("""
                 {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
 
@@ -261,8 +249,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-011: a Builder code outside the documented 32-byte hex form is rejected before sending")
-    void anUndocumentedBuilderCodeIsRejectedBeforeSending() {
+    void shouldThrowIllegalArgumentExceptionWhenBuilderCodeIsUndocumented() {
         assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder("nope"));
         assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder("0xab"));
         assertThrows(IllegalArgumentException.class, () -> BuilderTradeQuery.forBuilder(" "));
@@ -271,8 +258,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-012: a bounded trades window sends before and after as unix seconds")
-    void tradesWindowSendsBeforeAndAfterAsUnixSeconds() throws Exception {
+    void shouldSendUnixWindowBoundsWhenReadingBuilderTrades() throws Exception {
         enqueue("""
                 {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
 
@@ -289,8 +275,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-013: continuation is explicit — a page hands back the cursor the caller must send")
-    void continuationIsExplicitAndEndsOnTheDocumentedSentinel() throws Exception {
+    void shouldWalkExplicitCursorWhenContinuingBuilderTrades() throws Exception {
         enqueue("""
                 {"limit":300,"count":0,"next_cursor":"MzAw","data":[]}""");
         enqueue("""
@@ -333,8 +318,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-014: unix match time and ISO creation/update times map by their distinct units")
-    void matchTimeIsUnixWhileCreationAndUpdateTimesAreIso() throws Exception {
+    void shouldMapDistinctTimeUnitsWhenReadingBuilderTrade() throws Exception {
         BuilderTrade trade = documentedTrade();
 
         // 1700000000 unix seconds is 2023-11-14T22:13:20Z; createdAt/updatedAt are ISO-8601.
@@ -344,8 +328,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-015: every required trade field, bucket identity included, is preserved exactly")
-    void everyRequiredTradeFieldIncludingBucketIndexSurvivesExactly() throws Exception {
+    void shouldPreserveRequiredTradeFieldsWhenReadingBuilderTrade() throws Exception {
         BuilderTrade trade = documentedTrade();
 
         assertEquals("trade-123", trade.id());
@@ -375,8 +358,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-016: a trade row missing a required field fails the read explicitly")
-    void aTradeRowMissingARequiredFieldFailsTheRead() throws Exception {
+    void shouldThrowIOExceptionWhenTradeRowLacksRequiredField() throws Exception {
         enqueue("{\"limit\":300,\"count\":1,\"next_cursor\":\"LTE=\",\"data\":["
                 + DOCUMENTED_ROW.replace("\"bucketIndex\":0,", "") + "]}");
 
@@ -386,8 +368,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-017: a builder read authenticates with the Account Signer and never sends the API secret")
-    void aBuilderReadAuthenticatesWithTheAccountSignerAndKeepsTheSecretOffTheWire()
+    void shouldAuthenticateBuilderReadAsAccountSignerWhenReadingTrades()
             throws Exception {
         enqueue("""
                 {"limit":300,"count":0,"next_cursor":"LTE=","data":[]}""");
@@ -408,8 +389,7 @@ class BuildersTest {
     }
 
     @Test
-    @DisplayName("TC-BD-009: a server failure reading builder credentials is thrown, not swallowed")
-    void aServerFailureListingCredentialsIsThrown() throws Exception {
+    void shouldThrowIOExceptionWhenListingCredentialsReturnsServerFailure() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(500).setBody("boom"));
 
         Builders builders = builders(authority());

@@ -18,14 +18,9 @@ import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * TC-RA — the RTDS Authoritative Subscription reaches the wire in one initial frame, and closing
- * the capability is terminal and releases every owned resource (issue #23).
- */
-@DisplayName("TC-RA — Rtds authoritative subscription and owned lifecycle")
+/** Covers the RTDS authoritative subscription and owned-resource lifecycle contract (issue #23). */
 class RtdsAuthoritativeLifecycleTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -43,7 +38,6 @@ class RtdsAuthoritativeLifecycleTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -62,7 +56,6 @@ class RtdsAuthoritativeLifecycleTest {
         return frames;
     }
 
-    /** Every symbol named in any "subscribe" frame, in wire order, with duplicates preserved. */
     private static List<String> subscribedSymbols(List<String> frames) throws Exception {
         List<String> seen = new ArrayList<>();
         for (String frame : frames) {
@@ -79,8 +72,7 @@ class RtdsAuthoritativeLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RA-001 concurrent subscribes cannot overtake or duplicate the initial frame")
-    void concurrentSubscribesCannotOvertakeTheInitialFrame() throws Exception {
+    void shouldSendInitialFrameBeforeUpdatesWhenBinanceSubscriptionsAreConcurrent() throws Exception {
         int threads = 8;
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
@@ -120,8 +112,7 @@ class RtdsAuthoritativeLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RA-002 closing is terminal — a later subscribe cannot reopen the socket")
-    void closingIsTerminal() throws Exception {
+    void shouldThrowIllegalStateExceptionWhenSubscriptionsFollowClose() throws Exception {
         startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -140,8 +131,7 @@ class RtdsAuthoritativeLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RA-003 closing releases the socket, keepalive, scheduler, dispatcher and pool")
-    void closingReleasesEveryOwnedResource() throws Exception {
+    void shouldReleaseOwnedResourcesWhenRtdsCloses() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).pingIntervalMs(60).build();
         rtds = new Rtds(gateway);
@@ -161,8 +151,7 @@ class RtdsAuthoritativeLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RA-004 a frame arriving after close reaches no application callback")
-    void callbackWorkStopsOnClose() throws Exception {
+    void shouldStopCallbacksWhenRtdsCloses() throws Exception {
         List<String> delivered = new CopyOnWriteArrayList<>();
         List<WebSocket> sockets = new CopyOnWriteArrayList<>();
         server = new MockWebServer();

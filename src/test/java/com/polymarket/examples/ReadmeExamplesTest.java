@@ -9,24 +9,17 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * The README's Java blocks are the same source {@code ReadmeExamples} compiles, so an example
- * that no longer matches the API fails the build rather than misleading a reader.
- */
-@DisplayName("README examples (issue #30)")
+/** Keeps README Java examples aligned with the source compiled during verification. */
 class ReadmeExamplesTest {
 
     private static final Path README = Path.of("README.md");
-    /** Not a test source: it is compiled against the packaged jar in the verify phase. */
     private static final Path COMPILED =
             Path.of("src/examples/java/com/polymarket/examples/ReadmeExamples.java");
 
     @Test
-    @DisplayName("TC-RM-001: every README Java block is compiled source, not prose")
-    void everyReadmeBlockIsCompiled() throws IOException {
+    void shouldMatchReadmeBlocksWhenExamplesAreCompiled() throws IOException {
         List<String> compiled = meaningfulLines(Files.readString(COMPILED));
         List<List<String>> blocks = javaBlocks(Files.readString(README));
 
@@ -38,8 +31,7 @@ class ReadmeExamplesTest {
     }
 
     @Test
-    @DisplayName("TC-RM-002: every import a README block shows is one the compiled example uses")
-    void everyReadmeImportIsReal() throws IOException {
+    void shouldMatchReadmeImportsWhenExamplesAreCompiled() throws IOException {
         String compiled = Files.readString(COMPILED);
         for (String line : Files.readString(README).lines().toList()) {
             String trimmed = line.trim();
@@ -49,7 +41,6 @@ class ReadmeExamplesTest {
         }
     }
 
-    /** Imports and blank lines are presentation; the statements are what has to match. */
     private static List<String> meaningfulLines(String source) {
         List<String> lines = new ArrayList<>();
         for (String line : source.lines().toList()) {

@@ -33,16 +33,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Public 2.0 boundaries")
 class PublicBoundaryTest {
 
-    /**
-     * With the 1.0 facade gone, everything shipped outside {@code internal} is public 2.0 surface,
-     * so the rules cover it by exclusion — a new bounded context is guarded the day it appears.
-     */
+    /** Public 2.0 surface is everything outside {@code internal}; new contexts are covered automatically. */
     private static final String INTERNAL = "com.polymarket.internal..";
 
     private static final JavaClasses SHIPPED = new ClassFileImporter()
@@ -70,30 +65,24 @@ class PublicBoundaryTest {
                     .and().areDeclaredInClassesThat().resideOutsideOfPackage(INTERNAL)
                     .should(useOnlySdkAndJdkTypes());
 
-    /**
-     * Public models are valid by construction: a reference component that accepts null would let a
-     * malformed wire frame or a hand-built value carry null past the boundary. Absence is Optional.
-     */
+    /** Public models reject null references at construction; absence is represented by Optional. */
     private static final ArchRule PUBLIC_RECORD_COMPONENTS_REJECT_NULL =
             classes().that().arePublic().and().resideOutsideOfPackage(INTERNAL)
                     .should(rejectNullComponents());
 
     @Test
-    @DisplayName("TC-AR-001: a public package reaching into internal transport is rejected")
-    void internalTransportLeakIsRejected() {
+    void shouldThrowWhenPublicCodeDependsOnInternal() {
         assertThrows(AssertionError.class, () ->
                 PUBLIC_PACKAGES_DO_NOT_DEPEND_ON_INTERNAL.check(forbidden(InternalTransportLeak.class)));
     }
 
     @Test
-    @DisplayName("TC-AR-002: the shipped 2.0 packages keep internal transport out")
-    void shippedCodeKeepsInternalTransportOut() {
+    void shouldKeepShippedCodeOutsideInternalWhenBoundaryIsChecked() {
         PUBLIC_PACKAGES_DO_NOT_DEPEND_ON_INTERNAL.check(SHIPPED);
     }
 
     @Test
-    @DisplayName("TC-AR-003: a domain model using Jackson, OkHttp or Web3j is rejected")
-    void transportLibraryLeakIsRejected() {
+    void shouldThrowWhenDomainModelUsesTransportLibrary() {
         AssertionError rejected = assertThrows(AssertionError.class, () ->
                 DOMAIN_MODELS_DO_NOT_USE_TRANSPORT_LIBRARIES.check(forbidden(TransportLibraryLeak.class)));
 
@@ -103,26 +92,22 @@ class PublicBoundaryTest {
     }
 
     @Test
-    @DisplayName("TC-AR-004: the shipped 2.0 domain models keep transport libraries out")
-    void shippedCodeKeepsTransportLibrariesOut() {
+    void shouldKeepShippedModelsFreeOfTransportWhenBoundaryIsChecked() {
         DOMAIN_MODELS_DO_NOT_USE_TRANSPORT_LIBRARIES.check(SHIPPED);
     }
 
     @Test
-    @DisplayName("TC-AR-005: a public signature carrying a non-SDK, non-JDK type is rejected")
-    void foreignSignatureLeakIsRejected() {
+    void shouldThrowWhenPublicSignatureUsesForeignType() {
         assertThrows(AssertionError.class, () ->
                 PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES.check(forbidden(ForeignSignatureLeak.class)));
     }
 
     @Test
-    @DisplayName("TC-AR-007: a foreign type hidden in a generic argument, bound or array is rejected")
-    void genericSignatureLeakIsRejected() {
+    void shouldThrowWhenForeignTypeIsHiddenInGenericSignature() {
         AssertionError rejected = assertThrows(AssertionError.class, () ->
                 PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES.check(forbidden(GenericSignatureLeak.class)));
 
         String message = rejected.getMessage();
-        // One member per signature position the raw-type rule used to walk straight past.
         assertTrue(message.contains("responses()"), message);
         assertTrue(message.contains("nested()"), message);
         assertTrue(message.contains("pending()"), message);
@@ -132,14 +117,12 @@ class PublicBoundaryTest {
     }
 
     @Test
-    @DisplayName("TC-AR-006: every shipped 2.0 public signature is SDK or JDK only")
-    void shippedPublicSignaturesAreSdkOrJdkOnly() {
+    void shouldKeepShippedSignaturesSdkOrJdkWhenBoundaryIsChecked() {
         PUBLIC_SIGNATURES_USE_ONLY_SDK_AND_JDK_TYPES.check(SHIPPED);
     }
 
     @Test
-    @DisplayName("TC-AR-008: a public model whose components accept null is rejected")
-    void nullableModelLeakIsRejected() {
+    void shouldThrowWhenPublicModelAcceptsNull() {
         AssertionError rejected = assertThrows(AssertionError.class, () ->
                 PUBLIC_RECORD_COMPONENTS_REJECT_NULL.check(forbidden(NullableModelLeak.class)));
 
@@ -150,8 +133,7 @@ class PublicBoundaryTest {
     }
 
     @Test
-    @DisplayName("TC-AR-009: every shipped 2.0 public model rejects null in every component")
-    void shippedPublicModelsAreValidByConstruction() {
+    void shouldKeepShippedModelsNullSafeWhenBoundaryIsChecked() {
         PUBLIC_RECORD_COMPONENTS_REJECT_NULL.check(SHIPPED);
     }
 

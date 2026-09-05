@@ -16,11 +16,9 @@ import com.polymarket.markets.TokenId;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Immediate depth planning")
 class ImmediatePlannerTest {
 
     private static final TokenId ASSET = new TokenId("12345");
@@ -39,13 +37,10 @@ class ImmediatePlannerTest {
     }
 
     @Nested
-    @DisplayName("immediate BUY")
     class Buys {
 
         @Test
-        @DisplayName("TC-DP-001: a budget filled by the best level alone does not cross higher")
-        void staysAtTheBestLevel() {
-            // 0.50 x 10 available = 5.00 pUSD. A 4.00 budget buys 8 shares at 0.50.
+        void shouldStayAtBestLevelWhenBudgetFitsFirstAsk() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("4"), ExecutionPolicy.FAK), book());
 
@@ -56,10 +51,8 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-002: walking into a second level lifts the protected price to it")
-        void protectedPriceIsTheWorstLevelTouched() {
-            // Every share is repriced at 0.52, so 11.00 pUSD carries 21.15 of them — not the
-            // 21.538461 a blended walk would claim and then be unable to pay for.
+        void shouldRaiseProtectedPriceWhenBuyWalkReachesSecondLevel() {
+            // Repricing every share at the protected level keeps the signed leg affordable.
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("11"), ExecutionPolicy.FAK), book());
 
@@ -69,8 +62,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-003: a caller ceiling stops the walk instead of crossing past it")
-        void callerCeilingCapsTheWalk() {
+        void shouldStopAtCallerCeilingWhenBuyDepthExceedsIt() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK)
                             .notAbove(Price.of("0.50")), book());
@@ -82,9 +74,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-004: FOK reports insufficient depth rather than filling partially")
-        void fokRejectsInsufficientDepth() {
-            // Whole book is 5.00 + 10.40 + 16.20 = 31.60 pUSD.
+        void shouldReportInsufficientDepthWhenFokBudgetExceedsBook() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("50"), ExecutionPolicy.FOK), book());
 
@@ -96,24 +86,20 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-005: FAK fills what is there and reports the shortfall")
-        void fakFillsWhatIsAvailable() {
+        void shouldFillAvailableDepthWhenFakBudgetExceedsBook() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("50"), ExecutionPolicy.FAK), book());
 
             ImmediatePlan.Executable executable = assertInstanceOf(ImmediatePlan.Executable.class, plan);
             assertEquals(Price.of("0.54"), executable.protectedPrice());
-            // The book is worth 31.60 at its own prices, but the order authorises all 60 shares
-            // at the 0.54 it is signed at.
+            // The order authorises all retained shares at the Protected Price it signs.
             assertEquals(PusdAmount.of("32.4"), executable.cost());
             assertTrue(executable.partial(), "a FAK that could not spend the budget is partial");
         }
 
         @Test
-        @DisplayName("TC-DP-006: a fee-aware budget is spent on the nonlinear official fee")
-        void feeAwareBudgetReservesTheFee() {
-            // Crypto taker rate 0.07. At 0.50 the fee is 0.07 x 0.50 x 0.50 = 0.0175 per share,
-            // so 5.175 pUSD buys exactly the ten shares resting at 0.50 and nothing more.
+        void shouldReserveFeeWhenBuyBudgetIncludesTakerRate() {
+            // The nonlinear taker fee must fit inside the budget before another level is crossed.
             PusdAmount budget = PusdAmount.of("5.175");
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, budget, ExecutionPolicy.FAK)
@@ -131,10 +117,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-007a: the same budget without a fee rate buys strictly more")
-        void aFeeFreeBudgetBuysMore() {
-            // Crossing to 0.52 would reprice all ten shares there and buy only 9.95, so the whole
-            // 0.50 level is the best 5.175 can do — and without a fee it keeps every share of it.
+        void shouldBuyMoreWhenBudgetHasNoFeeRate() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("5.175"), ExecutionPolicy.FAK), book());
 
@@ -145,11 +128,8 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-015: the pUSD leg an immediate BUY authorises never exceeds its budget")
-        void theAuthorisedSpendStaysInsideTheBudget() {
-            // 10 shares rest at 0.50 and 20 more at 0.52. A blended walk would buy every share the
-            // budget covers at book prices and then reprice all of them at 0.52, spending more than
-            // the caller allowed. The plan must be affordable at the price it is actually signed at.
+        void shouldKeepSpendInsideBudgetWhenBuyLegIsRepriced() {
+            // The plan must be affordable at the Protected Price it actually signs, not a blend.
             PusdAmount budget = PusdAmount.of("11");
             MarketRules rules = book().rules();
 
@@ -167,8 +147,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-016: a fee-aware budget also bounds the repriced leg")
-        void theAuthorisedSpendStaysInsideAFeeAwareBudget() {
+        void shouldKeepFeeAwareSpendInsideBudgetWhenBuyLegIsRepriced() {
             PusdAmount budget = PusdAmount.of("11");
             FeeRate rate = FeeRate.of("0.07");
             MarketRules rules = book().rules();
@@ -183,10 +162,8 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-017: planned shares carry the tick profile's size precision, not six decimals")
-        void plannedSharesFollowTheDocumentedSizePrecision() {
-            // The official "Choose a Price and Size" table gives every documented tick two size
-            // decimals; a six-decimal share count is not a size the exchange accepts.
+        void shouldFollowSizePrecisionWhenPlanningShares() {
+            // The official size grid rejects share quantities with more than its documented decimals.
             ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
                     ImmediatePlanner.plan(
                             ImmediateBuy.of(ASSET, PusdAmount.of("11"), ExecutionPolicy.FAK), book()));
@@ -198,13 +175,10 @@ class ImmediatePlannerTest {
     }
 
     @Nested
-    @DisplayName("immediate SELL")
     class Sells {
 
         @Test
-        @DisplayName("TC-DP-007: a sell walks bids best-first and protects at the worst level touched")
-        void sellWalksBidsDescending() {
-            // 30 shares: 30 at 0.50 exactly fills the best bid level.
+        void shouldWalkBidsBestFirstWhenSellingAcrossDepth() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateSell.of(ASSET, ShareQuantity.of("30"), ExecutionPolicy.FOK), book());
 
@@ -214,10 +188,8 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-008: a sell crossing two levels protects at the lower one")
-        void sellProtectsAtTheLowestLevelTouched() {
-            // 40 shares reach down to 0.48, and the order is signed at that floor: 40 x 0.48.
-            // The walk is worth 19.80 at its own level prices, but 19.20 is what it guarantees.
+        void shouldProtectAtLowestLevelWhenSellCrossesTwoLevels() {
+            // The signed floor is guaranteed proceeds; a blended walk is not.
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateSell.of(ASSET, ShareQuantity.of("40"), ExecutionPolicy.FOK), book());
 
@@ -227,8 +199,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-009: a caller floor stops the walk instead of selling below it")
-        void callerFloorCapsTheWalk() {
+        void shouldStopAtCallerFloorWhenSellDepthFallsBelowIt() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateSell.of(ASSET, ShareQuantity.of("100"), ExecutionPolicy.FAK)
                             .notBelow(Price.of("0.48")), book());
@@ -239,8 +210,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-010: FOK on a sell reports the shares actually available")
-        void fokSellReportsAvailableShares() {
+        void shouldReportAvailableSharesWhenFokSellLacksDepth() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateSell.of(ASSET, ShareQuantity.of("100"), ExecutionPolicy.FOK), book());
 
@@ -250,8 +220,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-018: reported pUSD depth keeps the tick profile's amount precision")
-        void insufficientDepthKeepsAmountPrecision() {
+        void shouldKeepAmountPrecisionWhenReportingInsufficientDepth() {
             MarketRules rules = new MarketRules(
                     TickSize.of("0.0025"), ShareQuantity.of("1"), false);
             OrderBookSnapshot shallow = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH,
@@ -268,10 +237,8 @@ class ImmediatePlannerTest {
     }
 
     @Nested
-    @DisplayName("sub-grid depth")
     class SubGridDepth {
 
-        /** Depth quoted finer than the two size decimals every documented tick allows. */
         private OrderBookSnapshot book(List<PriceLevel> bids, List<PriceLevel> asks) {
             return new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash", bids, asks,
                     new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false),
@@ -279,9 +246,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-019: a BUY keeps only the on-grid part of sub-grid depth")
-        void buyTruncatesSubGridDepthToTheSizeGrid() {
-            // 12.345 shares rest at 0.50, but 12.345 is not a size the exchange accepts.
+        void shouldTruncateBuyDepthWhenSharesAreOffGrid() {
             ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
                     ImmediatePlanner.plan(
                             ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK),
@@ -293,10 +258,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-020: a sub-grid tail at a worse price does not raise the BUY protection")
-        void subGridTailDoesNotRaiseTheProtectedPrice() {
-            // The extra 0.001 at 0.52 buys no further whole size step, so paying 0.52 for all
-            // 12.34 shares would be a worse order for exactly nothing.
+        void shouldKeepBuyProtectionWhenOffGridTailAddsNoSize() {
             ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
                     ImmediatePlanner.plan(
                             ImmediateBuy.of(ASSET, PusdAmount.of("100"), ExecutionPolicy.FAK),
@@ -309,8 +271,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-021: a SELL keeps only the on-grid part and reports it as partial")
-        void sellTruncatesSubGridDepthAndIsPartial() {
+        void shouldReportPartialSellWhenDepthIsOffGrid() {
             ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
                     ImmediatePlanner.plan(
                             ImmediateSell.of(ASSET, ShareQuantity.of("12.345"), ExecutionPolicy.FAK),
@@ -323,9 +284,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-022: a sub-grid tail at a worse price does not lower the SELL protection")
-        void subGridTailDoesNotLowerTheProtectedPrice() {
-            // 0.001 more depth at 0.55 adds no whole size step, so the floor stays at 0.60.
+        void shouldKeepSellProtectionWhenOffGridTailAddsNoSize() {
             ImmediatePlan.Executable plan = assertInstanceOf(ImmediatePlan.Executable.class,
                     ImmediatePlanner.plan(
                             ImmediateSell.of(ASSET, ShareQuantity.of("12.346"), ExecutionPolicy.FAK),
@@ -337,8 +296,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-023: a size the grid cannot express is not a fill an FOK can promise")
-        void aFineGrainedFokIsInsufficientDepth() {
+        void shouldReportInsufficientDepthWhenFokSizeIsOffGrid() {
             assertInstanceOf(ImmediatePlan.InsufficientDepth.class,
                     ImmediatePlanner.plan(
                             ImmediateSell.of(ASSET, ShareQuantity.of("12.345"), ExecutionPolicy.FOK),
@@ -346,8 +304,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-024: depth below one size step reports no shares and no notional")
-        void subGridOnlyDepthReportsNothing() {
+        void shouldReportNoSharesWhenDepthIsBelowOneSizeStep() {
             OrderBookSnapshot dust = book(
                     List.of(level("0.60", "0.004")), List.of(level("0.50", "0.004")));
 
@@ -368,12 +325,10 @@ class ImmediatePlannerTest {
     }
 
     @Nested
-    @DisplayName("book identity and minimum")
     class BookGuards {
 
         @Test
-        @DisplayName("TC-DP-012: a book for a different asset cannot plan this intent")
-        void rejectsABookForAnotherAsset() {
+        void shouldThrowForDifferentAssetWhenPlanningImmediateIntent() {
             ImmediateBuy buy = ImmediateBuy.of(new TokenId("999"), PusdAmount.of("4"),
                     ExecutionPolicy.FAK);
 
@@ -385,9 +340,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-013: a SELL below the book minimum is rejected, never planned")
-        void rejectsASellBelowTheBookMinimum() {
-            // The book publishes min_order_size 5 shares.
+        void shouldThrowForBelowMinimumSellWhenPlanningImmediateIntent() {
             ImmediateSell sell = ImmediateSell.of(ASSET, ShareQuantity.of("4.999999"),
                     ExecutionPolicy.FAK);
 
@@ -395,9 +348,7 @@ class ImmediatePlannerTest {
         }
 
         @Test
-        @DisplayName("TC-DP-014: a walk that cannot reach the book minimum is insufficient depth")
-        void aSubMinimumWalkIsInsufficientDepth() {
-            // 1.00 pUSD at 0.50 buys 2 shares, under the book's 5-share minimum.
+        void shouldReportInsufficientDepthWhenBuyCannotReachMinimum() {
             ImmediatePlan plan = ImmediatePlanner.plan(
                     ImmediateBuy.of(ASSET, PusdAmount.of("1"), ExecutionPolicy.FAK), book());
 
@@ -408,12 +359,10 @@ class ImmediatePlannerTest {
     }
 
     @Nested
-    @DisplayName("empty book")
     class Empty {
 
         @Test
-        @DisplayName("TC-DP-011: an empty side yields insufficient depth, never a fabricated price")
-        void emptyBookCannotBePlanned() {
+        void shouldReportInsufficientDepthWhenBookSideIsEmpty() {
             OrderBookSnapshot empty = new OrderBookSnapshot("0xcond", ASSET, Instant.EPOCH, "hash",
                     List.of(), List.of(),
                     new MarketRules(TickSize.of("0.01"), ShareQuantity.of("5"), false),

@@ -39,10 +39,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Order books")
 class OrderBooksTest {
 
     private static final TokenId TOKEN = new TokenId(
@@ -84,8 +82,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-001: one book response carries levels, tick, minimum, neg risk, hash and time")
-    void oneResponseCarriesEverythingSigningNeeds() throws Exception {
+    void shouldExposeBookAndSigningDataWhenResponseIsComplete() throws Exception {
         enqueueFixture("book.json");
 
         OrderBookSnapshot book;
@@ -115,8 +112,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-002: shuffled wire levels are sorted numerically before use")
-    void levelsAreSortedNumericallyWhateverTheWireOrder() throws Exception {
+    void shouldSortLevelsNumericallyWhenWireOrderIsShuffled() throws Exception {
         // The OpenAPI claims bids descend and asks ascend; the live API sends the exact reverse.
         // Neither ordering may be trusted, and "0.09" sorts before "0.5" only numerically.
         server.enqueue(new MockResponse().setBody(shuffledBook()));
@@ -137,8 +133,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-003: the live fixture itself arrives out of order and is corrected")
-    void theLiveWireOrderIsNotTrusted() throws Exception {
+    void shouldCorrectLiveLevelOrderWhenFixtureArrivesShuffled() throws Exception {
         enqueueFixture("book.json");
 
         OrderBookSnapshot book;
@@ -154,8 +149,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-004: rules are re-read every time; nothing is remembered between reads")
-    void rulesAreNeverCached() throws Exception {
+    void shouldRefreshRulesWhenBookIsReadAgain() throws Exception {
         // A market's tick can be widened and neg risk can be switched on. A cached rule would
         // sign the next order against a grid the exchange no longer uses.
         server.enqueue(new MockResponse().setBody(bookWithRules("0.001", "5", false)));
@@ -174,8 +168,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-005: the book path holds no map to remember a rule in")
-    void theBookPathHoldsNoRuleStore() throws Exception {
+    void shouldAvoidRuleStoreWhenBookGatewayIsInspected() throws Exception {
         for (Class<?> type : List.of(OrderBooks.class,
                 Class.forName("com.polymarket.internal.markets.OrderBookGateway"))) {
             for (Field field : type.getDeclaredFields()) {
@@ -186,8 +179,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-006: the CLOB minimum is shares, and Gamma is never asked")
-    void theMinimumComesFromTheBookInShares() throws Exception {
+    void shouldUseShareMinimumWhenBookAndGammaDisagree() throws Exception {
         enqueueFixture("book.json");
 
         MarketRules rules;
@@ -203,8 +195,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-007: a token the exchange keeps no book for is empty, not an error")
-    void anUnknownTokenIsEmpty() throws Exception {
+    void shouldReturnEmptyWhenTokenHasNoBook() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(404).setBody(
                 "{\"error\":\"No orderbook exists for the requested token id\"}"));
 
@@ -214,8 +205,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-008: an empty last trade price stays absent instead of becoming zero")
-    void anAbsentLastTradePriceIsNotFabricated() throws Exception {
+    void shouldPreserveAbsentPriceWhenLastTradeIsEmpty() throws Exception {
         // The live API really does send "" on a market that has never traded.
         server.enqueue(new MockResponse().setBody(bookWithRules("0.01", "5", false)
                 .replace("\"last_trade_price\":\"0.9\"", "\"last_trade_price\":\"\"")));
@@ -227,8 +217,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-009: a batch read is one idempotent GET that retries a transient failure")
-    void aBatchReadKeepsReadRetrySemantics() throws Exception {
+    void shouldRetryBatchReadWhenGetTemporarilyFails() throws Exception {
         // /books also exists as a POST. Routing it through the write path would make a pure read
         // non-retryable, and making writes retryable would let a read budget replay an order.
         TokenId other = new TokenId("112713157523689199379181329313787575968439519861163279"
@@ -253,8 +242,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-011: Gamma's minimum notional cannot reach a signing decision")
-    void gammaMinimumNotionalNeverGovernsSigning() throws Exception {
+    void shouldIgnoreGammaMinimumWhenSigningFromBookRules() throws Exception {
         // Gamma labels its orderMinSize a USDC notional; the CLOB publishes shares. Here they
         // disagree by 20x, so whichever value reaches signing is visible in the outcome.
         try (InputStream in = getClass().getResourceAsStream("/gamma/markets.json")) {
@@ -289,8 +277,7 @@ class OrderBooksTest {
     }
 
     @Test
-    @DisplayName("TC-OB-010: an empty batch asks nothing of the exchange")
-    void anEmptyBatchMakesNoRequest() throws Exception {
+    void shouldReturnEmptyWhenBatchHasNoTokens() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertEquals(List.of(), sdk.orderBooks().books(List.of()));
         }

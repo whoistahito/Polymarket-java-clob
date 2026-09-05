@@ -7,10 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import okhttp3.Response;
 
-/**
- * Test-only forbidden dependency: every leak here hides inside a generic signature, an array, or a
- * type-variable bound, so the raw-type rule passes it. Never shipped.
- */
+/** Test-only fixture covering forbidden dependencies hidden in generic, array, and bound signatures. */
 public final class GenericSignatureLeak {
 
     /** Leak in a type argument. */

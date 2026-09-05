@@ -19,11 +19,9 @@ import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** TC-SU — the authenticated user channel: wire shape (issue #22) and documented event fields. */
-@DisplayName("TC-SU — Streaming user channel")
+/** Covers the authenticated user-channel wire shape and documented event fields (issue #22). */
 class StreamingUserChannelTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -43,7 +41,6 @@ class StreamingUserChannelTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -63,8 +60,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-001 the initial user frame carries the nested auth object, no wallet address")
-    void initialFrameCarriesNestedAuth() throws Exception {
+    void shouldCarryNestedAuthWhenUserChannelConnects() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
@@ -89,8 +85,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-002 a dynamic subscribe update does not repeat the credentials")
-    void dynamicUpdateDoesNotRepeatCredentials() throws Exception {
+    void shouldOmitCredentialsWhenUserSubscriptionIsUpdated() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
@@ -110,13 +105,12 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-003 an empty user market filter still opens and authenticates the channel")
-    void emptyFilterStillAuthenticates() throws Exception {
+    void shouldAuthenticateEmptyFilterWhenUserSubscriptionHasNoMarkets() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
 
-        // subscribeUser with an empty list still opens the channel (empty filter == "every market").
+        // An empty user-channel filter means every market.
         streaming.subscribeUser(List.of());
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
 
@@ -127,8 +121,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-004 the complete documented order fixture preserves every field")
-    void orderPreservesDocumentedFields() throws Exception {
+    void shouldPreserveOrderFieldsWhenDocumentedOrderArrives() throws Exception {
         String orderJson = """
             {
               "event_type": "order",
@@ -186,8 +179,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-005 the complete documented trade fixture preserves every field")
-    void tradePreservesDocumentedFields() throws Exception {
+    void shouldPreserveTradeFieldsWhenDocumentedTradeArrives() throws Exception {
         String tradeJson = """
             {
               "event_type": "trade",
@@ -247,8 +239,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-006 an undocumented event_type is ignored without breaking dispatch")
-    void unknownEventTypeIsIgnored() throws Exception {
+    void shouldIgnoreUnknownEventTypeWhenUserFrameArrives() throws Exception {
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
             @Override public void onMessage(WebSocket ws, String text) {
@@ -274,8 +265,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-007 concurrent user subscribes cannot send an update ahead of the credential frame")
-    void concurrentUserSubscribesCannotOvertakeTheCredentialFrame() throws Exception {
+    void shouldSendCredentialsBeforeUpdatesWhenUserSubscriptionsAreConcurrent() throws Exception {
         int threads = 8;
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
@@ -313,8 +303,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-008 a dynamic user update carries only the documented update fields")
-    void dynamicUpdateCarriesOnlyDocumentedFields() throws Exception {
+    void shouldSendOnlyDocumentedFieldsWhenUserSubscriptionIsUpdated() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = StreamingGateway.builder().wsBase(wsBase()).build();
         streaming = new Streaming(gateway, SigningAuthority.apiCredentials(CREDS, ACCOUNT_SIGNER));
@@ -331,7 +320,6 @@ class StreamingUserChannelTest {
                 "the update frame must carry exactly the documented fields: " + frames);
     }
 
-    /** Waits for the wire to settle, then returns every non-heartbeat frame parsed, in order. */
     private static List<JsonNode> awaitFrames(List<String> frames, int atLeast) throws Exception {
         for (int i = 0; i < 100 && frames.size() < atLeast; i++) Thread.sleep(50);
         Thread.sleep(300);
@@ -343,8 +331,7 @@ class StreamingUserChannelTest {
     }
 
     @Test
-    @DisplayName("TC-SU-009 the pinned documented trade frame preserves maker and bucket identity")
-    void pinnedTradeFramePreservesMakerAndBucketIdentity() throws Exception {
+    void shouldPreserveMakerAndBucketIdentityWhenPinnedTradeArrives() throws Exception {
         JsonNode pinned = StreamProtocol.at("userChannel", "events", "trade");
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {

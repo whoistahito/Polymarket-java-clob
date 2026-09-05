@@ -17,7 +17,7 @@ mvn -Plive test -Dtest=LiveReadOnlyTest
 mvn test -Dtest=TradingTest
 
 # Run a single test method
-mvn test -Dtest=TradingTest#coherentSuccessIsAccepted
+mvn test -Dtest=TradingTest#shouldAcceptCoherentSuccessWhenOrderResponseIsComplete
 
 # Build the library JAR (this repo is a dependency, not an app — no main class)
 mvn clean package
@@ -341,7 +341,8 @@ documentation and an independent signer — never from this SDK's own code.
 
 ### Testing conventions
 - Framework: JUnit 5 + Mockito
-- Test IDs follow `TC-XX-NNN` in `@DisplayName` (e.g., `TC-PC-001`)
+- Do not use `@DisplayName`. Test methods use `should...When...`; exception tests use
+  `shouldThrow...When...`. Keep necessary test documentation to at most two lines.
 - Unit tests use a well-known test private key: `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
   — the same key the pinned protocol vectors are generated against.
 - Prefer the highest seam: drive a public capability against MockWebServer and assert the typed
@@ -368,4 +369,3 @@ documentation and an independent signer — never from this SDK's own code.
   Lombok, so they build the way a consumer's code does), and `ReadmeExamplesTest` asserts the README
   still shows exactly that source. `MigrationDocTest` checks every 2.0 replacement `MIGRATION.md`
   names actually exists, so a rename cannot silently break the migration map.
-

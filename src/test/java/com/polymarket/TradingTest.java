@@ -37,10 +37,8 @@ import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Trading: classified order placement (issue #14)")
 class TradingTest {
 
     private static final PrivateKeySigner SIGNER = PrivateKeySigner.of(
@@ -98,8 +96,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-001: a coherent success is accepted with order id, status and trade ids")
-    void coherentSuccessIsAccepted() throws Exception {
+    void shouldAcceptCoherentSuccessWhenOrderResponseIsComplete() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc123","status":"matched",
                  "tradeIDs":["0xtrade1","0xtrade2"],"makingAmount":"5.2","takingAmount":"10"}""");
@@ -128,8 +125,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-002: an explicit success=false is a definitive rejection")
-    void explicitFailureIsRejected() throws Exception {
+    void shouldRejectWhenOrderResponseExplicitlyFails() throws Exception {
         enqueue(400, """
                 {"success":false,"errorMsg":"invalid signature"}""");
 
@@ -146,8 +142,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-003: the documented 500 'order timed out' is a rejection safe to retry")
-    void documentedServerTimeoutIsRejectedAndRetryable() throws Exception {
+    void shouldMarkTimeoutRetryableWhenServerReportsOrderTimedOut() throws Exception {
         enqueue(500, "order timed out");
 
         SubmissionOutcome outcome;
@@ -162,8 +157,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-004: a generic 5xx is unknown, not a rejection")
-    void genericServerFailureIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenServerFailureIsGeneric() throws Exception {
         enqueue(502, "upstream unavailable");
 
         SubmissionOutcome outcome;
@@ -177,8 +171,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-005: a documented 503 service block is a definitive rejection")
-    void documentedServiceBlockIsRejected() throws Exception {
+    void shouldRejectWhenServiceReportsCancelOnly() throws Exception {
         enqueue(503, "trading is currently cancel-only");
 
         SubmissionOutcome outcome;
@@ -193,8 +186,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-006: the documented duplicate-order 400 is unknown, not a rejection")
-    void duplicateOrderErrorIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenOrderIsDuplicated() throws Exception {
         enqueue(400, """
                 {"success":false,"errorMsg":"order 0xabc is invalid. Duplicated."}""");
 
@@ -208,8 +200,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-007: connection loss is unknown, never thrown")
-    void connectionLossIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenConnectionIsLost() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
 
         SubmissionOutcome outcome;
@@ -223,8 +214,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-008: success without an order id is unknown, not accepted")
-    void malformedSuccessIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenSuccessLacksOrderId() throws Exception {
         enqueue(200, """
                 {"success":true,"status":"live"}""");
 
@@ -238,8 +228,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-009: success carrying an error message is unknown: contradictory")
-    void contradictorySuccessIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenSuccessContradictsItself() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"live","errorMsg":"partial issue"}""");
 
@@ -253,8 +242,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-010: a V3 Combo order is rejected before anything is sent")
-    void positionIdOrderNeverReachesPostOrder() throws Exception {
+    void shouldThrowWhenPositionOrderIsSubmitted() throws Exception {
         SigningContext context = SigningContext.of(
                 SigningIdentity.eoa(SIGNER.address()), SIGNER, 1L, FIXED.instant());
         SignedOrder positionOrder;
@@ -271,8 +259,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-011: submission is never replayed even with read retries configured")
-    void submissionIsNeverReplayedDespiteReadRetries() throws Exception {
+    void shouldSubmitOnceWhenReadRetriesAreConfigured() throws Exception {
         enqueue(502, "upstream unavailable");
         URI host = server.url("/").uri();
         PolymarketConfig config = PolymarketConfig.defaults()
@@ -288,8 +275,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-012: a GTD order carries its expiration and postOnly on the wire")
-    void gtdOrderCarriesExpirationAndPostOnly() throws Exception {
+    void shouldSendExpirationAndPostOnlyWhenPlacementIsGtd() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
 
@@ -304,8 +290,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-013: a Maker-Only Order Intent places a post-only GTC order it never restates")
-    void makerOnlyIntentRidesAlongToTheWire() throws Exception {
+    void shouldSendPostOnlyWhenIntentIsMakerOnly() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
 
@@ -321,8 +306,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-014: a GTD Order Intent derives its shifted expiration onto the wire")
-    void goodTilDateIntentRidesAlongToTheWire() throws Exception {
+    void shouldDeriveExpirationWhenIntentIsGoodTilDate() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
 
@@ -339,8 +323,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-015: a placement contradicting its Order Intent sends nothing")
-    void contradictoryPlacementSendsNothing() throws Exception {
+    void shouldThrowWhenPlacementContradictsIntent() throws Exception {
         MakerOnlyLimitOrder intent = new MakerOnlyLimitOrder(
                 new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"));
         SignedOrder order = signedOrder();
@@ -353,8 +336,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-016: an Order Intent invalid against its Market Rule Snapshot sends nothing")
-    void offGridAndUndersizedIntentsSendNothing() throws Exception {
+    void shouldThrowWhenIntentIsOffGridOrUndersized() throws Exception {
         TokenId asset = new TokenId("123");
 
         assertThrows(IllegalArgumentException.class, () -> OrderExecution.of(
@@ -365,8 +347,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-017: a GTD expiration inside the official minimum lifetime sends nothing")
-    void tooSoonGoodTilDateSendsNothing() throws Exception {
+    void shouldThrowWhenGtdLifetimeIsTooShort() throws Exception {
         // The wire adds the 60-second threshold, so 119 effective seconds is still under 180.
         assertThrows(IllegalArgumentException.class, () -> GoodTilDateOrder.expiringAt(
                 new TokenId("123"), Side.BUY, Price.of("0.52"), ShareQuantity.of("10"),
@@ -375,8 +356,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-026: a hand-built GTD placement that is too near expiry sends nothing")
-    void handBuiltExpiredGtdPlacementSendsNothing() throws Exception {
+    void shouldThrowWhenGtdPlacementIsTooNearExpiry() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"live","tradeIDs":[]}""");
 
@@ -389,16 +369,14 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-018: a post-only attribute on an immediate order type sends nothing")
-    void postOnlyImmediateOrderSendsNothing() throws Exception {
+    void shouldThrowWhenImmediateOrderIsPostOnly() throws Exception {
         assertThrows(IllegalArgumentException.class,
                 () -> OrderPlacement.of(CREDENTIALS, OrderType.FOK).asPostOnly());
         assertEquals(0, server.getRequestCount());
     }
 
     @Test
-    @DisplayName("TC-TR-019: an amount beyond the 6-decimal pUSD grid sends nothing")
-    void unrepresentableAmountSendsNothing() throws Exception {
+    void shouldThrowWhenAmountExceedsDecimalPrecision() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class, () -> sdk.trading().sign(
                     new TokenId("123"), Side.BUY, Price.of("0.52"),
@@ -408,8 +386,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-020: an accepted matched order preserves the documented transaction hashes")
-    void acceptedPreservesDocumentedTransactionHashes() throws Exception {
+    void shouldPreserveTransactionHashesWhenOrderIsMatched() throws Exception {
         // order-submission.json sendOrderResponse: the matched_order example, verbatim.
         enqueue(200, """
                 {"success":true,"orderID":"0xabcdef1234567890abcdef1234567890abcdef12",
@@ -431,8 +408,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-021: an accepted live order carries no transaction hashes rather than a guess")
-    void acceptedWithoutTransactionHashesIsEmpty() throws Exception {
+    void shouldLeaveTransactionHashesEmptyWhenOrderIsLive() throws Exception {
         // order-submission.json sendOrderResponse: the live_order example, verbatim.
         enqueue(200, """
                 {"success":true,"orderID":"0xabcdef1234567890abcdef1234567890abcdef12",
@@ -452,8 +428,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-022: a successful response that is not an order object is unknown, never rejected")
-    void structurallyInvalidSuccessBodyIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenSuccessBodyIsNotAnOrder() throws Exception {
         for (String body : java.util.List.of("\"oops\"", "[]", "123", "null")) {
             enqueue(200, body);
             SubmissionOutcome outcome;
@@ -466,8 +441,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-024: a hand-built Signed Order that could not have been signed sends nothing")
-    void anInvalidSignedOrderNeverReachesTheWire() {
+    void shouldThrowWhenSignedOrderIsInvalid() {
         SignedOrder valid = signedOrder();
 
         assertThrows(IllegalArgumentException.class, () -> new SignedOrder(valid.salt(), "not-an-address",
@@ -499,8 +473,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-025: a success outside the documented response shape states nothing")
-    void undocumentedSuccessShapeIsUnknown() throws Exception {
+    void shouldLeaveSubmissionUnknownWhenSuccessShapeIsUndocumented() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":12345,"status":"live","tradeIDs":[]}""");
         enqueue(200, """
@@ -529,8 +502,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-027: the rendered API's unmatched success status is accepted")
-    void unmatchedStatusIsAccepted() throws Exception {
+    void shouldAcceptWhenStatusIsUnmatched() throws Exception {
         enqueue(200, """
                 {"success":true,"orderID":"0xabc","status":"unmatched","tradeIDs":[]}""");
 
@@ -541,8 +513,7 @@ class TradingTest {
     }
 
     @Test
-    @DisplayName("TC-TR-023: transport loss after the order is on the wire is sent exactly once")
-    void transportLossStillSubmitsExactlyOnce() throws Exception {
+    void shouldSubmitOnceWhenTransportFailsAfterRequest() throws Exception {
         server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
         URI host = server.url("/").uri();
         PolymarketConfig config = PolymarketConfig.defaults()

@@ -8,10 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
-/**
- * Auto-detected guard that forces every test connection to be direct, so an ambient HTTP proxy
- * cannot tunnel past {@link NoExternalNetworkResolverProvider}'s loopback-only DNS.
- */
+/** Forces test connections direct so ambient proxies cannot bypass the loopback-only DNS guard. */
 public final class NoExternalNetworkExtension implements BeforeAllCallback {
 
     private static final ProxySelector DIRECT = new ProxySelector() {

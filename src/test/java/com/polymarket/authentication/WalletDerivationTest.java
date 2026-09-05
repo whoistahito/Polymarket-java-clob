@@ -2,14 +2,9 @@ package com.polymarket.authentication;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * CREATE2 wallet derivation, restored from the proven 1.0 {@code WalletUtils} after issue #28's
- * facade deletion dropped it without a 2.0 replacement. Vectors: rs-clob-client/src/lib.rs tests.
- */
-@DisplayName("SigningIdentity CREATE2 wallet derivation")
+/** Proves CREATE2 wallet derivation against the rs-clob-client/src/lib.rs vectors. */
 class WalletDerivationTest {
 
     private static final String EOA = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
@@ -17,8 +12,7 @@ class WalletDerivationTest {
     private static final String EXPECTED_SAFE = "0xd93b25cb943d14d0d34fbaf01fc93a0f8b5f6e47";
 
     @Test
-    @DisplayName("TC-WD-001: deriveProxyWallet matches the official test vector")
-    void proxyWalletMatchesVector() {
+    void shouldMatchProxyWalletWhenUsingOfficialVector() {
         SigningIdentity.ProxyWallet identity = SigningIdentity.deriveProxyWallet(EOA);
 
         assertEquals(EXPECTED_PROXY, identity.tradingWallet());
@@ -27,8 +21,7 @@ class WalletDerivationTest {
     }
 
     @Test
-    @DisplayName("TC-WD-002: deriveSafeWallet matches the official test vector")
-    void safeWalletMatchesVector() {
+    void shouldMatchSafeWalletWhenUsingOfficialVector() {
         SigningIdentity.SafeWallet identity = SigningIdentity.deriveSafeWallet(EOA);
 
         assertEquals(EXPECTED_SAFE, identity.tradingWallet());

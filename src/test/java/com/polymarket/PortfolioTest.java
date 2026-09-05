@@ -49,10 +49,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Portfolio")
 class PortfolioTest {
 
     private static final String USER = "0x56687bf447db6ffa42ffe2208a51ce8ba1a5b63a";
@@ -112,8 +110,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-001: a position page is an absolute snapshot stamped with its observation time")
-    void positionsAreAbsoluteSnapshotsWithObservationTime() throws Exception {
+    void shouldMapPositionsToSnapshotsWhenPageIsRead() throws Exception {
         enqueueFixture("positions.json");
 
         PortfolioPage<PositionSnapshot> page;
@@ -139,8 +136,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-002: a sold-out position keeps its zero size instead of being clamped away")
-    void zeroSizeIsPreserved() throws Exception {
+    void shouldPreserveZeroSizeWhenPositionIsSoldOut() throws Exception {
         enqueueFixture("positions.json");
 
         PortfolioPage<PositionSnapshot> page;
@@ -158,8 +154,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-003: a full page hands back the cursor its continuation must send")
-    void aFullPageCarriesItsOwnNextCursor() throws Exception {
+    void shouldCarryNextCursorWhenPageIsFull() throws Exception {
         enqueueFixture("positions.json");
         enqueueFixture("positions.json");
 
@@ -178,8 +173,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-004: spending the offset budget is reported as neither complete nor continuable")
-    void exhaustedOffsetBudgetIsExplicit() throws Exception {
+    void shouldReportExhaustedOffsetWhenPageBudgetIsSpent() throws Exception {
         enqueueFixture("positions.json");
 
         PortfolioPage<PositionSnapshot> page;
@@ -192,8 +186,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-005: a page larger than the documented maximum fails before anything is sent")
-    void oversizedPageIsRejectedBeforeSending() throws Exception {
+    void shouldThrowWhenPositionPageExceedsLimit() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(IllegalArgumentException.class, () -> sdk.portfolio()
                     .positions(PositionQuery.forUser(USER), PageCursor.firstPage(501)));
@@ -202,8 +195,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-006: every documented position filter reaches the wire in one query")
-    void positionFiltersReachTheWire() throws Exception {
+    void shouldSendPositionFiltersWhenQueryIsRead() throws Exception {
         enqueueFixture("positions.json");
 
         try (Polymarket sdk = sdk()) {
@@ -222,8 +214,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-007: a trade page carries exact amounts, its side and its execution time")
-    void tradesMapToTypedRows() throws Exception {
+    void shouldMapTradesToTypedRowsWhenPageIsRead() throws Exception {
         enqueueFixture("trades.json");
 
         PortfolioPage<TradeRecord> page;
@@ -254,8 +245,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-008: trade filters and the trade offset budget follow the pinned constraints")
-    void tradeFiltersAndBudgetFollowTheContract() throws Exception {
+    void shouldSendTradeFiltersWhenQueryIsRead() throws Exception {
         enqueueFixture("trades.json");
 
         try (Polymarket sdk = sdk()) {
@@ -279,8 +269,7 @@ class PortfolioTest {
 
     /** Envelope copied from clob-openapi.yaml GET /data/orders, example "User orders response". */
     @Test
-    @DisplayName("TC-PF-018: an open-order read is one L2-signed typed page carrying its next cursor")
-    void openOrdersReturnOneTypedPagePerCall() throws Exception {
+    void shouldMapOpenOrdersWhenAuthenticatedPageIsRead() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"limit":100,"next_cursor":"MTAw","count":2,"data":[
                   {"id":"0xabcdef1234567890abcdef1234567890abcdef12","status":"ORDER_STATUS_LIVE",
@@ -335,8 +324,7 @@ class PortfolioTest {
 
     /** Body shaped from data-openapi.yaml CombosResponse/ComboPosition, read 2026-08-23. */
     @Test
-    @DisplayName("TC-PF-022: a Combo position snapshot exposes its position id, shares and legs")
-    void comboPositionsAreAvailableForRfqSettlement() throws Exception {
+    void shouldMapComboPositionsWhenPageIsRead() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"combos":[{"combo_condition_id":"%s","combo_position_id":"77120044",
                   "module_id":3,"user_address":"%s","shares_balance":"9000.000000",
@@ -384,8 +372,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-023: a Combo read filters by status and rejects a malformed combo id")
-    void comboPositionFiltersAndBoundaries() throws Exception {
+    void shouldValidateComboBoundariesWhenQueryIsBuilt() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"combos":[],"pagination":{"limit":20,"offset":0,"has_more":false}}"""));
 
@@ -409,8 +396,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-020: a collateral balance is an exact 6-decimal snapshot with its allowances")
-    void balancesAreExactTypedSnapshots() throws Exception {
+    void shouldMapBalancesExactlyWhenAuthenticatedReadSucceeds() throws Exception {
         // clob-openapi.yaml BalanceAllowanceResponse: fixed-math with 6 decimals (pUSD).
         server.enqueue(new MockResponse().setBody("""
                 {"balance":"1234567",
@@ -437,8 +423,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-021: a conditional balance names its token and needs L2 credentials")
-    void conditionalBalanceNamesItsToken() throws Exception {
+    void shouldMapConditionalBalanceWhenAuthenticatedReadSucceeds() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"balance":"0","allowances":{}}"""));
 
@@ -462,8 +447,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-019: an open-order read without L2 credentials fails before anything is sent")
-    void openOrdersNeedL2Credentials() throws Exception {
+    void shouldThrowWhenOpenOrdersReadLacksCredentials() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(AuthenticationRequiredException.class,
                     () -> sdk.portfolio().openOrders(OpenOrderQuery.create()));
@@ -472,8 +456,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-017: a later absolute snapshot may decrease to zero and is reported verbatim")
-    void absoluteSnapshotsPermitDecreasesAndZero() throws Exception {
+    void shouldPreserveZeroWhenLaterPositionSnapshotCloses() throws Exception {
         String asset = "1343197538147866997676250008839231694243646439454152539053893078719042421992";
         server.enqueue(new MockResponse().setBody("""
                 [{"asset":"%s","conditionId":"%s","size":1500.25,"curPrice":0.6}]"""
@@ -499,8 +482,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-016: an invalid address, identifier, threshold or window never reaches the wire")
-    void queryBoundariesAreRejectedBeforeSending() throws Exception {
+    void shouldThrowWhenPortfolioQueryBoundaryIsInvalid() throws Exception {
         try (Polymarket unused = sdk()) {
             // data-openapi.yaml Address: ^0x[a-fA-F0-9]{40}$
             assertThrows(IllegalArgumentException.class, () -> PositionQuery.forUser("0x1234"));
@@ -529,8 +511,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-015: trade and activity budgets are the pinned per-endpoint Data API caps")
-    void perEndpointPageBudgetsFollowThePinnedContract() throws Exception {
+    void shouldEnforceEndpointPageBudgetsWhenPageIsRequested() throws Exception {
         enqueueFixture("trades.json");
         enqueueFixture("activity.json");
 
@@ -549,8 +530,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-009: an activity page types its kind, amounts and combo flag")
-    void activityMapsToTypedRows() throws Exception {
+    void shouldMapActivityToTypedRowsWhenPageIsRead() throws Exception {
         enqueueFixture("activity.json");
 
         PortfolioPage<ActivityRecord> page;
@@ -578,8 +558,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-010: an activity type this release never heard of keeps its raw value")
-    void unknownActivityTypeIsPreserved() throws Exception {
+    void shouldPreserveUnknownActivityTypeWhenPageIsRead() throws Exception {
         enqueueFixture("activity.json");
 
         PortfolioPage<ActivityRecord> page;
@@ -597,8 +576,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-011: activity filters reach the wire and the offset budget is enforced")
-    void activityFiltersAndBudgetFollowTheContract() throws Exception {
+    void shouldSendActivityFiltersWhenQueryIsRead() throws Exception {
         enqueueFixture("activity.json");
 
         try (Polymarket sdk = sdk()) {
@@ -621,8 +599,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-012: notifications without L2 credentials fail before anything is sent")
-    void notificationsNeedL2Credentials() throws Exception {
+    void shouldThrowWhenNotificationsReadLacksCredentials() throws Exception {
         try (Polymarket sdk = sdk()) {
             assertThrows(AuthenticationRequiredException.class,
                     () -> sdk.portfolio().notifications());
@@ -631,8 +608,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-013: a notification read is L2-signed over its full path and types its payload")
-    void notificationsAreL2SignedAndTyped() throws Exception {
+    void shouldMapNotificationsWhenAuthenticatedReadSucceeds() throws Exception {
         enqueueFixture("notifications.json");
 
         List<Notification> notifications;
@@ -664,8 +640,7 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("TC-PF-014: a notification type this release never heard of keeps its raw code")
-    void unknownNotificationTypeIsPreserved() throws Exception {
+    void shouldPreserveUnknownNotificationTypeWhenPageIsRead() throws Exception {
         enqueueFixture("notifications.json");
 
         List<Notification> notifications;

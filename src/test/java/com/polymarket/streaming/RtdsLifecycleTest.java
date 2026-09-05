@@ -15,12 +15,9 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** TC-RL — connection generation, resubscribe ordering, the documented 5-second heartbeat, and
- * idempotent close, matching the CLOB streaming lifecycle contract. */
-@DisplayName("TC-RL — Rtds lifecycle, generations, and heartbeat")
+/** Covers RTDS lifecycle behavior and its documented five-second heartbeat contract. */
 class RtdsLifecycleTest {
 
     private MockWebServer server;
@@ -36,7 +33,6 @@ class RtdsLifecycleTest {
             try {
                 server.shutdown();
             } catch (Exception ignored) {
-                // teardown only
             }
         }
     }
@@ -46,8 +42,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-001 the generation is 1 after the first connect")
-    void firstConnectionIsGenerationOne() throws Exception {
+    void shouldStartAtGenerationOneWhenRtdsConnects() throws Exception {
         CountDownLatch opened = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {}));
@@ -65,8 +60,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-002 resubscription is signalled before the first event")
-    void resubscribeSignalledBeforeFreshData() throws Exception {
+    void shouldSignalResubscribeBeforeFreshDataWhenRtdsConnects() throws Exception {
         List<String> order = new CopyOnWriteArrayList<>();
         CountDownLatch gotPrice = new CountDownLatch(1);
 
@@ -95,8 +89,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-003 the documented 5-second text PING repeats while open")
-    void sendsTextPingAtDocumentedInterval() throws Exception {
+    void shouldSendTextPingsWhenRtdsChannelIsOpen() throws Exception {
         List<String> pings = new CopyOnWriteArrayList<>();
         CountDownLatch twoPings = new CountDownLatch(2);
 
@@ -119,8 +112,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-004 with no override, the default heartbeat fires at the documented 5-second interval")
-    void defaultPingIntervalIsFiveSeconds() throws Exception {
+    void shouldUseFiveSecondPingIntervalWhenNoOverrideIsConfigured() throws Exception {
         CountDownLatch onePing = new CountDownLatch(1);
         long[] arrivedAtMs = new long[1];
         long startedAtMs = System.currentTimeMillis();
@@ -136,7 +128,7 @@ class RtdsLifecycleTest {
         }));
         server.start();
 
-        gateway = RtdsGateway.builder().url(wsUrl()).build(); // no pingIntervalMs override
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
         rtds.subscribeBinancePrices(List.of("btcusdt"));
 
@@ -146,8 +138,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-005 the heartbeat restarts on the new connection after a reconnect")
-    void heartbeatRestartsAfterReconnect() throws Exception {
+    void shouldRestartHeartbeatWhenRtdsReconnects() throws Exception {
         CountDownLatch pingOnSecondConnection = new CountDownLatch(1);
 
         server = new MockWebServer();
@@ -170,8 +161,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-006 reconnect bumps the generation and restores the accumulated state")
-    void reconnectBumpsGenerationAndRestoresState() throws Exception {
+    void shouldRestoreStateAndBumpGenerationWhenRtdsReconnects() throws Exception {
         CountDownLatch reconnected = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
@@ -192,8 +182,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-007 close() is idempotent")
-    void closeIsIdempotent() {
+    void shouldCloseIdempotentlyWhenCloseIsCalledTwice() {
         gateway = RtdsGateway.builder().url("wss://127.0.0.1:1").build();
         rtds = new Rtds(gateway);
         rtds.close();
@@ -201,8 +190,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-009 closing the capability releases the transport it was handed, not just its socket")
-    void closingReleasesEveryOwnedTransportResource() throws Exception {
+    void shouldReleaseOwnedTransportResourcesWhenRtdsCloses() throws Exception {
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
         }));
@@ -219,9 +207,8 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-010 an event that arrives after close is not delivered to a handler")
-    void noCallbackRunsAfterClose() {
-        // A frame can already be in flight when close() runs, so the guard has to be at dispatch.
+    void shouldDeliverNoCallbacksWhenRtdsIsClosed() {
+        // A frame may be in flight during close, so the closed-state guard belongs at dispatch.
         CapturingTransport transport = new CapturingTransport();
         Rtds capability = new Rtds(transport);
         List<BinancePriceEvent> seen = new CopyOnWriteArrayList<>();
@@ -235,7 +222,6 @@ class RtdsLifecycleTest {
         assertEquals(List.of(), seen, "a closed capability must deliver nothing");
     }
 
-    /** Captures the sink so a test can deliver an event at a moment of its choosing. */
     private static final class CapturingTransport implements RtdsTransport {
         private RtdsEventSink sink;
 
@@ -259,8 +245,7 @@ class RtdsLifecycleTest {
     }
 
     @Test
-    @DisplayName("TC-RL-008 a throwing lifecycle listener cannot prevent reconnect")
-    void throwingLifecycleListenerCannotPreventReconnect() throws Exception {
+    void shouldContinueReconnectWhenLifecycleListenerThrows() throws Exception {
         CountDownLatch reconnected = new CountDownLatch(1);
         server = new MockWebServer();
         server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {

@@ -15,19 +15,13 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * The migration map is the only bridge from 1.0, so a replacement it names has to exist. Checked
- * here rather than reviewed, because a rename in the SDK cannot know it broke a table row.
- */
-@DisplayName("Migration map (issue #30)")
+/** Guards the migration map because an SDK rename cannot otherwise reveal a broken table row. */
 class MigrationDocTest {
 
     private static final Path MIGRATION = Path.of("docs/MIGRATION.md");
 
-    /** Every shipped public package; a name that resolves in none of them is a JDK or 1.0 type. */
     private static final List<String> SDK_PACKAGES = List.of(
             "com.polymarket", "com.polymarket.authentication", "com.polymarket.builders",
             "com.polymarket.markets", "com.polymarket.operations", "com.polymarket.portfolio",
@@ -37,8 +31,7 @@ class MigrationDocTest {
     private static final Pattern CALL = Pattern.compile("\\b([A-Z]\\w+)\\.(\\w+)\\(");
 
     @Test
-    @DisplayName("TC-MG-001: every 2.0 replacement the map names exists on the public surface")
-    void everyNamedReplacementExists() throws IOException {
+    void shouldFindEveryNamedReplacementWhenReadingMigrationMap() throws IOException {
         List<String> broken = new ArrayList<>();
         Set<String> checked = new LinkedHashSet<>();
 
@@ -63,12 +56,10 @@ class MigrationDocTest {
     }
 
     @Test
-    @DisplayName("TC-MG-002: every SDK type the map names is a real public type")
-    void everyNamedTypeExists() throws IOException {
+    void shouldFindEveryNamedTypeWhenReadingMigrationMap() throws IOException {
         List<String> broken = new ArrayList<>();
         for (String span : replacementCodeSpans()) {
             for (String word : span.split("[^A-Za-z0-9_.]+")) {
-                // Only names the map presents as SDK types: a leading com.polymarket package.
                 if (!word.startsWith("com.polymarket.")) {
                     continue;
                 }
@@ -96,13 +87,11 @@ class MigrationDocTest {
             try {
                 return Optional.of(Class.forName(pkg + "." + simpleName));
             } catch (ClassNotFoundException next) {
-                // Not in this package; a name in none of them is a JDK or retired 1.0 type.
             }
         }
         return Optional.empty();
     }
 
-    /** The right-hand column of every table row: what 2.0 offers instead. */
     private static List<String> replacementCodeSpans() throws IOException {
         List<String> spans = new ArrayList<>();
         for (String line : Files.readAllLines(MIGRATION)) {

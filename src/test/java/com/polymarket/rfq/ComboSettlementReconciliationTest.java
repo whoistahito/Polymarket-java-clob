@@ -33,14 +33,9 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * An accepted RFQ settles into Combo positions that are reconciled by reading absolute
- * Portfolio snapshots — never by accumulating the Quote amounts locally.
- */
-@DisplayName("Combo settlement reconciliation through absolute Portfolio snapshots (issue #26)")
+/** Reconciliation reads absolute Combo snapshots rather than accumulating Quote amounts locally. */
 class ComboSettlementReconciliationTest {
 
     private static final String TEST_KEY =
@@ -114,8 +109,7 @@ class ComboSettlementReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-CS-001: an accepted RFQ is reconciled by reading the Combo position snapshot it settles into")
-    void acceptedRfqIsReconciledThroughTheComboPositionSnapshot() throws Exception {
+    void shouldReconcileThroughComboPositionSnapshotWhenRfqIsAccepted() throws Exception {
         server.enqueue(new MockResponse().setBody("""
                 {"rfq_id":"rfq-1","status":"CONFIRMED","tx_hash":"0xdead"}"""));
         enqueueComboSnapshot("2000.000000");
@@ -141,11 +135,10 @@ class ComboSettlementReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-CS-002: a second fill reports the server's absolute balance, never a locally accumulated delta")
-    void secondFillReportsTheServersAbsoluteBalance() throws Exception {
+    void shouldReportServerAbsoluteBalanceWhenSecondFillArrives() throws Exception {
         enqueueComboSnapshot("2000.000000");
-        // The server rebased this holding (a leg redemption, a partial exit); the absolute
-        // snapshot is 2500, not the 4000 that adding the second Quote's shares would give.
+        // The server rebased this holding; use its absolute 2500 snapshot, not 4000 from adding
+        // the second Quote's shares.
         enqueueComboSnapshot("2500.000000");
 
         BigDecimal first;
@@ -163,8 +156,7 @@ class ComboSettlementReconciliationTest {
     }
 
     @Test
-    @DisplayName("TC-CS-003: reconciliation is one documented Data API read and no chain call")
-    void reconciliationIsOneDocumentedReadAndNoChainCall() throws Exception {
+    void shouldUseOneDocumentedReadWhenReconcilingWithoutChainCall() throws Exception {
         enqueueComboSnapshot("2000.000000");
 
         try (Polymarket sdk = sdk()) {

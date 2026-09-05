@@ -39,12 +39,10 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.web3j.crypto.Credentials;
 
-@DisplayName("Authentication")
 class AuthenticationTest {
 
     private static final String TEST_KEY =
@@ -97,23 +95,19 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("signing identities")
     class Identities {
 
         @Test
-        @DisplayName("TC-AU-001: an identity cannot be built from an invalid address")
-        void identitiesValidateAddresses() {
+        void shouldThrowExceptionWhenBuildingIdentityFromInvalidAddress() {
             assertThrows(IllegalArgumentException.class, () -> SigningIdentity.eoa("nope"));
             assertThrows(IllegalArgumentException.class,
                     () -> SigningIdentity.depositWallet("0x1234", "0x" + "a".repeat(40)));
-            // An absent address is rejected by the component's own null check, before any parsing.
             assertThrows(NullPointerException.class,
                     () -> SigningIdentity.safeWallet("0x" + "a".repeat(40), null));
         }
 
         @Test
-        @DisplayName("TC-AU-002: each identity carries its official signature type")
-        void identitiesCarryOfficialSignatureTypes() throws Exception {
+        void shouldExposeOfficialSignatureTypesWhenBuildingIdentities() throws Exception {
             String wallet = "0x" + "a".repeat(40);
             String eoa = "0x" + "b".repeat(40);
 
@@ -127,15 +121,13 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-003: an EOA Trading Wallet is its own Account Signer")
-        void eoaTradingWalletEqualsAccountSigner() {
+        void shouldUseOwnAddressWhenBuildingEoaIdentity() {
             SigningIdentity identity = SigningIdentity.eoa("0x" + "b".repeat(40));
             assertEquals(identity.tradingWallet(), identity.accountSigner());
         }
 
         @Test
-        @DisplayName("TC-AU-004: authority rejects an identity that a different key signs for")
-        void authorityRejectsMismatchedIdentity() {
+        void shouldThrowIllegalArgumentExceptionWhenAuthorityIdentityDoesNotMatchSigner() {
             assertThrows(IllegalArgumentException.class, () -> SigningAuthority.signing(
                     signer(), SigningIdentity.eoa("0x" + "c".repeat(40))));
         }
@@ -150,12 +142,10 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("secret redaction")
     class Redaction {
 
         @Test
-        @DisplayName("TC-AU-005: no secret-bearing value discloses its secret in toString")
-        void secretsAreRedacted() {
+        void shouldRedactSecretsWhenRenderingSecretBearingValues() {
             String rendered = SigningAuthority.signing(signer(), SigningIdentity.eoa(signer().address()))
                     .withApiCredentials(creds()).toString();
 
@@ -167,9 +157,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-021: API Credentials paired with an Account Signer disclose the "
-                + "address but never a secret")
-        void pairedCredentialsStayRedacted() {
+        void shouldRedactPairedCredentialsWhenRenderingAuthority() {
             String rendered =
                     SigningAuthority.apiCredentials(creds(), ACCOUNT_SIGNER).toString();
 
@@ -181,8 +169,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-006: the signing key derives its address without disclosing itself")
-        void signerDerivesAddressOffline() {
+        void shouldDeriveAddressOfflineWhenCreatingSigner() {
             PrivateKeySigner signer = signer();
             assertEquals(Credentials.create(TEST_KEY).getAddress().toLowerCase(), signer.address());
             assertFalse(signer.toString().contains(TEST_KEY));
@@ -190,12 +177,10 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("missing authority")
     class MissingAuthority {
 
         @Test
-        @DisplayName("TC-AU-007: L1 operations fail before sending when no key is present")
-        void l1OperationsRequireALocalKey() {
+        void shouldThrowAuthenticationRequiredExceptionWhenL1OperationHasNoLocalKey() {
             try (Polymarket sdk = sdk(SigningAuthority.none())) {
                 assertThrows(AuthenticationRequiredException.class,
                         () -> sdk.authentication().createApiKey());
@@ -208,8 +193,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-008: L2 operations fail before sending when no credentials are present")
-        void l2OperationsRequireApiCredentials() {
+        void shouldThrowAuthenticationRequiredExceptionWhenL2OperationHasNoApiCredentials() {
             try (Polymarket sdk = sdk(localAuthority())) {
                 assertThrows(AuthenticationRequiredException.class,
                         () -> sdk.authentication().validate());
@@ -220,8 +204,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-009: building with credentials performs no network call")
-        void constructionDerivesNothing() {
+        void shouldMakeNoNetworkCallWhenBuildingWithCredentials() {
             try (Polymarket sdk = sdk(localAuthority().withApiCredentials(creds()))) {
                 assertTrue(sdk.authentication() != null);
             }
@@ -230,13 +213,10 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("API Credentials paired with an Account Signer")
     class CredentialsWithoutALocalKey {
 
         @Test
-        @DisplayName("TC-AU-016: API Credentials paired with an Account Signer address drive L2 "
-                + "without a local key")
-        void apiCredentialsPairWithAnAccountSignerAddress() throws Exception {
+        void shouldPairCredentialsWithAccountSignerWhenNoLocalKeyIsHeld() throws Exception {
             server.enqueue(new MockResponse().setBody("{\"closed_only\":false}"));
 
             try (Polymarket sdk = sdk(
@@ -251,9 +231,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-017: L1 operations still fail before sending when only credentials "
-                + "and an Account Signer address are held")
-        void l1StillNeedsTheAccountSignersKey() {
+        void shouldThrowAuthenticationRequiredExceptionWhenL1OperationHasOnlyApiCredentials() {
             try (Polymarket sdk = sdk(
                     SigningAuthority.apiCredentials(creds(), ACCOUNT_SIGNER))) {
                 assertThrows(AuthenticationRequiredException.class,
@@ -264,13 +242,11 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("account and wallet authority stay separate")
     class SeparateAuthority {
 
         @Test
-        @DisplayName("TC-AU-018: a Proxy Wallet identity authenticates L2 as the Account Signer "
-                + "and names the Trading Wallet as maker")
-        void l2UsesTheAccountSignerAndOrdersUseTheTradingWallet() throws Exception {
+        void shouldUseAccountSignerForL2AndTradingWalletForOrdersWhenUsingProxyWallet()
+                throws Exception {
             SigningAuthority authority = SigningAuthority
                     .signing(signer(), SigningIdentity.proxyWallet(TRADING_WALLET, signer().address()))
                     .withApiCredentials(creds());
@@ -295,9 +271,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-019: a Deposit Wallet identity names the Trading Wallet and keeps "
-                + "the controlling Account Signer")
-        void depositWalletNamesTheTradingWallet() throws Exception {
+        void shouldSeparateTradingWalletAndAccountSignerWhenUsingDepositWallet() throws Exception {
             SigningAuthority authority = SigningAuthority.signing(
                     signer(), SigningIdentity.depositWallet(TRADING_WALLET, signer().address()));
 
@@ -343,12 +317,10 @@ class AuthenticationTest {
     }
 
     @Nested
-    @DisplayName("api key lifecycle")
     class Lifecycle {
 
         @Test
-        @DisplayName("TC-AU-010: create returns typed credentials and sends L1 headers")
-        void createReturnsTypedCredentials() throws Exception {
+        void shouldReturnTypedCredentialsWhenCreatingApiKey() throws Exception {
             server.enqueue(new MockResponse().setBody(
                     "{\"apiKey\":\"key-1\",\"secret\":\"c2VjcmV0\",\"passphrase\":\"pass-1\"}"));
 
@@ -368,8 +340,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-011: derive reads the documented endpoint")
-        void deriveUsesTheDocumentedEndpoint() throws Exception {
+        void shouldUseDocumentedEndpointWhenDerivingApiKey() throws Exception {
             server.enqueue(new MockResponse().setBody(
                     "{\"apiKey\":\"key-1\",\"secret\":\"c2VjcmV0\",\"passphrase\":\"pass-1\"}"));
 
@@ -383,8 +354,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-012: list returns the documented apiKeys array")
-        void listReturnsApiKeys() throws Exception {
+        void shouldReturnTypedApiKeysWhenListingKeys() throws Exception {
             server.enqueue(new MockResponse().setBody("{\"apiKeys\":[\"key-1\",\"key-2\"]}"));
 
             try (Polymarket sdk = sdk(localAuthority())) {
@@ -395,8 +365,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-020: a listed API key redacts itself, so logging the list leaks nothing")
-        void listedApiKeysAreRedacted() throws Exception {
+        void shouldRedactListedApiKeysWhenRenderingList() throws Exception {
             server.enqueue(new MockResponse().setBody("{\"apiKeys\":[\"key-1\"]}"));
 
             try (Polymarket sdk = sdk(localAuthority())) {
@@ -411,8 +380,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-021: a blank listed API key is rejected rather than carried")
-        void blankApiKeysAreRejected() throws Exception {
+        void shouldThrowExceptionWhenReadingBlankApiKey() throws Exception {
             assertThrows(IllegalArgumentException.class, () -> new ApiKey(" "));
             assertThrows(NullPointerException.class, () -> new ApiKey(null));
 
@@ -425,8 +393,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-013: rejected credentials are data, not an exception")
-        void validationReportsRejection() throws Exception {
+        void shouldReportValidationRejectionAsDataWhenCredentialsAreRejected() throws Exception {
             server.enqueue(new MockResponse().setResponseCode(401));
 
             try (Polymarket sdk = sdk(localAuthority().withApiCredentials(creds()))) {
@@ -437,8 +404,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-014: accepted credentials validate and send L2 headers")
-        void validationAcceptsGoodCredentials() throws Exception {
+        void shouldAcceptCredentialsWhenValidationSucceeds() throws Exception {
             server.enqueue(new MockResponse().setBody("{\"closed_only\":false}"));
 
             try (Polymarket sdk = sdk(localAuthority().withApiCredentials(creds()))) {
@@ -453,9 +419,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-020: a 200 whose credential fields are missing or blank is a typed "
-                + "failure, not half-built API Credentials")
-        void incompleteCredentialResponsesAreRejected() {
+        void shouldThrowIOExceptionWhenCredentialResponseIsIncomplete() {
             List<String> incomplete = List.of(
                     "{\"secret\":\"c2VjcmV0\",\"passphrase\":\"pass-1\"}",
                     "{\"apiKey\":\"key-1\",\"secret\":null,\"passphrase\":\"pass-1\"}",
@@ -470,8 +434,7 @@ class AuthenticationTest {
         }
 
         @Test
-        @DisplayName("TC-AU-015: delete returns a typed outcome and is sent once")
-        void deleteReturnsTypedOutcome() throws Exception {
+        void shouldReturnTypedDeletionWhenDeletingApiKey() throws Exception {
             server.enqueue(new MockResponse().setBody("OK"));
 
             try (Polymarket sdk = sdk(localAuthority().withApiCredentials(creds()))) {
