@@ -216,7 +216,9 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   as a sibling of `Streaming` rather than folded into its types — genuinely different wire
   envelope and no auth — but mirrors its lifecycle contract exactly (register-before-subscribe,
   closeable `Registration`, per-connection generation, callback isolation) via a parallel
-  `RtdsChannelConnection` porting the same proven reconnect/backoff/heartbeat algorithm.
+  `RtdsChannelConnection` with RTDS-specific reconnect/backoff/heartbeat behavior. Its reconnect
+  hardening intentionally diverges from CLOB `ChannelConnection`; follow-up work remains to align
+  the remaining hardening without adding undocumented PONG deadlines or protocol pings.
   Every RTDS event carries `observedAt`, the envelope time the stream saw it, distinct from the
   payload's own timestamp. `RtdsTransport` is `AutoCloseable`, so closing the capability releases
   the scheduler, dispatcher and connection pool behind the socket, and dispatch delivers nothing

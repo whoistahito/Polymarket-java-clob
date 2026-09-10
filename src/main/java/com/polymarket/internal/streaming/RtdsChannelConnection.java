@@ -8,12 +8,19 @@ import com.polymarket.streaming.CommentSubscription;
 import com.polymarket.streaming.RtdsConnection;
 import com.polymarket.streaming.RtdsEventSink;
 import com.polymarket.streaming.RtdsSubscriptions;
+import java.io.EOFException;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLException;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -23,8 +30,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The one live RTDS socket, reconnecting transparently. Ported reconnect/backoff/heartbeat
- * algorithm from the CLOB {@code ChannelConnection}; the wire envelope and topics are RTDS's own.
+ * The one live RTDS socket, reconnecting transparently. Its wire envelope and topics are RTDS's
+ * own, and its reconnect hardening intentionally remains distinct from CLOB {@code ChannelConnection}.
  */
 final class RtdsChannelConnection implements RtdsConnection {
 
@@ -55,6 +62,7 @@ final class RtdsChannelConnection implements RtdsConnection {
     private RtdsSubscriptions subjects;
     private WebSocket socket;
     private boolean initialSent;
+    private boolean socketOpened;
     /** True while a reconnect is already queued, so a subscribe does not undercut its backoff. */
     private boolean reconnectScheduled;
 
@@ -85,6 +93,7 @@ final class RtdsChannelConnection implements RtdsConnection {
     private synchronized void open() {
         Request request = new Request.Builder().url(url).build();
         initialSent = false;
+        socketOpened = false;
         socket = okHttp.newWebSocket(request, new Listener());
     }
 
@@ -133,6 +142,7 @@ final class RtdsChannelConnection implements RtdsConnection {
         closed = true;
         cancelHeartbeat();
         initialSent = false;
+        socketOpened = false;
         if (socket != null) {
             socket.close(1000, "Client closed");
             socket = null;
@@ -197,17 +207,22 @@ final class RtdsChannelConnection implements RtdsConnection {
     }
 
     /** The full authoritative state, sent as one frame right after each (re)connect. */
-    private void sendInitialState(WebSocket ws) {
+    private InitialSendFailure sendInitialState(WebSocket ws) {
         List<ObjectNode> entries = entriesFor(subjects);
-        if (entries.isEmpty()) return;
+        if (entries.isEmpty()) return null;
         try {
             ObjectNode msg = mapper.createObjectNode();
             msg.put("action", "subscribe");
             ArrayNode array = msg.putArray("subscriptions");
             entries.forEach(array::add);
-            ws.send(mapper.writeValueAsString(msg));
+            if (ws.send(mapper.writeValueAsString(msg))) {
+                return null;
+            }
+            return new InitialSendFailure(
+                    new IOException("RTDS initial subscription send was rejected"), true);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize RTDS initial subscribe request", e);
+            return new InitialSendFailure(e, false);
         }
     }
 
@@ -254,25 +269,32 @@ final class RtdsChannelConnection implements RtdsConnection {
      * Exponential backoff, capped at {@code maxReconnectDelayMs}; the attempt counter resets only
      * after {@code stableConnectionMs} uptime, so a handshake-then-close loop burns its budget.
      */
-    private void scheduleReconnect() {
-        if (closed) return;
-        long uptime = openedAtMs.get() == 0 ? 0 : System.currentTimeMillis() - openedAtMs.get();
-        if (uptime >= stableConnectionMs) {
-            attempt.set(0);
-        }
-        openedAtMs.set(0);
+    private ReconnectResult scheduleReconnect() {
+        long delay;
+        int n;
+        synchronized (this) {
+            if (closed || socket != null || reconnectScheduled) {
+                return ReconnectResult.notScheduled();
+            }
+            long uptime = openedAtMs.get() == 0 ? 0 : System.currentTimeMillis() - openedAtMs.get();
+            if (uptime >= stableConnectionMs) {
+                attempt.set(0);
+            }
+            openedAtMs.set(0);
 
-        int n = attempt.incrementAndGet();
-        if (maxReconnectAttempts > 0 && n > maxReconnectAttempts) {
-            log.warn("RTDS: max reconnect attempts ({}) reached — giving up", maxReconnectAttempts);
-            return;
+            n = attempt.incrementAndGet();
+            if (maxReconnectAttempts > 0 && n > maxReconnectAttempts) {
+                return ReconnectResult.exhausted(n);
+            }
+            delay = Math.min(reconnectDelayMs * (1L << Math.min(n - 1, 30)), maxReconnectDelayMs);
+            reconnectScheduled = true;
         }
-        long delay = Math.min(reconnectDelayMs * (1L << Math.min(n - 1, 30)), maxReconnectDelayMs);
-        markReconnectScheduled(true);
         try {
             scheduler.schedule(this::doReconnect, delay, TimeUnit.MILLISECONDS);
+            return ReconnectResult.scheduled(n, delay);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             markReconnectScheduled(false); // close() won the race after the closed check above
+            return ReconnectResult.notScheduled();
         }
     }
 
@@ -280,9 +302,117 @@ final class RtdsChannelConnection implements RtdsConnection {
         this.reconnectScheduled = scheduled;
     }
 
-    private synchronized void loseSocket() {
+    private synchronized Disconnected disconnect(WebSocket expected) {
+        if (closed || socket != expected) {
+            return null;
+        }
+        Disconnected disconnected = new Disconnected(generation.get(), socketOpened);
         socket = null;
         initialSent = false;
+        socketOpened = false;
+        return disconnected;
+    }
+
+    private synchronized boolean isCurrent(WebSocket expected) {
+        return !closed && socket == expected;
+    }
+
+    private synchronized void cancelIfSuperseded(WebSocket expected) {
+        if (!closed && socket != expected) {
+            cancelSocket(expected);
+        }
+    }
+
+    private void cancelSocket(WebSocket ws) {
+        try {
+            ws.cancel();
+        } catch (RuntimeException e) {
+            log.debug("RTDS socket cancellation failed: {}", e.toString());
+        }
+    }
+
+    private void fail(WebSocket ws, Throwable failure, Disconnected disconnected, boolean cancel,
+            boolean initialSendRejected) {
+        cancelHeartbeat();
+        if (cancel) {
+            cancelSocket(ws);
+        }
+
+        ReconnectResult outcome;
+        try {
+            Exception error = asException(failure);
+            safely("onError", () -> sink.onError(disconnected.generation(), error));
+        } finally {
+            outcome = scheduleReconnect();
+        }
+        logFailure(failure, disconnected, outcome, initialSendRejected);
+    }
+
+    private void logFailure(Throwable failure, Disconnected disconnected, ReconnectResult outcome,
+            boolean initialSendRejected) {
+        boolean connectPhase = !disconnected.previouslyOpen();
+        if (outcome.status() == ReconnectStatus.SCHEDULED
+                && (initialSendRejected
+                        || (disconnected.previouslyOpen() && isRecoverableTransportLoss(failure))
+                        || (connectPhase && isRecoverableConnectLoss(failure)))) {
+            String kind = initialSendRejected ? "initial subscription send rejected"
+                    : connectPhase ? "connect failure" : "transport loss after open";
+            log.warn("RTDS {} — reconnect scheduled (attempt {}, delay {} ms): {}", kind,
+                    outcome.attempt(), outcome.delayMs(), concise(failure));
+            return;
+        }
+        String suffix = switch (outcome.status()) {
+            case EXHAUSTED -> "; reconnect attempts exhausted (attempt " + outcome.attempt()
+                    + ", limit " + maxReconnectAttempts + ")";
+            case SCHEDULED -> "; reconnect scheduled (attempt " + outcome.attempt()
+                    + ", delay " + outcome.delayMs() + " ms)";
+            case NOT_SCHEDULED -> "; reconnect not scheduled";
+        };
+        log.error("RTDS channel failure{}", suffix, failure);
+    }
+
+    private static Exception asException(Throwable failure) {
+        return failure instanceof Exception exception ? exception : new RuntimeException(failure);
+    }
+
+    private static boolean isRecoverableTransportLoss(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof EOFException || current instanceof SSLException) {
+                return true;
+            }
+            if (current instanceof SocketException socketException) {
+                String message = socketException.getMessage();
+                if (message != null) {
+                    String lower = message.toLowerCase(java.util.Locale.ROOT);
+                    if (lower.contains("reset") || lower.contains("broken pipe")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRecoverableConnectLoss(Throwable failure) {
+        boolean recoverable = false;
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof SSLException) {
+                return false;
+            }
+            if (current instanceof ConnectException
+                    || current instanceof SocketTimeoutException
+                    || current instanceof UnknownHostException) {
+                recoverable = true;
+            }
+        }
+        return recoverable;
+    }
+
+    private static String concise(Throwable failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank()
+                ? failure.getClass().getSimpleName()
+                : failure.getClass().getSimpleName() + ": " + message;
     }
 
     private synchronized void doReconnect() {
@@ -306,16 +436,45 @@ final class RtdsChannelConnection implements RtdsConnection {
     private final class Listener extends WebSocketListener {
         @Override
         public void onOpen(WebSocket ws, Response response) {
-            long gen = generation.incrementAndGet();
-            openedAtMs.set(System.currentTimeMillis());
-            // Signalled BEFORE the subscription frame: everything after belongs to this generation.
-            safely("onResubscribe", () -> sink.onResubscribe(gen));
+            long gen;
             synchronized (RtdsChannelConnection.this) {
-                if (closed || ws != socket) {
+                if (closed) {
                     return;
                 }
-                sendInitialState(ws);
-                initialSent = true;
+                if (ws != socket) {
+                    cancelSocket(ws);
+                    return;
+                }
+                gen = generation.incrementAndGet();
+                openedAtMs.set(System.currentTimeMillis());
+                socketOpened = true;
+            }
+            // Signalled BEFORE the subscription frame: everything after belongs to this generation.
+            safely("onResubscribe", () -> sink.onResubscribe(gen));
+            InitialSendFailure initialFailure;
+            Disconnected disconnected = null;
+            synchronized (RtdsChannelConnection.this) {
+                if (closed) {
+                    return;
+                }
+                if (ws != socket) {
+                    cancelSocket(ws);
+                    return;
+                }
+                initialFailure = sendInitialState(ws);
+                if (initialFailure == null) {
+                    initialSent = true;
+                } else {
+                    // A rejected initial frame is a failed connection, not an open one. Detach
+                    // before canceling so OkHttp's later terminal callback cannot reconnect twice.
+                    disconnected = disconnect(ws);
+                }
+            }
+            if (initialFailure != null) {
+                if (disconnected != null) {
+                    fail(ws, initialFailure.error(), disconnected, true, initialFailure.sendRejected());
+                }
+                return;
             }
             startHeartbeat();
             safely("onOpen", () -> sink.onOpen(gen));
@@ -323,7 +482,8 @@ final class RtdsChannelConnection implements RtdsConnection {
 
         @Override
         public void onMessage(WebSocket ws, String text) {
-            if (closed) {
+            if (!isCurrent(ws)) {
+                cancelIfSuperseded(ws);
                 return; // a frame in flight when close() landed reaches no application callback
             }
             eventMapper.dispatch(text, sink);
@@ -331,35 +491,63 @@ final class RtdsChannelConnection implements RtdsConnection {
 
         @Override
         public void onFailure(WebSocket ws, Throwable t, Response r) {
-            if (closed) return;
-            long gen = generation.get();
-            try {
-                log.error("RTDS channel failure", t);
-                cancelHeartbeat();
-                loseSocket();
-                Exception error = t instanceof Exception ex ? ex : new RuntimeException(t);
-                safely("onError", () -> sink.onError(gen, error));
-            } finally {
-                scheduleReconnect();
+            Disconnected disconnected = disconnect(ws);
+            if (disconnected == null) {
+                return;
             }
+            fail(ws, t, disconnected, false, false);
         }
 
         @Override
         public void onClosing(WebSocket ws, int code, String reason) {
+            if (!isCurrent(ws)) {
+                cancelIfSuperseded(ws);
+                return;
+            }
             ws.close(code, reason);
         }
 
         @Override
         public void onClosed(WebSocket ws, int code, String reason) {
-            if (closed) return;
-            long gen = generation.get();
+            Disconnected disconnected = disconnect(ws);
+            if (disconnected == null) {
+                return;
+            }
+            ReconnectResult outcome;
             try {
                 cancelHeartbeat();
-                loseSocket();
-                safely("onClose", () -> sink.onClose(gen, code, reason));
+                safely("onClose", () -> sink.onClose(disconnected.generation(), code, reason));
             } finally {
-                scheduleReconnect();
+                outcome = scheduleReconnect();
+            }
+            if (outcome.status() == ReconnectStatus.EXHAUSTED) {
+                log.error("RTDS channel closed; reconnect attempts exhausted (attempt {}, limit {})",
+                        outcome.attempt(), maxReconnectAttempts);
             }
         }
+    }
+
+    private record InitialSendFailure(Exception error, boolean sendRejected) {}
+
+    private record Disconnected(long generation, boolean previouslyOpen) {}
+
+    private record ReconnectResult(ReconnectStatus status, int attempt, long delayMs) {
+        private static ReconnectResult scheduled(int attempt, long delayMs) {
+            return new ReconnectResult(ReconnectStatus.SCHEDULED, attempt, delayMs);
+        }
+
+        private static ReconnectResult exhausted(int attempt) {
+            return new ReconnectResult(ReconnectStatus.EXHAUSTED, attempt, 0);
+        }
+
+        private static ReconnectResult notScheduled() {
+            return new ReconnectResult(ReconnectStatus.NOT_SCHEDULED, 0, 0);
+        }
+    }
+
+    private enum ReconnectStatus {
+        SCHEDULED,
+        NOT_SCHEDULED,
+        EXHAUSTED
     }
 }
