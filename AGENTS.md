@@ -36,11 +36,11 @@ host fails with `UnknownHostException`. Live checks carry `@Tag("live")`, are ex
 run, and are selected only by `-Plive` (which sets `-Dpolymarket.live=true` to lift the guard).
 
 The 2.0 live checks are `com.polymarket.live.LiveReadOnlyTest` (issue #30): server time, service
-health, geoblock, Gamma discovery, one `GET /book`, and one market-stream connect-and-receive. They
-take **no credentials** and perform only documented public GET/subscribe operations — never an order,
-an RFQ acceptance, a cancellation, or a derived private key. `LiveCheckGatingTest` (deterministic) is
-the guard: it fails the build if a live check loses its `@Tag("live")` or if a live tag appears outside
-`com.polymarket.live`.
+health, geoblock, Gamma discovery, one `GET /book`, one market-stream connect-and-receive, and one
+RTDS multi-symbol connect-and-receive. They take **no credentials** and perform only documented
+public GET/subscribe operations — never an order, an RFQ acceptance, a cancellation, or a derived
+private key. `LiveCheckGatingTest` (deterministic) is the guard: it fails the build if a live check
+loses its `@Tag("live")` or if a live tag appears outside `com.polymarket.live`.
 
 ## Architecture (2.0)
 
@@ -218,7 +218,16 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   closeable `Registration`, per-connection generation, callback isolation) via a parallel
   `RtdsChannelConnection` with RTDS-specific reconnect/backoff/heartbeat behavior. Its reconnect
   hardening intentionally diverges from CLOB `ChannelConnection`; follow-up work remains to align
-  the remaining hardening without adding undocumented PONG deadlines or protocol pings.
+  the remaining hardening without adding undocumented PONG deadlines or protocol pings. The
+  realtime-data page's comma-separated Binance filter example is stale against the 2026-09-10
+  read-only probe: one unfiltered price-topic entry is used for two or more symbols and the client
+  gates events against its authoritative symbol set. A single Binance or Chainlink symbol keeps the
+  documented JSON-string filter; multiple Chainlink symbols likewise use one unfiltered entry.
+  Dynamic price changes and reconnects resend the complete current price state; only comment
+  subscriptions use additive/removal deltas. Crypto `type:"subscribe"` snapshots are ignored —
+  only `type:"update"` becomes a price event. `full_accuracy_value` is preferred for Binance only;
+  a malformed Binance value fails closed, while Chainlink uses numeric `value` because its optional
+  full-accuracy field may be a raw scaled integer. The probe did not verify unsubscribe behavior.
   Every RTDS event carries `observedAt`, the envelope time the stream saw it, distinct from the
   payload's own timestamp. `RtdsTransport` is `AutoCloseable`, so closing the capability releases
   the scheduler, dispatcher and connection pool behind the socket, and dispatch delivers nothing
@@ -356,9 +365,10 @@ documentation and an independent signer — never from this SDK's own code.
   2.0 repair waves. The drop from 1179 is
   the deleted 1.0 facade suite, not lost coverage of 2.0 behavior; the deletion also uncovered a
   dropped capability (CREATE2 wallet derivation), restored with its own golden-vector tests.
-  `mvn -Plive test` selects the 6 checks in `LiveReadOnlyTest` and nothing else; each probes a
+  `mvn -Plive test` selects the 7 checks in `LiveReadOnlyTest` and nothing else; each probes a
   documented, credential-free endpoint (`GET clob /time`, `GET gamma /tags?limit=1`,
-  `GET data /trades?limit=1`), never an unpublished liveness path.
+  `GET data /trades?limit=1`, or a documented public WebSocket subscription), never an unpublished
+  liveness path.
 
 ## Companion documents (issue #30)
 

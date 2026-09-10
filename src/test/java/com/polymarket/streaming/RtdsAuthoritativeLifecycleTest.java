@@ -56,21 +56,6 @@ class RtdsAuthoritativeLifecycleTest {
         return frames;
     }
 
-    private static List<String> subscribedSymbols(List<String> frames) throws Exception {
-        List<String> seen = new ArrayList<>();
-        for (String frame : frames) {
-            JsonNode msg = MAPPER.readTree(frame);
-            if (!"subscribe".equals(msg.path("action").asText())) continue;
-            for (JsonNode entry : msg.path("subscriptions")) {
-                String filters = entry.path("filters").asText("");
-                if (!filters.isBlank() && !filters.startsWith("{")) {
-                    for (String symbol : filters.split(",")) seen.add(symbol.trim());
-                }
-            }
-        }
-        return seen;
-    }
-
     @Test
     void shouldSendInitialFrameBeforeUpdatesWhenBinanceSubscriptionsAreConcurrent() throws Exception {
         int threads = 8;
@@ -104,11 +89,65 @@ class RtdsAuthoritativeLifecycleTest {
         assertEquals("subscribe", first.path("action").asText(),
                 "the first frame on the wire must be the initial authoritative subscribe: " + frames);
 
-        List<String> seen = subscribedSymbols(frames);
-        assertEquals(seen.size(), seen.stream().distinct().count(),
-                "a subject was subscribed twice — an update duplicated the initial frame: " + frames);
-        assertEquals(rtds.subscribedBinanceSymbols().size(), seen.size(),
-                "the wire must carry exactly the Authoritative Subscription: " + frames);
+        List<JsonNode> binanceEntries = new ArrayList<>();
+        for (JsonNode entry : first.path("subscriptions")) {
+            if ("crypto_prices".equals(entry.path("topic").asText())) {
+                binanceEntries.add(entry);
+            }
+        }
+        assertEquals(1, binanceEntries.size(),
+                "all concurrent Binance symbols must share one topic entry: " + frames);
+        assertFalse(binanceEntries.get(0).has("filters"),
+                "the multi-symbol Binance topic must be unfiltered: " + frames);
+
+        List<String> authoritative = rtds.subscribedBinanceSymbols();
+        assertEquals(threads, authoritative.size(),
+                "every concurrent symbol must remain in the authoritative set");
+        assertEquals(authoritative.size(), authoritative.stream().distinct().count(),
+                "the authoritative set must not duplicate a concurrent symbol");
+    }
+
+    @Test
+    void shouldRestoreMultipleBinanceSymbolsAsOneUnfilteredTopicWhenRtdsReconnects()
+            throws Exception {
+        List<String> firstConnectionFrames = new CopyOnWriteArrayList<>();
+        List<String> reconnectFrames = new CopyOnWriteArrayList<>();
+        CountDownLatch reconnected = new CountDownLatch(1);
+
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onMessage(WebSocket ws, String text) {
+                firstConnectionFrames.add(text);
+                ws.close(1000, "server drop");
+            }
+        }));
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onOpen(WebSocket ws, okhttp3.Response response) {
+                reconnected.countDown();
+            }
+
+            @Override public void onMessage(WebSocket ws, String text) {
+                reconnectFrames.add(text);
+            }
+        }));
+        server.start();
+
+        gateway = RtdsGateway.builder().url(wsUrl()).reconnectDelayMs(50).build();
+        rtds = new Rtds(gateway);
+        rtds.subscribeBinancePrices(List.of("btcusdt", "ethusdt"));
+
+        assertTrue(reconnected.await(20, TimeUnit.SECONDS), "channel must reconnect");
+        for (int i = 0; i < 200 && reconnectFrames.isEmpty(); i++) Thread.sleep(50);
+
+        assertFalse(reconnectFrames.isEmpty(), "the reconnected channel must re-subscribe");
+        JsonNode restored = MAPPER.readTree(reconnectFrames.get(0));
+        assertEquals("subscribe", restored.path("action").asText());
+        JsonNode subscriptions = restored.path("subscriptions");
+        assertEquals(1, subscriptions.size(), subscriptions.toString());
+        JsonNode binance = subscriptions.get(0);
+        assertEquals("crypto_prices", binance.path("topic").asText());
+        assertEquals("update", binance.path("type").asText());
+        assertFalse(binance.has("filters"), "the restored multi-symbol topic must be unfiltered");
     }
 
     @Test

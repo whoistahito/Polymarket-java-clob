@@ -247,3 +247,18 @@ evidence the repair is checked against.
     hex, while `GET /data/order/{orderID}`, `GET /order-scoring` and `manage-orders.md` show
     0x + 64 hex. Issue #17 therefore enforces only the 0x-hex **shape** every official example
     shares, never a length. See `order-submission.json.orderIdentifierSyntax`.
+
+15. **RTDS subscription and price-frame behavior (read-only probe 2026-09-10).** The current
+    `realtime-data` API example sends Binance `filters` as the comma-separated string
+    `"btcusdt,ethusdt"`. A credential-free connection to
+    `wss://ws-live-data.polymarket.com` was reliable for multiple Binance symbols only when the
+    request contained one unfiltered `crypto_prices` entry; the client therefore retains the
+    requested symbols as its authoritative set and drops out-of-set events. A single Binance or
+    Chainlink symbol retains the documented JSON-string filter (`{"symbol":"..."}`); multiple
+    Chainlink symbols use one unfiltered entry. Dynamic price changes and reconnects restore the
+    complete current price state rather than a symbol delta. Price `type:"subscribe"` snapshots are
+    ignored; only `type:"update"` is mapped. `full_accuracy_value` is a Binance-only preference:
+    malformed text drops the frame, while Chainlink uses numeric `value` because its optional
+    full-accuracy field may be a raw scaled integer. The probe was read-only and did **not** verify
+    unsubscribe behavior, so no unsubscribe contract is claimed here. Official documentation:
+    `https://docs.polymarket.com/market-data/realtime-data`.

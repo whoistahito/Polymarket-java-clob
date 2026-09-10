@@ -3,10 +3,11 @@
 What this SDK actually calls, grouped by 2.0 capability. Anything not marked **Supported** is not
 reachable through the public API: there is no raw-HTTP escape hatch to work around a gap.
 
-- **Last reviewed: 2026-08-24.** Every row was re-derived from `src/main/java/com/polymarket/` and its
-  URL checked against `https://docs.polymarket.com/sitemap.xml`; the credential-free reads were
-  confirmed against production by `mvn -Plive test`. The official inventory this release was designed
-  against was pinned on 2026-08-16 (issue #1).
+- **Last reviewed: 2026-09-10 (RTDS refresh).** The RTDS rows were re-derived from
+  `src/main/java/com/polymarket/` and their URL checked against
+  `https://docs.polymarket.com/sitemap.xml`; the credential-free RTDS read was confirmed against
+  production by a read-only probe. The remaining matrix was last reviewed on 2026-08-24. The
+  official inventory this release was designed against was pinned on 2026-08-16 (issue #1).
 - **Status:** `Supported` — a public capability method calls it · `Not supported` — a real documented
   endpoint left unimplemented · `Out of scope` — on issue #1's Out of Scope list, so not coming in 2.x.
 - Hosts come from `PolymarketConfig`: CLOB `https://clob.polymarket.com`, Gamma
@@ -164,12 +165,20 @@ onboarding: `sdk.rfq(gatewayHost)`. The root owns each one and closes it with it
 |---|---|---|---|
 | `subscribeMarket(assetIds)` → `BookEvent`, `PriceChangeEvent`, `LastTradePriceEvent`, `TickSizeChangeEvent` | `wss://ws-subscriptions-clob.polymarket.com/ws/market` | https://docs.polymarket.com/api-reference/wss/market | Supported — credential-free |
 | `subscribeUser(markets)` → `OrderEvent`, `TradeEvent` | `wss://ws-subscriptions-clob.polymarket.com/ws/user` (L2) | https://docs.polymarket.com/api-reference/wss/user | Supported |
-| `Rtds` Binance / Chainlink price events | `wss://ws-live-data.polymarket.com` | https://docs.polymarket.com/market-data/realtime-data | Supported |
+| `Rtds` Binance / Chainlink price events | `wss://ws-live-data.polymarket.com` | https://docs.polymarket.com/market-data/realtime-data | Supported — single-symbol JSON-string filters; multi-symbol unfiltered topic with authoritative client-side gating; snapshots ignored |
 | `Rtds` comment and reaction created/removed events | `wss://ws-live-data.polymarket.com` | https://docs.polymarket.com/market-data/realtime-data | Supported |
 | Sports WebSocket channel | `wss` sports channel | https://docs.polymarket.com/api-reference/wss/sports | Not supported |
 | `enableCustomMarketEvents()` → `BestBidAskEvent`, `NewMarketEvent`, `MarketResolvedEvent` | CLOB market channel | https://docs.polymarket.com/api-reference/wss/market | Supported — opt-in, because these frames have no counterpart in the current channel description |
 | Midpoint frames | CLOB market channel | https://docs.polymarket.com/api-reference/wss/market | Not supported — derivable from the book |
 | Raw socket access, arbitrary JSON frames | — | — | Out of scope |
+
+The official RTDS page still illustrates a comma-separated Binance filter for multiple symbols. The
+2026-09-10 credential-free probe found the reliable multi-symbol shape to be one unfiltered price
+entry, with requested symbols retained and enforced by the client; dynamic changes and reconnects
+restore the complete current price state. Binance alone prefers a valid `full_accuracy_value` and
+drops malformed values; Chainlink uses numeric `value` because its optional full-accuracy field may
+be raw-scaled. Crypto `type:"subscribe"` snapshots are not price events. Unsubscribe behavior was
+not verified by that read-only probe and is intentionally not described as a supported contract.
 
 ## Operations — `Polymarket` itself
 

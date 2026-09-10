@@ -68,7 +68,24 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    void shouldUseCommaSeparatedFiltersWhenBinanceSymbolsAreSubscribed() throws Exception {
+    void shouldSendJsonStringFilterWhenOneBinanceSymbolIsSubscribed() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+        for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
+
+        assertEquals(1, frames.size());
+        JsonNode entry = MAPPER.readTree(frames.get(0)).get("subscriptions").get(0);
+        assertEquals("crypto_prices", entry.get("topic").asText());
+        assertEquals("update", entry.get("type").asText());
+        assertTrue(entry.get("filters").isTextual());
+        assertEquals("{\"symbol\":\"btcusdt\"}", entry.get("filters").asText());
+    }
+
+    @Test
+    void shouldOmitFiltersWhenMultipleBinanceSymbolsAreSubscribed() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -77,14 +94,16 @@ class RtdsRegistrationAndSubscriptionTest {
         for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
 
         assertEquals(1, frames.size());
-        JsonNode subs = MAPPER.readTree(frames.get(0)).get("subscriptions");
-        assertEquals("crypto_prices", subs.get(0).get("topic").asText());
-        assertEquals("update", subs.get(0).get("type").asText());
-        assertEquals("btcusdt,ethusdt", subs.get(0).get("filters").asText());
+        JsonNode subscriptions = MAPPER.readTree(frames.get(0)).get("subscriptions");
+        assertEquals(1, subscriptions.size());
+        JsonNode entry = subscriptions.get(0);
+        assertEquals("crypto_prices", entry.get("topic").asText());
+        assertEquals("update", entry.get("type").asText());
+        assertFalse(entry.has("filters"));
     }
 
     @Test
-    void shouldUseJsonStringFiltersWhenChainlinkSymbolsAreSubscribed() throws Exception {
+    void shouldSendJsonStringFilterWhenOneChainlinkSymbolIsSubscribed() throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -96,8 +115,26 @@ class RtdsRegistrationAndSubscriptionTest {
         JsonNode entry = MAPPER.readTree(frames.get(0)).get("subscriptions").get(0);
         assertEquals("crypto_prices_chainlink", entry.get("topic").asText());
         assertEquals("*", entry.get("type").asText());
-        JsonNode filter = MAPPER.readTree(entry.get("filters").asText());
-        assertEquals("eth/usd", filter.get("symbol").asText());
+        assertTrue(entry.get("filters").isTextual());
+        assertEquals("{\"symbol\":\"eth/usd\"}", entry.get("filters").asText());
+    }
+
+    @Test
+    void shouldOmitFiltersFromOneChainlinkEntryWhenMultipleSymbolsAreSubscribed() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+
+        rtds.subscribeChainlinkPrices(List.of("btc/usd", "eth/usd"));
+        for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
+
+        assertEquals(1, frames.size());
+        JsonNode subscriptions = MAPPER.readTree(frames.get(0)).get("subscriptions");
+        assertEquals(1, subscriptions.size());
+        JsonNode entry = subscriptions.get(0);
+        assertEquals("crypto_prices_chainlink", entry.get("topic").asText());
+        assertEquals("*", entry.get("type").asText());
+        assertFalse(entry.has("filters"));
     }
 
     @Test
@@ -155,7 +192,8 @@ class RtdsRegistrationAndSubscriptionTest {
     }
 
     @Test
-    void shouldSendOnlyDeltaWhenAddingBinanceSymbols() throws Exception {
+    void shouldRepublishCurrentBinanceTopicUnfilteredWhenSecondSymbolIsAddedAfterOpen()
+            throws Exception {
         List<String> frames = startCapturingServer();
         gateway = RtdsGateway.builder().url(wsUrl()).build();
         rtds = new Rtds(gateway);
@@ -166,8 +204,41 @@ class RtdsRegistrationAndSubscriptionTest {
         for (int i = 0; i < 50 && frames.size() < 2; i++) Thread.sleep(50);
 
         assertEquals(2, frames.size(), frames.toString());
-        JsonNode second = MAPPER.readTree(frames.get(1)).get("subscriptions").get(0);
-        assertEquals("ethusdt", second.get("filters").asText());
+        JsonNode update = MAPPER.readTree(frames.get(1));
+        assertEquals("subscribe", update.get("action").asText());
+        JsonNode subscriptions = update.get("subscriptions");
+        assertEquals(1, subscriptions.size());
+        JsonNode current = subscriptions.get(0);
+        assertEquals("crypto_prices", current.get("topic").asText());
+        assertFalse(current.has("filters"));
+        assertEquals(List.of("btcusdt", "ethusdt"), rtds.subscribedBinanceSymbols());
+    }
+
+    @Test
+    void shouldRepublishOneFilteredBinanceStateWhenSubscriptionIsNarrowed() throws Exception {
+        List<String> frames = startCapturingServer();
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+
+        rtds.subscribeBinancePrices(List.of("btcusdt", "ethusdt"));
+        for (int i = 0; i < 50 && frames.isEmpty(); i++) Thread.sleep(50);
+        rtds.unsubscribeBinancePrices(List.of("ethusdt"));
+        for (int i = 0; i < 50 && frames.size() < 2; i++) Thread.sleep(50);
+        Thread.sleep(200);
+
+        assertEquals(2, frames.size(), frames.toString());
+        JsonNode update = MAPPER.readTree(frames.get(1));
+        assertEquals("subscribe", update.get("action").asText());
+        JsonNode subscriptions = update.get("subscriptions");
+        assertEquals(1, subscriptions.size());
+        JsonNode current = subscriptions.get(0);
+        assertEquals("crypto_prices", current.get("topic").asText());
+        assertTrue(current.get("filters").isTextual());
+        assertEquals("{\"symbol\":\"btcusdt\"}", current.get("filters").asText());
+        for (String frame : frames) {
+            assertFalse("unsubscribe".equals(MAPPER.readTree(frame).get("action").asText()),
+                    "narrowing must not clear the current topic: " + frames);
+        }
     }
 
     @Test

@@ -1,6 +1,6 @@
 {
-  "description": "Current documented Polymarket stream frames: the CLOB market channel, the CLOB authenticated user channel, and the Real-Time Data Service. Every frame is copied verbatim from the official page named in 'sources'; every field list is copied verbatim from the official AsyncAPI document. Owned by issues #21/#22/#23.",
-  "reviewedOn": "2026-08-23",
+  "description": "Current documented Polymarket stream frames: the CLOB market channel, the CLOB authenticated user channel, and the Real-Time Data Service, plus the 2026-09-10 read-only RTDS subscription observation recorded under rtds.observation. Documented frames are copied verbatim from the official page named in 'sources'; field lists are copied verbatim from the official AsyncAPI document. Owned by issues #21/#22/#23.",
+  "reviewedOn": "2026-09-10",
   "sources": [
     {
       "url": "https://docs.polymarket.com/asyncapi.json",
@@ -460,13 +460,27 @@
       "frame": "PING",
       "intervalSeconds": 5
     },
+    "observation": {
+      "observedOn": "2026-09-10",
+      "mode": "credential-free read-only WebSocket probe",
+      "endpoint": "wss://ws-live-data.polymarket.com",
+      "source": "https://docs.polymarket.com/market-data/realtime-data",
+      "subscriptionNote": "The official comma-separated Binance filter example was not reliable for multiple symbols. One unfiltered price-topic entry is used for two or more symbols and the client gates events against its authoritative symbol set. A single Binance or Chainlink symbol retains the JSON-string filter; multiple Chainlink symbols use one unfiltered entry.",
+      "lifecycleNote": "Dynamic price changes and reconnects restore the complete current price state. Unsubscribe behavior was not verified.",
+      "eventNote": "Only crypto type update frames are mapped to price events; type subscribe snapshots are ignored.",
+      "precisionNote": "Binance prefers a valid full_accuracy_value and drops malformed values. Chainlink uses numeric value because its optional full-accuracy field may be a raw scaled integer."
+    },
+    "cryptoPriceSubscribeIntent": {
+      "binance": "Multi-symbol shape: one unfiltered crypto_prices entry; requested symbols are enforced client-side.",
+      "chainlink": "Single-symbol example intentionally retains the documented JSON-string filter; use one unfiltered entry for multiple symbols."
+    },
     "cryptoPriceSubscribe": {
+      "note": "Observed working SDK shape from the 2026-09-10 read-only probe; it intentionally differs from the official comma-separated multi-symbol example.",
       "action": "subscribe",
       "subscriptions": [
         {
           "topic": "crypto_prices",
-          "type": "update",
-          "filters": "btcusdt,ethusdt"
+          "type": "update"
         },
         {
           "topic": "crypto_prices_chainlink",

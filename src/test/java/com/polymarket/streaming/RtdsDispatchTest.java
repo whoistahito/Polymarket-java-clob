@@ -1,6 +1,7 @@
 package com.polymarket.streaming;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.internal.streaming.RtdsGateway;
@@ -103,6 +104,136 @@ class RtdsDispatchTest {
         assertTrue(bothSeen.await(10, TimeUnit.SECONDS));
         assertEquals(List.of("btcusdt"), seenByBtc);
         assertEquals(List.of("ethusdt"), seenByEth);
+    }
+
+    @Test
+    void shouldRestrictWildcardBinanceCallbacksWhenServerStreamIsUnfiltered() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"crypto_prices","type":"update","timestamp":1,
+             "payload":{"symbol":"btcusdt","timestamp":1,"value":1}}
+            """, """
+            {"topic":"crypto_prices","type":"update","timestamp":1,
+             "payload":{"symbol":"solusdt","timestamp":1,"value":3}}
+            """, """
+            {"topic":"crypto_prices","type":"update","timestamp":1,
+             "payload":{"symbol":"ethusdt","timestamp":1,"value":2}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<String> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch subscribedSymbolsSeen = new CountDownLatch(2);
+
+        rtds.onBinancePrice(List.of(), event -> {
+            seen.add(event.symbol());
+            if ("btcusdt".equals(event.symbol()) || "ethusdt".equals(event.symbol())) {
+                subscribedSymbolsSeen.countDown();
+            }
+        });
+        rtds.subscribeBinancePrices(List.of("btcusdt", "ethusdt"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(subscribedSymbolsSeen.await(10, TimeUnit.SECONDS));
+        assertEquals(List.of("btcusdt", "ethusdt"), rtds.subscribedBinanceSymbols());
+        assertEquals(List.of("btcusdt", "ethusdt"), seen,
+                "the unfiltered stream's solusdt frame must be dropped");
+    }
+
+    @Test
+    void shouldNotDispatchBinancePriceWhenCryptoPricesSnapshotArrives() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"crypto_prices","type":"subscribe","timestamp":1,
+             "payload":{"symbol":"btcusdt","data":[
+             {"timestamp":1,"value":1},{"timestamp":2,"value":2}]}}
+            """, """
+            {"topic":"crypto_prices","type":"subscribe","timestamp":2,
+             "payload":{"symbol":"btcusdt","timestamp":2,"value":3}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<BinancePriceEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch received = new CountDownLatch(1);
+
+        rtds.onBinancePrice(List.of(), event -> {
+            seen.add(event);
+            received.countDown();
+        });
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertFalse(received.await(500, TimeUnit.MILLISECONDS),
+                "a crypto_prices subscribe snapshot is not a BinancePriceEvent");
+        assertTrue(seen.isEmpty());
+    }
+
+    @Test
+    void shouldUseNumericChainlinkValueWhenFullAccuracyValueIsRawScaledInteger() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"crypto_prices_chainlink","type":"update","timestamp":1,
+             "payload":{"symbol":"btc/usd","timestamp":1,
+             "value":77104.77128526245,
+             "full_accuracy_value":"77104771285262450000000"}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<ChainlinkPriceEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch received = new CountDownLatch(1);
+
+        rtds.onChainlinkPrice(List.of(), event -> {
+            seen.add(event);
+            received.countDown();
+        });
+        rtds.subscribeChainlinkPrices(List.of("btc/usd"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(received.await(10, TimeUnit.SECONDS));
+        assertEquals(new BigDecimal("77104.77128526245"), seen.get(0).value());
+    }
+
+    @Test
+    void shouldPreferFullAccuracyValueWhenBinanceUpdateHasNumericValue() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"crypto_prices","type":"update","timestamp":1,
+             "payload":{"symbol":"btcusdt","timestamp":1,"value":67234.5,
+             "full_accuracy_value":"67234.56789"}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<BinancePriceEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch received = new CountDownLatch(1);
+
+        rtds.onBinancePrice(List.of(), event -> {
+            seen.add(event);
+            received.countDown();
+        });
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertTrue(received.await(10, TimeUnit.SECONDS));
+        assertEquals(new BigDecimal("67234.56789"), seen.get(0).value());
+    }
+
+    @Test
+    void shouldFailClosedWhenBinanceFullAccuracyValueIsNonnumeric() throws Exception {
+        CountDownLatch sent = serveOnFirstFrame("""
+            {"topic":"crypto_prices","type":"update","timestamp":1,
+             "payload":{"symbol":"btcusdt","timestamp":1,"value":67234.5,
+             "full_accuracy_value":"not-a-number"}}
+            """);
+        gateway = RtdsGateway.builder().url(wsUrl()).build();
+        rtds = new Rtds(gateway);
+        List<BinancePriceEvent> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch received = new CountDownLatch(1);
+
+        rtds.onBinancePrice(List.of(), event -> {
+            seen.add(event);
+            received.countDown();
+        });
+        rtds.subscribeBinancePrices(List.of("btcusdt"));
+
+        assertTrue(sent.await(10, TimeUnit.SECONDS));
+        assertFalse(received.await(500, TimeUnit.MILLISECONDS),
+                "a malformed Binance full_accuracy_value must not produce a price event");
+        assertTrue(seen.isEmpty());
     }
 
     @Test

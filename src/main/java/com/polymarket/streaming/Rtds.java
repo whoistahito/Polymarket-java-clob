@@ -17,7 +17,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Live Binance/Chainlink reference prices and market comments over the RTDS {@link RtdsTransport}
  * port. Register every handler before the one explicit subscribe call, so no event can arrive
- * before a handler exists for it. RTDS is unauthenticated: no credentials are ever sent.
+ * before a handler exists for it. Price events outside the Authoritative Subscription are dropped;
+ * an empty callback filter therefore receives every subscribed symbol, not every server symbol.
+ * RTDS is unauthenticated: no credentials are ever sent.
  */
 public final class Rtds implements AutoCloseable {
 
@@ -28,6 +30,9 @@ public final class Rtds implements AutoCloseable {
     private final Set<String> binanceSymbols = new LinkedHashSet<>();
     private final Set<String> chainlinkSymbols = new LinkedHashSet<>();
     private final Set<CommentSubscription> commentSubscriptions = new LinkedHashSet<>();
+    /** Immutable snapshots let the socket thread filter without taking the subscription monitor. */
+    private volatile Set<String> authoritativeBinanceSymbols = Set.of();
+    private volatile Set<String> authoritativeChainlinkSymbols = Set.of();
     private RtdsConnection connection;
     private volatile boolean closed;
 
@@ -107,6 +112,7 @@ public final class Rtds implements AutoCloseable {
             throw new IllegalArgumentException("symbols must not be empty");
         }
         addAll(binanceSymbols, symbols);
+        authoritativeBinanceSymbols = Set.copyOf(binanceSymbols);
         publish();
     }
 
@@ -114,8 +120,11 @@ public final class Rtds implements AutoCloseable {
         if (closed || symbols == null || symbols.isEmpty()) {
             return;
         }
-        if (!removeAll(binanceSymbols, symbols).isEmpty() && connection != null) {
-            publish();
+        if (!removeAll(binanceSymbols, symbols).isEmpty()) {
+            authoritativeBinanceSymbols = Set.copyOf(binanceSymbols);
+            if (connection != null) {
+                publish();
+            }
         }
     }
 
@@ -125,6 +134,7 @@ public final class Rtds implements AutoCloseable {
             throw new IllegalArgumentException("symbols must not be empty");
         }
         addAll(chainlinkSymbols, symbols);
+        authoritativeChainlinkSymbols = Set.copyOf(chainlinkSymbols);
         publish();
     }
 
@@ -132,8 +142,11 @@ public final class Rtds implements AutoCloseable {
         if (closed || symbols == null || symbols.isEmpty()) {
             return;
         }
-        if (!removeAll(chainlinkSymbols, symbols).isEmpty() && connection != null) {
-            publish();
+        if (!removeAll(chainlinkSymbols, symbols).isEmpty()) {
+            authoritativeChainlinkSymbols = Set.copyOf(chainlinkSymbols);
+            if (connection != null) {
+                publish();
+            }
         }
     }
 
@@ -259,12 +272,14 @@ public final class Rtds implements AutoCloseable {
         @Override
         public void onBinancePrice(BinancePriceEvent event) {
             if (closed) return;
+            if (!authoritativeBinanceSymbols.contains(event.symbol())) return;
             binancePriceCallbacks.dispatch(event, bySymbol(event.symbol()));
         }
 
         @Override
         public void onChainlinkPrice(ChainlinkPriceEvent event) {
             if (closed) return;
+            if (!authoritativeChainlinkSymbols.contains(event.symbol())) return;
             chainlinkPriceCallbacks.dispatch(event, bySymbol(event.symbol()));
         }
 
@@ -341,8 +356,8 @@ public final class Rtds implements AutoCloseable {
     // ------------------------------------------------------------------ //
 
     /**
-     * Filtered callback list for one price event type. An empty filter matches every symbol; one
-     * callback throwing must not stop the rest from receiving the same event.
+     * Filtered callback list for one price event type. An empty filter matches every subscribed
+     * symbol; one callback throwing must not stop the rest from receiving the same event.
      */
     private static final class FilteredCallbacks<T> {
         private record Entry<T>(Set<String> filter, Consumer<T> callback) {}

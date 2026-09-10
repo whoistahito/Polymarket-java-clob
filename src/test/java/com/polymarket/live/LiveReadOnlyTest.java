@@ -20,6 +20,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -107,6 +109,26 @@ class LiveReadOnlyTest {
             assertTrue(received.await(STREAM_WAIT.toSeconds(), TimeUnit.SECONDS),
                     "no book event within " + STREAM_WAIT);
             assertNotNull(first.get().assetId());
+        }
+    }
+
+    @Test
+    void shouldDeliverBtcAndEthPricesWhenRtdsStreamConnects() throws Exception {
+        try (Polymarket polymarket = Polymarket.withDefaults()) {
+            CountDownLatch received = new CountDownLatch(2);
+            Set<String> symbols = ConcurrentHashMap.newKeySet();
+
+            polymarket.rtds().onBinancePrice(List.of("btcusdt", "ethusdt"), event -> {
+                if (symbols.add(event.symbol())) {
+                    received.countDown();
+                }
+            });
+            polymarket.rtds().subscribeBinancePrices(List.of("btcusdt", "ethusdt"));
+
+            assertTrue(received.await(STREAM_WAIT.toSeconds(), TimeUnit.SECONDS),
+                    "no BTC and ETH price events within " + STREAM_WAIT + ": " + symbols);
+            assertTrue(symbols.contains("btcusdt"), "no btcusdt event: " + symbols);
+            assertTrue(symbols.contains("ethusdt"), "no ethusdt event: " + symbols);
         }
     }
 

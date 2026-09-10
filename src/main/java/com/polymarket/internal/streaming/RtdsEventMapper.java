@@ -57,10 +57,18 @@ final class RtdsEventMapper {
         // payload's own time, and the only stream-side ordering the caller ever gets.
         long observedAt = node.path("timestamp").asLong(0);
         switch (topic) {
-            case "crypto_prices" ->
-                    sink.onBinancePrice(toPriceEvent(payload, observedAt, BinancePriceEvent::new));
-            case "crypto_prices_chainlink" ->
-                    sink.onChainlinkPrice(toPriceEvent(payload, observedAt, ChainlinkPriceEvent::new));
+            case "crypto_prices" -> {
+                if ("update".equals(type)) {
+                    sink.onBinancePrice(toPriceEvent(payload, observedAt, BinancePriceEvent::new,
+                            binanceValue(payload)));
+                }
+            }
+            case "crypto_prices_chainlink" -> {
+                if ("update".equals(type)) {
+                    sink.onChainlinkPrice(toPriceEvent(payload, observedAt, ChainlinkPriceEvent::new,
+                            decimal(payload, "value")));
+                }
+            }
             case "comments" -> dispatchComment(type, payload, observedAt, sink);
             default -> log.debug("Ignoring undocumented or unrecognised RTDS topic: {}", node);
         }
@@ -80,9 +88,17 @@ final class RtdsEventMapper {
         T create(String symbol, long observedAt, long timestamp, BigDecimal value);
     }
 
-    private static <T> T toPriceEvent(JsonNode n, long observedAt, PriceEventFactory<T> factory) {
+    private static <T> T toPriceEvent(JsonNode n, long observedAt, PriceEventFactory<T> factory,
+            BigDecimal value) {
         return factory.create(text(n, "symbol"), observedAt,
-                n.path("timestamp").asLong(0), decimal(n, "value"));
+                n.path("timestamp").asLong(0), value);
+    }
+
+    private static BigDecimal binanceValue(JsonNode node) {
+        String fullAccuracyValue = text(node, "full_accuracy_value");
+        return fullAccuracyValue == null || fullAccuracyValue.isBlank()
+                ? decimal(node, "value")
+                : new BigDecimal(fullAccuracyValue);
     }
 
     private static CommentCreatedEvent toCommentCreated(JsonNode n, long observedAt) {

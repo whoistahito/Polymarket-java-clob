@@ -112,8 +112,33 @@ final class RtdsChannelConnection implements RtdsConnection {
         if (!initialSent) {
             return; // the initial frame has not gone out yet - it will carry the whole set
         }
-        send("subscribe", entriesFor(delta(current, previous)));
-        send("unsubscribe", entriesFor(delta(previous, current)));
+
+        List<ObjectNode> subscriptions = new java.util.ArrayList<>();
+        List<ObjectNode> unsubscriptions = new java.util.ArrayList<>();
+        if (symbolsChanged(previous.binanceSymbols(), current.binanceSymbols())) {
+            if (current.binanceSymbols().isEmpty()) {
+                if (!previous.binanceSymbols().isEmpty()) {
+                    unsubscriptions.add(binanceEntry(previous.binanceSymbols()));
+                }
+            } else {
+                subscriptions.add(binanceEntry(current.binanceSymbols()));
+            }
+        }
+        if (symbolsChanged(previous.chainlinkSymbols(), current.chainlinkSymbols())) {
+            if (current.chainlinkSymbols().isEmpty()) {
+                if (!previous.chainlinkSymbols().isEmpty()) {
+                    unsubscriptions.add(chainlinkEntry(previous.chainlinkSymbols()));
+                }
+            } else {
+                subscriptions.add(chainlinkEntry(current.chainlinkSymbols()));
+            }
+        }
+
+        // Comments retain their additive/removal delta semantics.
+        subscriptions.addAll(commentEntries(delta(current, previous).comments()));
+        unsubscriptions.addAll(commentEntries(delta(previous, current).comments()));
+        send("subscribe", subscriptions);
+        send("unsubscribe", unsubscriptions);
     }
 
     /** Everything in {@code left} that {@code right} does not already carry. */
@@ -127,12 +152,18 @@ final class RtdsChannelConnection implements RtdsConnection {
         return new RtdsSubscriptions(binance, chainlink, comments);
     }
 
+    private static boolean symbolsChanged(List<String> previous, List<String> current) {
+        return !new java.util.HashSet<>(previous).equals(new java.util.HashSet<>(current));
+    }
+
     private List<ObjectNode> entriesFor(RtdsSubscriptions state) {
         List<ObjectNode> entries = new java.util.ArrayList<>();
         if (!state.binanceSymbols().isEmpty()) {
             entries.add(binanceEntry(state.binanceSymbols()));
         }
-        entries.addAll(chainlinkEntries(state.chainlinkSymbols()));
+        if (!state.chainlinkSymbols().isEmpty()) {
+            entries.add(chainlinkEntry(state.chainlinkSymbols()));
+        }
         entries.addAll(commentEntries(state.comments()));
         return entries;
     }
@@ -154,25 +185,24 @@ final class RtdsChannelConnection implements RtdsConnection {
     // ------------------------------------------------------------------ //
 
     private ObjectNode binanceEntry(List<String> symbols) {
-        ObjectNode entry = mapper.createObjectNode();
-        entry.put("topic", TOPIC_BINANCE);
-        entry.put("type", "update");
-        entry.put("filters", String.join(",", symbols)); // documented format: comma-separated symbols
-        return entry;
+        return priceEntry(TOPIC_BINANCE, "update", symbols);
     }
 
-    /** One entry per symbol: the documented Chainlink filter carries a single symbol each. */
-    private List<ObjectNode> chainlinkEntries(List<String> symbols) {
-        List<ObjectNode> entries = new java.util.ArrayList<>();
-        for (String symbol : symbols) {
-            ObjectNode entry = mapper.createObjectNode();
-            entry.put("topic", TOPIC_CHAINLINK);
-            entry.put("type", "*");
-            ObjectNode filter = mapper.createObjectNode().put("symbol", symbol);
+    private ObjectNode chainlinkEntry(List<String> symbols) {
+        return priceEntry(TOPIC_CHAINLINK, "*", symbols);
+    }
+
+    /** A single-symbol price filter is a JSON string; multi-symbol topics are left unfiltered. */
+    private ObjectNode priceEntry(String topic, String type, List<String> symbols) {
+        List<String> distinct = new java.util.ArrayList<>(new java.util.LinkedHashSet<>(symbols));
+        ObjectNode entry = mapper.createObjectNode();
+        entry.put("topic", topic);
+        entry.put("type", type);
+        if (distinct.size() == 1) {
+            ObjectNode filter = mapper.createObjectNode().put("symbol", distinct.get(0));
             entry.put("filters", filter.toString()); // escaped JSON string, per docs
-            entries.add(entry);
         }
-        return entries;
+        return entry;
     }
 
     private List<ObjectNode> commentEntries(List<CommentSubscription> subscriptions) {
