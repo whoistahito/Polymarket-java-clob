@@ -304,7 +304,7 @@ final class RtdsChannelConnection implements RtdsConnection {
         int n;
         synchronized (this) {
             if (closed || socket != null || reconnectScheduled) {
-                return ReconnectResult.notScheduled();
+                return ReconnectResult.suppressed();
             }
             long uptime = openedAtMs.get() == 0 ? 0 : System.currentTimeMillis() - openedAtMs.get();
             if (uptime >= stableConnectionMs) {
@@ -324,7 +324,7 @@ final class RtdsChannelConnection implements RtdsConnection {
             return ReconnectResult.scheduled(n, delay);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             markReconnectScheduled(false); // close() won the race after the closed check above
-            return ReconnectResult.notScheduled();
+            return ReconnectResult.rejected();
         }
     }
 
@@ -381,11 +381,14 @@ final class RtdsChannelConnection implements RtdsConnection {
     private void logFailure(Throwable failure, Disconnected disconnected, ReconnectResult outcome,
             boolean initialSendRejected) {
         boolean connectPhase = !disconnected.previouslyOpen();
+        boolean livenessTimeout =
+                disconnected.previouslyOpen() && failure instanceof SocketTimeoutException;
         if (outcome.status() == ReconnectStatus.SCHEDULED
-                && (initialSendRejected
+                && (initialSendRejected || livenessTimeout
                         || (disconnected.previouslyOpen() && isRecoverableTransportLoss(failure))
                         || (connectPhase && isRecoverableConnectLoss(failure)))) {
             String kind = initialSendRejected ? "initial subscription send rejected"
+                    : livenessTimeout ? "liveness ping timeout"
                     : connectPhase ? "connect failure" : "transport loss after open";
             log.warn("RTDS {} — reconnect scheduled (attempt {}, delay {} ms): {}", kind,
                     outcome.attempt(), outcome.delayMs(), concise(failure));
@@ -396,7 +399,8 @@ final class RtdsChannelConnection implements RtdsConnection {
                     + ", limit " + maxReconnectAttempts + ")";
             case SCHEDULED -> "; reconnect scheduled (attempt " + outcome.attempt()
                     + ", delay " + outcome.delayMs() + " ms)";
-            case NOT_SCHEDULED -> "; reconnect not scheduled";
+            case SUPPRESSED -> "; reconnect suppressed";
+            case REJECTED -> "; reconnect scheduling rejected";
         };
         log.error("RTDS channel failure{}", suffix, failure);
     }
@@ -550,10 +554,22 @@ final class RtdsChannelConnection implements RtdsConnection {
             } finally {
                 outcome = scheduleReconnect();
             }
-            if (outcome.status() == ReconnectStatus.EXHAUSTED) {
-                log.error("RTDS channel closed; reconnect attempts exhausted (attempt {}, limit {})",
-                        outcome.attempt(), maxReconnectAttempts);
-            }
+            logClose(code, reason, outcome);
+        }
+    }
+
+    private void logClose(int code, String reason, ReconnectResult outcome) {
+        switch (outcome.status()) {
+            case SCHEDULED -> log.info(
+                    "RTDS channel closed (code {}, reason '{}'); reconnect scheduled (attempt {}, delay {} ms)",
+                    code, reason, outcome.attempt(), outcome.delayMs());
+            case EXHAUSTED -> log.error(
+                    "RTDS channel closed (code {}, reason '{}'); reconnect attempts exhausted (attempt {}, limit {})",
+                    code, reason, outcome.attempt(), maxReconnectAttempts);
+            case SUPPRESSED -> log.info(
+                    "RTDS channel closed (code {}, reason '{}'); reconnect suppressed", code, reason);
+            case REJECTED -> log.error(
+                    "RTDS channel closed (code {}, reason '{}'); reconnect scheduling rejected", code, reason);
         }
     }
 
@@ -570,14 +586,19 @@ final class RtdsChannelConnection implements RtdsConnection {
             return new ReconnectResult(ReconnectStatus.EXHAUSTED, attempt, 0);
         }
 
-        private static ReconnectResult notScheduled() {
-            return new ReconnectResult(ReconnectStatus.NOT_SCHEDULED, 0, 0);
+        private static ReconnectResult suppressed() {
+            return new ReconnectResult(ReconnectStatus.SUPPRESSED, 0, 0);
+        }
+
+        private static ReconnectResult rejected() {
+            return new ReconnectResult(ReconnectStatus.REJECTED, 0, 0);
         }
     }
 
     private enum ReconnectStatus {
         SCHEDULED,
-        NOT_SCHEDULED,
+        SUPPRESSED,
+        REJECTED,
         EXHAUSTED
     }
 }

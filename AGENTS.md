@@ -210,16 +210,20 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   socket never repeats it. Implemented by `com.polymarket.internal.streaming.StreamingGateway`/
   `ChannelConnection`.
 - `Rtds` (issue #23) — a second capability in `com.polymarket.streaming`, over the separate,
-  unauthenticated RTDS host (`wss://ws-live-data.polymarket.com`, 5 s text `PING` — distinct
-  from CLOB's 10 s): Binance/Chainlink price events and comment-created/removed/reaction-
-  created/removed events with the documented `parentEntityID`/`parentEntityType` filters. Kept
+  unauthenticated RTDS host (`wss://ws-live-data.polymarket.com`, 5 s text `PING` plus a separately
+  configurable 5 s RFC6455 control-ping/PONG deadline — distinct from CLOB's 10 s):
+  Binance/Chainlink price events and comment-created/removed/reaction-created/removed events with the documented
+  `parentEntityID`/`parentEntityType` filters. Kept
   as a sibling of `Streaming` rather than folded into its types — genuinely different wire
   envelope and no auth — but mirrors its lifecycle contract exactly (register-before-subscribe,
   closeable `Registration`, per-connection generation, callback isolation) via a parallel
   `RtdsChannelConnection` with RTDS-specific reconnect/backoff/heartbeat behavior. Its reconnect
-  hardening intentionally diverges from CLOB `ChannelConnection`; follow-up work remains to align
-  the remaining hardening without adding undocumented PONG deadlines or protocol pings. The
-  realtime-data page's comma-separated Binance filter example is stale against the 2026-09-10
+  hardening intentionally diverges from CLOB `ChannelConnection`. The 2026-09-10
+  credential-free probe found that text `PING` yielded no useful liveness response while an RFC6455
+  control ping received `PONG`, so RTDS uses both and treats a missed PONG as a recoverable liveness
+  timeout; this remains intentionally absent from CLOB. The probe did not measure PONG latency, so
+  the control-ping interval remains independently configurable rather than coupled to text `PING`.
+  The realtime-data page's comma-separated Binance filter example is stale against the 2026-09-10
   read-only probe: one unfiltered price-topic entry is used for two or more symbols and the client
   gates events against its authoritative symbol set. A single Binance or Chainlink symbol keeps the
   documented JSON-string filter; multiple Chainlink symbols likewise use one unfiltered entry.

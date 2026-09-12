@@ -36,7 +36,7 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
         this.url = b.url;
         this.okHttp = new OkHttpClient.Builder()
                 .connectTimeout(b.connectTimeoutMs, TimeUnit.MILLISECONDS)
-                .pingInterval(0, TimeUnit.SECONDS) // the documented heartbeat is a text PING, not a WS ping
+                .pingInterval(b.controlPingIntervalMs, TimeUnit.MILLISECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .build();
         this.scheduler = Executors.newScheduledThreadPool(1, r -> {
@@ -82,8 +82,9 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
 
     public static final class Builder {
         private String url = DEFAULT_RTDS_URL;
-        // The RTDS docs specify a 5-second text PING, distinct from the CLOB channels' 10-second one.
+        // The RTDS docs specify a 5-second text PING, distinct from its control-ping watchdog.
         private long pingIntervalMs = 5_000L;
+        private long controlPingIntervalMs = 5_000L;
         private long connectTimeoutMs = 10_000L;
         private long reconnectDelayMs = 1_000L;
         private long maxReconnectDelayMs = 60_000L;
@@ -97,6 +98,16 @@ public final class RtdsGateway implements RtdsTransport, AutoCloseable {
 
         public Builder pingIntervalMs(long ms) {
             this.pingIntervalMs = ms;
+            return this;
+        }
+
+        /**
+         * Sets the RFC 6455 control-ping interval. OkHttp uses the same duration as the PONG
+         * deadline; zero disables the watchdog.
+         */
+        public Builder controlPingIntervalMs(long ms) {
+            if (ms < 0) throw new IllegalArgumentException("controlPingIntervalMs must be >= 0");
+            this.controlPingIntervalMs = ms;
             return this;
         }
 

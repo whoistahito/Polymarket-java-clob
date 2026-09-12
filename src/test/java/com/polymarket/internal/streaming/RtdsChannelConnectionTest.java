@@ -112,6 +112,39 @@ class RtdsChannelConnectionTest {
     }
 
     @Test
+    void shouldWarnWhenPostOpenSocketTimeoutMeansMissingPong() throws Exception {
+        FakeClient client = new FakeClient(false);
+        List<String> lifecycle = new CopyOnWriteArrayList<>();
+        List<Exception> errors = new CopyOnWriteArrayList<>();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        connection = connection(client, lifecycle, errors);
+        client.open(0);
+
+        try (LogCapture logs = new LogCapture()) {
+            SocketTimeoutException failure = new SocketTimeoutException("didn't receive pong");
+            client.fail(0, failure);
+            awaitSockets(client, 2);
+
+            Object event = logs.events().stream()
+                    .filter(candidate -> logs.formattedMessage(candidate).contains("liveness ping timeout"))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("WARN", logs.level(event));
+            String message = logs.formattedMessage(event);
+            assertTrue(message.contains("liveness ping timeout"), message);
+            assertTrue(message.contains("didn't receive pong"), message);
+            assertTrue(message.contains("reconnect scheduled"), message);
+            assertTrue(message.contains("attempt 1"), message);
+            assertTrue(message.contains("delay 10 ms"), message);
+            assertNull(logs.throwable(event));
+            assertEquals(1, errors.size());
+            assertSame(failure, errors.get(0));
+        }
+
+        assertEquals(2, client.sockets().size(), "exactly one replacement must be scheduled");
+    }
+
+    @Test
     void shouldRetainErrorStackTraceWhenTransportLossIsUnclassified() throws Exception {
         FakeClient client = new FakeClient(false);
         List<String> lifecycle = new CopyOnWriteArrayList<>();
@@ -171,6 +204,88 @@ class RtdsChannelConnectionTest {
             assertNotNull(logs.throwable(event));
             assertSame(failure, errors.get(0));
         }
+    }
+
+    @Test
+    void shouldLogCloseCodeReasonAndScheduledReconnectOutcomeWhenServerCloses() throws Exception {
+        FakeClient client = new FakeClient(false);
+        List<String> lifecycle = new CopyOnWriteArrayList<>();
+        List<String> closes = new CopyOnWriteArrayList<>();
+        List<Exception> errors = new CopyOnWriteArrayList<>();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        connection = connection(client, lifecycle, errors, null, 0, closes);
+        client.open(0);
+
+        try (LogCapture logs = new LogCapture()) {
+            client.closing(0, 1000, "server shutdown");
+            client.closed(0, 1000, "server shutdown");
+            awaitSockets(client, 2);
+
+            assertCloseTelemetry(logs, "server shutdown", "INFO",
+                    "reconnect scheduled", "attempt 1", "delay 10 ms");
+        }
+
+        assertEquals(List.of("resubscribe:1", "open:1", "close:1"), lifecycle);
+        assertEquals(List.of("1:1000:server shutdown"), closes);
+        assertTrue(errors.isEmpty());
+        client.open(1);
+        assertEquals(List.of("resubscribe:1", "open:1", "close:1", "resubscribe:2", "open:2"),
+                lifecycle);
+    }
+
+    @Test
+    void shouldLogCloseCodeReasonAndExhaustedReconnectOutcomeWhenServerClosesAfterLimit()
+            throws Exception {
+        FakeClient client = new FakeClient(false);
+        List<String> lifecycle = new CopyOnWriteArrayList<>();
+        List<String> closes = new CopyOnWriteArrayList<>();
+        List<Exception> errors = new CopyOnWriteArrayList<>();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        connection = connection(client, lifecycle, errors, null, 1, closes);
+        client.open(0);
+
+        try (LogCapture logs = new LogCapture()) {
+            client.closing(0, 1000, "first close");
+            client.closed(0, 1000, "first close");
+            awaitSockets(client, 2);
+            client.open(1);
+            client.closing(1, 1000, "second close");
+            client.closed(1, 1000, "second close");
+
+            assertCloseTelemetry(logs, "second close", "ERROR",
+                    "reconnect attempts exhausted", "attempt 2");
+        }
+
+        assertEquals(List.of("resubscribe:1", "open:1", "close:1", "resubscribe:2", "open:2", "close:2"),
+                lifecycle);
+        assertEquals(List.of("1:1000:first close", "2:1000:second close"), closes);
+        assertTrue(errors.isEmpty());
+        assertEquals(2, client.sockets().size());
+    }
+
+    @Test
+    void shouldLogCloseCodeReasonAndSchedulingRejectedOutcomeWhenReconnectCannotBeQueued()
+            throws Exception {
+        FakeClient client = new FakeClient(false);
+        List<String> lifecycle = new CopyOnWriteArrayList<>();
+        List<String> closes = new CopyOnWriteArrayList<>();
+        List<Exception> errors = new CopyOnWriteArrayList<>();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        connection = connection(client, lifecycle, errors, null, 0, closes);
+        client.open(0);
+        scheduler.shutdownNow();
+
+        try (LogCapture logs = new LogCapture()) {
+            client.closing(0, 1000, "scheduler stopped");
+            client.closed(0, 1000, "scheduler stopped");
+
+            assertCloseTelemetry(logs, "scheduler stopped", "ERROR", "reconnect scheduling rejected");
+        }
+
+        assertEquals(List.of("resubscribe:1", "open:1", "close:1"), lifecycle);
+        assertEquals(List.of("1:1000:scheduler stopped"), closes);
+        assertTrue(errors.isEmpty());
+        assertEquals(1, client.sockets().size());
     }
 
     @Test
@@ -249,22 +364,24 @@ class RtdsChannelConnectionTest {
 
     private RtdsChannelConnection connection(FakeClient client, List<String> lifecycle,
             List<Exception> errors) {
-        return connection(client, lifecycle, errors, null);
+        return connection(client, lifecycle, errors, null, 0, null);
     }
 
     private RtdsChannelConnection connection(FakeClient client, List<String> lifecycle,
             List<Exception> errors, List<BinancePriceEvent> prices) {
-        return new RtdsChannelConnection(client, scheduler, new ObjectMapper(), "ws://localhost/",
-                new RtdsSubscriptions(List.of("btcusdt"), List.of(), List.of()),
-                sink(lifecycle, errors, prices), 0, 10, 100, 30_000, 0);
+        return connection(client, lifecycle, errors, prices, 0, null);
     }
 
-    private static RtdsEventSink sink(List<String> lifecycle, List<Exception> errors) {
-        return sink(lifecycle, errors, null);
+    private RtdsChannelConnection connection(FakeClient client, List<String> lifecycle,
+            List<Exception> errors, List<BinancePriceEvent> prices, int maxReconnectAttempts,
+            List<String> closes) {
+        return new RtdsChannelConnection(client, scheduler, new ObjectMapper(), "ws://localhost/",
+                new RtdsSubscriptions(List.of("btcusdt"), List.of(), List.of()),
+                sink(lifecycle, errors, prices, closes), 0, 10, 100, 30_000, maxReconnectAttempts);
     }
 
     private static RtdsEventSink sink(List<String> lifecycle, List<Exception> errors,
-            List<BinancePriceEvent> prices) {
+            List<BinancePriceEvent> prices, List<String> closes) {
         return new RtdsEventSink() {
             @Override public void onBinancePrice(BinancePriceEvent event) {
                 if (prices != null) prices.add(event);
@@ -284,8 +401,29 @@ class RtdsChannelConnectionTest {
             }
             @Override public void onClose(long generation, int code, String reason) {
                 lifecycle.add("close:" + generation);
+                if (closes != null) closes.add(generation + ":" + code + ":" + reason);
             }
         };
+    }
+
+    private static void assertCloseTelemetry(LogCapture logs, String reason, String level,
+            String... requiredText) {
+        Object event = logs.events().stream()
+                .filter(candidate -> {
+                    String message = logs.formattedMessage(candidate);
+                    return message.contains("RTDS channel closed") && message.contains(reason);
+                })
+                .findFirst()
+                .orElse(null);
+        assertNotNull(event, "missing RTDS close telemetry for " + reason);
+        assertEquals(level, logs.level(event));
+        String message = logs.formattedMessage(event);
+        assertTrue(message.contains("code 1000"), message);
+        assertTrue(message.contains(reason), message);
+        for (String required : requiredText) {
+            assertTrue(message.contains(required), message);
+        }
+        assertNull(logs.throwable(event));
     }
 
     private static void awaitSockets(FakeClient client, int expected) throws InterruptedException {
