@@ -142,19 +142,16 @@ final class RtdsChannelConnection implements RtdsConnection {
     }
 
     @Override
-    public boolean refresh() {
-        WebSocket replaced;
-        synchronized (this) {
-            if (closed || socket == null || !socketOpened || reconnectScheduled) {
-                return false;
-            }
-            replaced = socket;
-            socket = null;
-            initialSent = false;
-            socketOpened = false;
-            reconnectScheduled = true;
-            openedAtMs.set(0);
+    public synchronized boolean refresh() {
+        if (closed || socket == null || !socketOpened || reconnectScheduled) {
+            return false;
         }
+        WebSocket replaced = socket;
+        socket = null;
+        initialSent = false;
+        socketOpened = false;
+        reconnectScheduled = true;
+        openedAtMs.set(0);
 
         cancelHeartbeat();
         cancelSocket(replaced);
