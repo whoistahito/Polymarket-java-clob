@@ -1,6 +1,7 @@
 package com.polymarket.streaming;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.polymarket.internal.streaming.RtdsGateway;
@@ -250,6 +251,72 @@ class RtdsLifecycleTest {
         assertTrue(reconnected.await(20, TimeUnit.SECONDS), "channel must reconnect");
         Thread.sleep(200);
         assertEquals(2L, rtds.generation());
+    }
+
+    @Test
+    void shouldReplacePongHealthySocketAndRestoreAuthoritativeStateWhenRefreshIsRequested()
+            throws Exception {
+        List<String> firstFrames = new CopyOnWriteArrayList<>();
+        List<String> replacementFrames = new CopyOnWriteArrayList<>();
+        CountDownLatch firstOpened = new CountDownLatch(1);
+        CountDownLatch replacementOpened = new CountDownLatch(1);
+        CountDownLatch resumedPrice = new CountDownLatch(1);
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onOpen(WebSocket ws, Response response) {
+                firstOpened.countDown();
+            }
+
+            @Override public void onMessage(WebSocket ws, String text) {
+                firstFrames.add(text);
+            }
+        }));
+        server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            @Override public void onOpen(WebSocket ws, Response response) {
+                replacementOpened.countDown();
+            }
+
+            @Override public void onMessage(WebSocket ws, String text) {
+                replacementFrames.add(text);
+                if (!"PING".equals(text)) {
+                    ws.send("""
+                        {"topic":"crypto_prices","type":"update","timestamp":2,
+                         "payload":{"symbol":"btcusdt","timestamp":2,"value":2}}
+                        """);
+                }
+            }
+        }));
+        server.start();
+
+        gateway = RtdsGateway.builder()
+                .url(wsUrl())
+                .pingIntervalMs(50)
+                .controlPingIntervalMs(50)
+                .reconnectDelayMs(25)
+                .build();
+        rtds = new Rtds(gateway);
+        rtds.onBinancePrice(List.of("btcusdt", "ethusdt"), event -> resumedPrice.countDown());
+        rtds.subscribeBinancePrices(List.of("btcusdt", "ethusdt"));
+
+        assertTrue(firstOpened.await(2, TimeUnit.SECONDS));
+        for (int i = 0; i < 100 && firstFrames.isEmpty(); i++) Thread.sleep(10);
+        assertTrue(firstFrames.stream().anyMatch(frame -> !"PING".equals(frame)),
+                "the original socket must carry the initial authoritative subscription");
+        Thread.sleep(150);
+        assertEquals(1, server.getRequestCount(),
+                "control PONGs must keep the application-silent socket transport-healthy");
+
+        assertTrue(rtds.refresh(), "the active logical connection must accept one refresh");
+        assertFalse(rtds.refresh(), "a replacement already in flight must coalesce another refresh");
+
+        assertTrue(replacementOpened.await(2, TimeUnit.SECONDS));
+        assertTrue(resumedPrice.await(2, TimeUnit.SECONDS));
+        assertEquals(2, server.getRequestCount());
+        assertEquals(2L, rtds.generation());
+        assertTrue(replacementFrames.stream().anyMatch(frame -> !"PING".equals(frame)),
+                "the replacement must receive the complete authoritative subscription");
+        rtds.close();
+        assertFalse(rtds.refresh(), "a closed capability must never reopen");
     }
 
     @Test

@@ -141,6 +141,34 @@ final class RtdsChannelConnection implements RtdsConnection {
         send("unsubscribe", unsubscriptions);
     }
 
+    @Override
+    public boolean refresh() {
+        WebSocket replaced;
+        synchronized (this) {
+            if (closed || socket == null || !socketOpened || reconnectScheduled) {
+                return false;
+            }
+            replaced = socket;
+            socket = null;
+            initialSent = false;
+            socketOpened = false;
+            reconnectScheduled = true;
+            openedAtMs.set(0);
+        }
+
+        cancelHeartbeat();
+        cancelSocket(replaced);
+        try {
+            scheduler.schedule(this::doReconnect, reconnectDelayMs, TimeUnit.MILLISECONDS);
+            log.warn("RTDS physical socket refresh requested; replacement scheduled (delay {} ms)",
+                    reconnectDelayMs);
+            return true;
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            markReconnectScheduled(false);
+            return false;
+        }
+    }
+
     /** Everything in {@code left} that {@code right} does not already carry. */
     private static RtdsSubscriptions delta(RtdsSubscriptions left, RtdsSubscriptions right) {
         List<String> binance = new java.util.ArrayList<>(left.binanceSymbols());

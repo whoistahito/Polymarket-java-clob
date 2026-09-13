@@ -213,6 +213,18 @@ public final class Rtds implements AutoCloseable {
         return generation.get();
     }
 
+    /**
+     * Requests one physical-socket replacement without changing the Authoritative Subscription.
+     * This is an explicit recovery hook for an application that can prove its subscribed data is
+     * unusably stale even while transport PING/PONG remains healthy. Concurrent refreshes coalesce.
+     *
+     * @return {@code true} when a replacement was scheduled; {@code false} when closed,
+     *         disconnected, or already recovering
+     */
+    public synchronized boolean refresh() {
+        return !closed && connection != null && connection.refresh();
+    }
+
     /** True once {@link #close()} has run; a closed capability never reopens. */
     public boolean isClosed() {
         return closed;

@@ -237,7 +237,10 @@ that depend on the artifact. Domain packages are public, transport lives behind 
   the scheduler, dispatcher and connection pool behind the socket, and dispatch delivers nothing
   once closed. Both WebSocket hosts and the connect timeout come from `PolymarketConfig`
   (`streamHost`, `rtdsHost`), never hardcoded in the root.
-  Implemented by `com.polymarket.internal.streaming.RtdsGateway`.
+  An application that can independently prove its subscribed data is unusably stale may call
+  `Rtds.refresh()` to replace the physical socket once while preserving the authoritative
+  subscription; concurrent refresh requests coalesce. Implemented by
+  `com.polymarket.internal.streaming.RtdsGateway`.
 - Heartbeat (issue #24) — the interval is checked in milliseconds, the unit the schedule is
   expressed in, so a positive but sub-millisecond `Duration` is refused before any state changes and
   a scheduling failure restores the inactive state rather than stranding the flag.

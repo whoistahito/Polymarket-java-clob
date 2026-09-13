@@ -12,6 +12,14 @@ public interface RtdsConnection extends AutoCloseable {
      */
     void subscription(RtdsSubscriptions current);
 
+    /**
+     * Requests one physical-socket replacement while preserving this logical connection and its
+     * Authoritative Subscription. Returns {@code false} when no refresh can be started.
+     */
+    default boolean refresh() {
+        return false;
+    }
+
     /** Idempotent: stops the socket, any pending reconnect, and the heartbeat. */
     @Override
     void close();
